@@ -453,6 +453,17 @@ async function revokeDriverApproval(driverId, adminUserId, note) {
 async function suspendDriver(driverId, adminUserId) {
   const driver = await driverModel.findById(driverId);
   if (!driver) throw new ApiError(404, "Driver not found.");
+  if (!["approved", "license_expired"].includes(driver.approval_status)) {
+    throw new ApiError(400, `Driver can't be suspended (status: ${driver.approval_status}).`);
+  }
+  const [activeRide] = await db.query(
+    `SELECT id FROM bookings WHERE driver_id = ? AND deleted_at IS NULL
+       AND status IN ('accepted', 'assigned', 'arriving', 'ongoing', 'on_ride') LIMIT 1`,
+    [driverId]
+  );
+  if (activeRide) {
+    throw new ApiError(409, `This driver is on ride #${activeRide.id}. Try again after it ends.`);
+  }
   await driverModel.suspendDriver(driverId, adminUserId);
   return driverModel.findById(driverId);
 }
@@ -460,6 +471,9 @@ async function suspendDriver(driverId, adminUserId) {
 async function reinstateDriver(driverId, adminUserId) {
   const driver = await driverModel.findById(driverId);
   if (!driver) throw new ApiError(404, "Driver not found.");
+  if (driver.approval_status !== "suspended") {
+    throw new ApiError(400, `Driver is not suspended (status: ${driver.approval_status}).`);
+  }
   await driverModel.reinstateDriver(driverId, adminUserId);
   return driverModel.findById(driverId);
 }

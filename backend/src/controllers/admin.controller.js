@@ -270,7 +270,12 @@ async function postSuspendDriver(req, res, next) {
   try {
     const driverId = Number(req.params.driverId);
     const driver = await adminService.suspendDriver(driverId, req.user.id);
-    getIO().to(`driver:${driver.id}`).emit("driver:status_changed", { status: "suspended" });
+    const io = getIO();
+    io.to(`driver:${driver.id}`).emit("driver:status_changed", { status: "suspended" });
+    io.to(`user:${driver.user_id}`).emit("driver:approval_status", {
+      status: "suspended",
+      message: "Your driver account was suspended by the admin.",
+    });
     res.json({ success: true, message: "Driver suspended.", data: driver });
   } catch (error) {
     next(error);
@@ -281,7 +286,12 @@ async function postReinstateDriver(req, res, next) {
   try {
     const driverId = Number(req.params.driverId);
     const driver = await adminService.reinstateDriver(driverId, req.user.id);
-    getIO().to(`driver:${driver.id}`).emit("driver:status_changed", { status: "active" });
+    const io = getIO();
+    io.to(`driver:${driver.id}`).emit("driver:status_changed", { status: "active" });
+    io.to(`user:${driver.user_id}`).emit("driver:approval_status", {
+      status: "approved",
+      message: "Your driver account was reinstated. You can go online again.",
+    });
     res.json({ success: true, message: "Driver reinstated.", data: driver });
   } catch (error) {
     next(error);

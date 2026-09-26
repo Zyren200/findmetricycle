@@ -4,7 +4,23 @@ import PageHero from "../components/PageHero";
 import StatusPill from "../components/StatusPill";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DocumentCheckBadge, { hasDocumentWarning } from "../components/DocumentCheckBadge";
-import { resolveDriverDocumentUrl as resolveAssetUrl } from "../utils/admin-formatters";
+import { formatDateTime, formatMoney, resolveDriverDocumentUrl as resolveAssetUrl } from "../utils/admin-formatters";
+
+const STATUS_STYLE = {
+  Online: ["rgba(62,207,120,0.2)", "var(--green)"],
+  Offline: ["rgba(255,255,255,0.1)", "var(--muted)"],
+  "License expired": ["rgba(245,166,35,0.2)", "var(--amber, #f5a623)"],
+  Suspended: ["rgba(240,92,92,0.2)", "var(--red)"],
+};
+
+function StatusBadge({ status }) {
+  const [background, color] = STATUS_STYLE[status] || STATUS_STYLE.Offline;
+  return (
+    <span style={{ display: "inline-block", padding: "4px 8px", borderRadius: 4, fontSize: 12, fontWeight: 500, background, color }}>
+      {status}
+    </span>
+  );
+}
 
 export default function DriversPage() {
   const [loading, setLoading] = useState(true);
@@ -16,7 +32,7 @@ export default function DriversPage() {
   const [selectedDriver, setSelectedDriver] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [expiring, setExpiring] = useState([]);
-  const [dialog, setDialog] = useState(null); // { type: "suspend" | "reinstate", driverId }
+  const [dialog, setDialog] = useState(null); // { type: "suspend" | "reinstate" | "revoke", driver }
 
   const loadDrivers = useCallback(async () => {
     try {
@@ -24,37 +40,30 @@ export default function DriversPage() {
       const { data } = await apiClient.get("/admin/drivers");
       const driversArray = Array.isArray(data?.data) ? data.data : [];
       const formattedDrivers = driversArray.map((driver) => {
-        const isSuspended = driver.user_status === "suspended" || driver.approval_status === "suspended";
-        const statusLabel = isSuspended
-          ? "Suspended"
-          : driver.approval_status === "approved"
-          ? driver.is_online
-            ? "Active"
-            : "Inactive"
-          : driver.approval_status === "rejected"
-          ? "Rejected"
-          : "Pending";
+        const statusLabel =
+          driver.approval_status === "suspended"
+            ? "Suspended"
+            : driver.approval_status === "license_expired"
+            ? "License expired"
+            : driver.is_online
+            ? "Online"
+            : "Offline";
+        const [color, textColor] = STATUS_STYLE[statusLabel];
 
         return {
           id: driver.id,
           name: driver.full_name || "Unknown",
           phone: driver.phone || "",
           plate: driver.tricycle_number || "N/A",
-          rating: parseFloat(driver.rating_avg) || 0,
-          rides: driver.total_rides || 0,
+          rating: Number(driver.rating_avg || 0).toFixed(1),
+          rating_count: Number(driver.rating_count || 0),
+          rides: Number(driver.total_rides || 0),
+          cancelled_rides: Number(driver.cancelled_rides || 0),
+          last_ride_at: driver.last_ride_at,
+          created_at: driver.created_at,
           status: statusLabel,
-          color:
-            statusLabel === "Active"
-              ? "rgba(62,207,120,0.15)"
-              : statusLabel === "Inactive"
-              ? "rgba(255,255,255,0.06)"
-              : "rgba(240,92,92,0.15)",
-          textColor:
-            statusLabel === "Active"
-              ? "var(--green)"
-              : statusLabel === "Inactive"
-              ? "var(--muted)"
-              : "var(--red)",
+          color,
+          textColor,
           initials: (driver.full_name || "")
             .split(" ")
             .map((segment) => segment[0] || "")
@@ -100,7 +109,11 @@ export default function DriversPage() {
     let result = drivers;
 
     if (filter !== "all") {
-      result = result.filter((driver) => driver.status.toLowerCase() === filter.toLowerCase());
+      result = result.filter((driver) =>
+        filter === "flagged"
+          ? hasDocumentWarning(driver.license_check_status, driver.permit_check_status)
+          : driver.status === filter
+      );
     }
 
     if (searchQuery) {
@@ -109,7 +122,8 @@ export default function DriversPage() {
         (driver) =>
           driver.name.toLowerCase().includes(query) ||
           driver.phone.toLowerCase().includes(query) ||
-          driver.plate.toLowerCase().includes(query)
+          driver.plate.toLowerCase().includes(query) ||
+          String(driver.email || "").toLowerCase().includes(query)
       );
     }
 
@@ -118,14 +132,7 @@ export default function DriversPage() {
 
   // Takes a rider out of the approved list (e.g. wrong documents): driver
   // mode off, application back to "needs correction" so they can resubmit.
-  async function handleRevoke(driver) {
-    const note = window.prompt(
-      `Revoke ${driver.name}'s driver approval?
-
-They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
-      "The uploaded documents are not a valid driver's license and franchise / permit."
-    );
-    if (note === null) return;
+  async function handleRevoke(driver, note) {
     try {
       setError(null);
       await apiClient.post(`/admin/drivers/${driver.id}/revoke`, { note });
@@ -139,10 +146,12 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
   async function handleSuspend(driverId) {
     setActionLoadingId(driverId);
     try {
+      setError(null);
       await apiClient.post(`/admin/drivers/${driverId}/suspend`);
+      closeModal();
       await loadDrivers();
     } catch (err) {
-      alert(err?.response?.data?.message || "Failed to suspend driver.");
+      setError(err?.response?.data?.message || "Failed to suspend driver.");
     } finally {
       setActionLoadingId(null);
     }
@@ -151,19 +160,22 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
   async function handleReinstate(driverId) {
     setActionLoadingId(driverId);
     try {
+      setError(null);
       await apiClient.post(`/admin/drivers/${driverId}/reinstate`);
+      closeModal();
       await loadDrivers();
     } catch (err) {
-      alert(err?.response?.data?.message || "Failed to reinstate driver.");
+      setError(err?.response?.data?.message || "Failed to reinstate driver.");
     } finally {
       setActionLoadingId(null);
     }
   }
 
-  function handleDialogConfirm() {
+  function handleDialogConfirm(value) {
     if (!dialog) return;
-    if (dialog.type === "suspend") handleSuspend(dialog.driverId);
-    if (dialog.type === "reinstate") handleReinstate(dialog.driverId);
+    if (dialog.type === "suspend") handleSuspend(dialog.driver.id);
+    if (dialog.type === "reinstate") handleReinstate(dialog.driver.id);
+    if (dialog.type === "revoke") handleRevoke(dialog.driver, value);
     setDialog(null);
   }
 
@@ -185,8 +197,8 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
     <div className="page-stack">
       <PageHero
         eyebrow="Fleet management"
-        title="Drivers"
-        description="Manage driver accounts, approvals, and suspensions."
+        title="Approved Drivers"
+        description="Riders cleared to drive. Suspend, reinstate, or revoke approval when documents aren't right."
         actions={
           <button type="button" className="ghost-btn" onClick={loadDrivers}>
             Refresh
@@ -230,9 +242,17 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
                     <td>{driver.phone || "-"}</td>
                     <td>{driver.license_expires_at ? new Date(driver.license_expires_at).toLocaleDateString() : "-"}</td>
                     <td>
-                      <a href={`#/drivers/${driver.id}`} className="btn btn-ghost btn-sm">
-                        View profile
-                      </a>
+                      {drivers.some((d) => d.id === driver.id) ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => openDriverModal(drivers.find((d) => d.id === driver.id))}
+                        >
+                          View profile
+                        </button>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -245,7 +265,7 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
       <section className="panel">
         <div className="panel-header section-header">
           <div>
-            <p className="panel-label">Active drivers</p>
+            <p className="panel-label">Approved drivers</p>
             <h3>Driver List</h3>
           </div>
           <div className="section-metrics">
@@ -254,8 +274,8 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
               <strong className="metric-compact">{drivers.length}</strong>
             </div>
             <div className="mini-metric">
-              <span>Active</span>
-              <strong className="metric-compact">{drivers.filter((d) => d.status === "Active").length}</strong>
+              <span>Online now</span>
+              <strong className="metric-compact">{drivers.filter((d) => d.status === "Online").length}</strong>
             </div>
           </div>
         </div>
@@ -263,27 +283,31 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
         <div className="table-wrap">
           <div className="filter-bar" style={{ marginBottom: 16 }}>
             {[
-              ["all", `All (${drivers.length})`],
-              ["active", "Active"],
-              ["inactive", "Inactive"],
-              ["suspended", "Suspended"],
-            ].map(([value, label]) => (
+              ["all", "All"],
+              ["Online", "Online"],
+              ["Offline", "Offline"],
+              ["Suspended", "Suspended"],
+              ["License expired", "License expired"],
+              ["flagged", "⚠ Docs flagged"],
+            ].map(([value, label]) => [value, label, value === "all" ? drivers.length : drivers.filter((d) =>
+              value === "flagged" ? hasDocumentWarning(d.license_check_status, d.permit_check_status) : d.status === value
+            ).length]).filter(([value, , count]) => value === "all" || count > 0).map(([value, label, count]) => (
               <button
                 key={value}
                 type="button"
                 className={filter === value ? "filter-btn active" : "filter-btn"}
                 onClick={() => setFilter(value)}
               >
-                {label}
+                {label} ({count})
               </button>
             ))}
             <input
               type="text"
               className="search-box"
-              placeholder="Search by name, phone, plate..."
+              placeholder="Search name, phone, email, plate..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ marginLeft: "auto", width: 250 }}
+              style={{ marginLeft: "auto", width: 250, maxWidth: "100%" }}
             />
           </div>
 
@@ -294,7 +318,8 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
                 <th>Phone</th>
                 <th>Tricycle No.</th>
                 <th>Rating</th>
-                <th>Total Rides</th>
+                <th>Rides</th>
+                <th>Earnings</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -302,7 +327,7 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
             <tbody>
               {filteredDrivers.length === 0 ? (
                 <tr>
-                  <td colSpan="7" style={{ textAlign: "center", color: "var(--muted)" }}>
+                  <td colSpan="8" style={{ textAlign: "center", color: "var(--muted)" }}>
                     No drivers found.
                   </td>
                 </tr>
@@ -342,33 +367,15 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
                         </span>
                       ) : null}
                     </td>
-                    <td className="rating">★ {driver.rating}</td>
-                    <td>{driver.rides}</td>
-                    <td>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "4px 8px",
-                          borderRadius: 4,
-                          fontSize: 12,
-                          fontWeight: 500,
-                          background:
-                            driver.status === "Active"
-                              ? "rgba(62,207,120,0.2)"
-                              : driver.status === "Inactive"
-                              ? "rgba(255,255,255,0.1)"
-                              : "rgba(240,92,92,0.2)",
-                          color:
-                            driver.status === "Active"
-                              ? "var(--green)"
-                              : driver.status === "Inactive"
-                              ? "var(--muted)"
-                              : "var(--red)",
-                        }}
-                      >
-                        {driver.status}
-                      </span>
+                    <td className="rating" title={`${driver.rating_count} rating(s)`}>
+                      {driver.rating_count ? `★ ${driver.rating}` : <span style={{ color: "var(--muted)" }}>No ratings</span>}
                     </td>
+                    <td>
+                      {driver.rides} completed
+                      {driver.cancelled_rides ? <div style={{ fontSize: 12, color: "var(--muted)" }}>{driver.cancelled_rides} cancelled</div> : null}
+                    </td>
+                    <td>{formatMoney(driver.total_earnings)}</td>
+                    <td><StatusBadge status={driver.status} /></td>
                     <td>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button
@@ -378,12 +385,12 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
                         >
                           View
                         </button>
-                        {driver.status === "Active" && (
+                        {driver.status !== "Suspended" && (
                           <button
                             className="btn btn-danger btn-sm"
                             type="button"
                             disabled={actionLoadingId === driver.id}
-                            onClick={() => setDialog({ type: "suspend", driverId: driver.id })}
+                            onClick={() => setDialog({ type: "suspend", driver })}
                           >
                             {actionLoadingId === driver.id ? "..." : "Suspend"}
                           </button>
@@ -393,7 +400,7 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
                             className="btn btn-success btn-sm"
                             type="button"
                             disabled={actionLoadingId === driver.id}
-                            onClick={() => setDialog({ type: "reinstate", driverId: driver.id })}
+                            onClick={() => setDialog({ type: "reinstate", driver })}
                           >
                             {actionLoadingId === driver.id ? "..." : "Reinstate"}
                           </button>
@@ -410,7 +417,7 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
 
       {showModal && selectedDriver && (
         <div className="modal-overlay open">
-          <div className="modal">
+          <div className="modal" style={{ width: 720 }}>
             <div className="modal-header">
               <div className="modal-title">Driver Profile</div>
               <button className="modal-close" type="button" onClick={closeModal}>
@@ -437,31 +444,9 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
                 </div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 600 }}>{selectedDriver.name}</div>
-                  <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 3 }}>Driver Account</div>
+                  <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 3 }}>{selectedDriver.email || "Driver account"}</div>
                   <div style={{ marginTop: 6 }}>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        padding: "4px 8px",
-                        borderRadius: 4,
-                        fontSize: 12,
-                        fontWeight: 500,
-                        background:
-                          selectedDriver.status === "Active"
-                            ? "rgba(62,207,120,0.2)"
-                            : selectedDriver.status === "Inactive"
-                            ? "rgba(255,255,255,0.1)"
-                            : "rgba(240,92,92,0.2)",
-                        color:
-                          selectedDriver.status === "Active"
-                            ? "var(--green)"
-                            : selectedDriver.status === "Inactive"
-                            ? "var(--muted)"
-                            : "var(--red)",
-                      }}
-                    >
-                      {selectedDriver.status}
-                    </span>
+                    <StatusBadge status={selectedDriver.status} />
                   </div>
                 </div>
               </div>
@@ -477,11 +462,20 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
                 </div>
                 <div style={{ background: "var(--bg3)", padding: 12, borderRadius: 8 }}>
                   <div style={{ color: "var(--muted)", fontSize: 11, marginBottom: 4 }}>RATING</div>
-                  ★ {selectedDriver.rating}
+                  {selectedDriver.rating_count ? `★ ${selectedDriver.rating} (${selectedDriver.rating_count})` : "No ratings yet"}
                 </div>
                 <div style={{ background: "var(--bg3)", padding: 12, borderRadius: 8 }}>
-                  <div style={{ color: "var(--muted)", fontSize: 11, marginBottom: 4 }}>TOTAL RIDES</div>
+                  <div style={{ color: "var(--muted)", fontSize: 11, marginBottom: 4 }}>COMPLETED RIDES</div>
                   {selectedDriver.rides}
+                  {selectedDriver.cancelled_rides ? ` · ${selectedDriver.cancelled_rides} cancelled` : ""}
+                </div>
+                <div style={{ background: "var(--bg3)", padding: 12, borderRadius: 8 }}>
+                  <div style={{ color: "var(--muted)", fontSize: 11, marginBottom: 4 }}>EARNINGS</div>
+                  {formatMoney(selectedDriver.total_earnings)}
+                </div>
+                <div style={{ background: "var(--bg3)", padding: 12, borderRadius: 8 }}>
+                  <div style={{ color: "var(--muted)", fontSize: 11, marginBottom: 4 }}>LAST RIDE</div>
+                  {selectedDriver.last_ride_at ? formatDateTime(selectedDriver.last_ride_at) : "None yet"}
                 </div>
                 <div style={{ background: "var(--bg3)", padding: 12, borderRadius: 8 }}>
                   <div style={{ color: "var(--muted)", fontSize: 11, marginBottom: 4 }}>LICENSE NUMBER</div>
@@ -511,32 +505,39 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
                   <span>Permit check</span>
                   <DocumentCheckBadge kind="permit" status={selectedDriver.permit_check_status} />
                 </div>
-                <div className="detail-row">
-                  <span>Driver License</span>
-                  {resolveAssetUrl(selectedDriver.license_image_url) ? (
-                    <a href={resolveAssetUrl(selectedDriver.license_image_url)} target="_blank" rel="noreferrer">
-                      View document
-                    </a>
-                  ) : (
-                    <strong>Not uploaded</strong>
-                  )}
-                </div>
-                <div className="detail-row">
-                  <span>Business Permit</span>
-                  {resolveAssetUrl(selectedDriver.business_permit_image_url) ? (
-                    <a href={resolveAssetUrl(selectedDriver.business_permit_image_url)} target="_blank" rel="noreferrer">
-                      View document
-                    </a>
-                  ) : (
-                    <strong>Not uploaded</strong>
-                  )}
-                </div>
+              </div>
+
+              <div className="doc-preview-grid" style={{ marginTop: 16 }}>
+                {[
+                  ["Driver's license", selectedDriver.license_image_url],
+                  ["Franchise / permit", selectedDriver.business_permit_image_url],
+                ].map(([label, url]) => (
+                  <figure className="doc-preview-card" key={label}>
+                    <figcaption><span>{label}</span></figcaption>
+                    {resolveAssetUrl(url) ? (
+                      <a href={resolveAssetUrl(url)} target="_blank" rel="noreferrer" title="Open full size">
+                        <img src={resolveAssetUrl(url)} alt={label} loading="lazy" />
+                      </a>
+                    ) : (
+                      <div className="doc-preview-missing">Not uploaded</div>
+                    )}
+                  </figure>
+                ))}
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-danger" type="button" onClick={() => handleRevoke(selectedDriver)}>
+              <button className="btn btn-danger" type="button" onClick={() => setDialog({ type: "revoke", driver: selectedDriver })}>
                 Revoke approval
               </button>
+              {selectedDriver.status === "Suspended" ? (
+                <button className="btn btn-success" type="button" onClick={() => setDialog({ type: "reinstate", driver: selectedDriver })}>
+                  Reinstate
+                </button>
+              ) : (
+                <button className="btn btn-warning" type="button" onClick={() => setDialog({ type: "suspend", driver: selectedDriver })}>
+                  Suspend
+                </button>
+              )}
               <button className="btn btn-ghost" type="button" onClick={closeModal}>
                 Close
               </button>
@@ -547,14 +548,25 @@ They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
 
       <ConfirmDialog
         open={Boolean(dialog)}
-        title={dialog?.type === "suspend" ? "Suspend Driver" : "Reinstate Driver"}
-        message={
-          dialog?.type === "suspend"
-            ? "This driver will be taken offline and blocked from accepting rides until reinstated. Continue?"
-            : "This driver will regain access to go online and accept rides. Continue?"
+        title={
+          dialog?.type === "revoke"
+            ? `Revoke ${dialog.driver.name}'s approval`
+            : dialog?.type === "suspend"
+            ? `Suspend ${dialog?.driver.name}`
+            : `Reinstate ${dialog?.driver.name}`
         }
-        confirmLabel={dialog?.type === "suspend" ? "Suspend" : "Reinstate"}
-        danger={dialog?.type === "suspend"}
+        message={
+          dialog?.type === "revoke"
+            ? "They lose driver mode and their application goes back to “needs correction” so they can resubmit documents."
+            : dialog?.type === "suspend"
+            ? "They'll be taken offline and can't accept rides until reinstated. Their passenger account keeps working."
+            : "They'll be able to go online and accept rides again."
+        }
+        requireInput={dialog?.type === "revoke"}
+        inputLabel="Reason shown to the driver"
+        defaultValue="The uploaded documents are not a valid driver's license and franchise / permit."
+        confirmLabel={dialog?.type === "revoke" ? "Revoke approval" : dialog?.type === "suspend" ? "Suspend" : "Reinstate"}
+        danger={dialog?.type !== "reinstate"}
         onConfirm={handleDialogConfirm}
         onCancel={() => setDialog(null)}
       />

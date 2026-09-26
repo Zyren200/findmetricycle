@@ -86,3 +86,20 @@ describe("revoking a driver's approval", () => {
     await expect(adminService.revokeDriverApproval(5, 1)).rejects.toMatchObject({ statusCode: 400 });
   });
 });
+
+describe("suspending a driver", () => {
+  const db = require("../src/config/db");
+
+  it("refuses while the driver is on a ride", async () => {
+    driverModel.findById.mockResolvedValue({ id: 5, user_id: 27, approval_status: "approved" });
+    db.query.mockResolvedValueOnce([{ id: 12 }]);
+    await expect(adminService.suspendDriver(5, 1)).rejects.toMatchObject({ statusCode: 409 });
+    expect(driverModel.suspendDriver).not.toHaveBeenCalled();
+  });
+
+  it("only reinstates a suspended driver", async () => {
+    driverModel.findById.mockResolvedValue({ id: 5, user_id: 27, approval_status: "pending" });
+    await expect(adminService.reinstateDriver(5, 1)).rejects.toMatchObject({ statusCode: 400 });
+    expect(driverModel.reinstateDriver).not.toHaveBeenCalled();
+  });
+});

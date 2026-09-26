@@ -424,8 +424,11 @@ async function listAllForAdmin() {
         d.current_lat,
         d.current_lng,
         d.rating_avg,
-        d.total_rides,
-        d.total_earnings,
+        COALESCE(stats.completed_rides, 0) AS total_rides,
+        COALESCE(stats.earnings, 0) AS total_earnings,
+        COALESCE(stats.cancelled_rides, 0) AS cancelled_rides,
+        stats.last_ride_at,
+        (SELECT COUNT(*) FROM ratings r WHERE r.driver_id = d.id) AS rating_count,
         d.created_at,
         -- Automatic document check of the application this driver came from.
         da.license_check_status,
@@ -433,6 +436,16 @@ async function listAllForAdmin() {
         da.documents_checked_at
       FROM drivers d
       JOIN users u ON u.id = d.user_id
+      LEFT JOIN (
+        SELECT driver_id,
+               SUM(status = 'completed') AS completed_rides,
+               SUM(status = 'cancelled') AS cancelled_rides,
+               SUM(CASE WHEN status = 'completed' THEN final_fare ELSE 0 END) AS earnings,
+               MAX(CASE WHEN status = 'completed' THEN completed_at END) AS last_ride_at
+          FROM bookings
+         WHERE deleted_at IS NULL AND driver_id IS NOT NULL
+         GROUP BY driver_id
+      ) stats ON stats.driver_id = d.id
       LEFT JOIN driver_applications da ON da.id = (
         SELECT MAX(a2.id) FROM driver_applications a2
         WHERE a2.user_id = d.user_id AND a2.status <> 'archived'
@@ -450,13 +463,11 @@ async function suspendDriver(driverId, adminUserId, client = db) {
       `
         UPDATE users u
         JOIN drivers d ON d.user_id = u.id
-        SET u.status = 'suspended', d.approval_status = 'suspended', d.is_online = 0
+        SET d.approval_status = 'suspended', d.is_online = 0
         WHERE d.id = ?
       `,
       [driverId]
     );
-
-    await client.query(`UPDATE drivers SET is_online = 0 WHERE id = ?`, [driverId]);
   }
 
   async function reinstateDriver(driverId, adminUserId, client = db) {
@@ -464,8 +475,8 @@ async function suspendDriver(driverId, adminUserId, client = db) {
       `
         UPDATE users u
         JOIN drivers d ON d.user_id = u.id
-        SET u.status = 'active', d.approval_status = 'approved'
-        WHERE d.id = ?
+        SET d.approval_status = 'approved'
+        WHERE d.id = ? AND d.approval_status = 'suspended'
       `,
       [driverId]
     );
