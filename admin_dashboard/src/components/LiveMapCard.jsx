@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import StatusPill from "./StatusPill";
 import { asText, formatDateTime, shortenText } from "../utils/admin-formatters";
+import { MARKER_ICONS, registerMarkerIcons } from "../utils/map-marker-icons";
 
 const DEFAULT_CENTER = [120.9842, 14.5995];
 const DEFAULT_ZOOM = 12.5;
@@ -222,70 +223,7 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
       map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
 
       map.on("load", () => {
-        map.addSource("routes", { type: "geojson", data: emptyCollection });
-        map.addSource("drivers", { type: "geojson", data: emptyCollection });
-        map.addSource("pickups", { type: "geojson", data: emptyCollection });
-        map.addSource("dropoffs", { type: "geojson", data: emptyCollection });
-
         setupMapSourcesAndLayers(map);
-
-        ensureLayer(map, {
-          id: "pickup-points",
-          type: "circle",
-          source: "pickups",
-          paint: {
-            "circle-radius": 8,
-            "circle-color": "#f2be35",
-            "circle-stroke-color": "#ffffff",
-            "circle-stroke-width": 2,
-            "circle-opacity": 0.95,
-          },
-        });
-
-        ensureLayer(map, {
-          id: "dropoff-points",
-          type: "circle",
-          source: "dropoffs",
-          paint: {
-            "circle-radius": 8,
-            "circle-color": "#c94530",
-            "circle-stroke-color": "#ffffff",
-            "circle-stroke-width": 2,
-            "circle-opacity": 0.95,
-          },
-        });
-
-        ensureLayer(map, {
-          id: "driver-points",
-          type: "circle",
-          source: "drivers",
-          paint: {
-            "circle-radius": 7,
-            "circle-color": "#0f8d4c",
-            "circle-stroke-color": "#ffffff",
-            "circle-stroke-width": 2,
-            "circle-opacity": 0.98,
-          },
-        });
-
-        ensureLayer(map, {
-          id: "driver-count-labels",
-          type: "symbol",
-          source: "drivers",
-          layout: {
-            "text-field": ["get", "subLabel"],
-            "text-size": 11,
-            "text-offset": [0, 1.1],
-            "text-anchor": "top",
-            "icon-image": "marker-15",
-            "icon-allow-overlap": true,
-          },
-          paint: {
-            "text-color": "#1f2d2a",
-            "text-halo-color": "#ffffff",
-            "text-halo-width": 1.2,
-          },
-        });
 
         map.on("mouseenter", "driver-points", () => {
           map.getCanvas().style.cursor = "pointer";
@@ -469,56 +407,49 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
     },
   });
 
+    // Marker images live in the style, so they're re-added after any style
+    // switch (setStyle drops them).
+    registerMarkerIcons(map);
+
     ensureLayer(map, {
       id: "pickup-points",
-      type: "circle",
+      type: "symbol",
       source: "pickups",
-      paint: {
-        "circle-radius": 8,
-        "circle-color": "#f2be35",
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": 2,
-        "circle-opacity": 0.95,
+      layout: {
+        "icon-image": MARKER_ICONS.pickup,
+        "icon-anchor": "bottom",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
       },
     });
 
     ensureLayer(map, {
       id: "dropoff-points",
-      type: "circle",
+      type: "symbol",
       source: "dropoffs",
-      paint: {
-        "circle-radius": 8,
-        "circle-color": "#c94530",
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": 2,
-        "circle-opacity": 0.95,
+      layout: {
+        "icon-image": MARKER_ICONS.dropoff,
+        "icon-anchor": "bottom",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
       },
     });
 
     ensureLayer(map, {
       id: "driver-points",
-      type: "circle",
-      source: "drivers",
-      paint: {
-        "circle-radius": 7,
-        "circle-color": "#0f8d4c",
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": 2,
-        "circle-opacity": 0.98,
-      },
-    });
-
-    ensureLayer(map, {
-      id: "driver-count-labels",
       type: "symbol",
       source: "drivers",
       layout: {
+        "icon-image": MARKER_ICONS.driver,
+        "icon-anchor": "center",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+        // Plate number under each tricycle.
         "text-field": ["get", "subLabel"],
         "text-size": 11,
-        "text-offset": [0, 1.1],
+        "text-offset": [0, 1.7],
         "text-anchor": "top",
-        "icon-image": "marker-15",
-        "icon-allow-overlap": true,
+        "text-optional": true,
       },
       paint: {
         "text-color": "#1f2d2a",
