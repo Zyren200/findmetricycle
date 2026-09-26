@@ -79,6 +79,47 @@ async function findByDriverId(driverId, client = db) {
   return rows[0] || null;
 }
 
+const ADMIN_LIST_STATUSES = ["pending", "needs_correction", "rejected", "approved"];
+
+// Applications for the admin list, by status ("all" = every non-archived
+// one), with what the reviewer needs to triage them at a glance.
+async function listApplicationsForAdmin(status = "pending", client = db) {
+  const statuses = ADMIN_LIST_STATUSES.includes(status) ? [status] : ADMIN_LIST_STATUSES;
+  return client.query(
+    `
+      SELECT
+        a.id, a.driver_id, a.user_id, a.full_name, a.email, a.phone,
+        a.plate_number, a.license_type,
+        a.license_image_url, a.business_permit_image_url, a.selfie_image_url,
+        a.license_number, a.license_expires_at,
+        a.liveness_status,
+        a.license_check_status, a.permit_check_status, a.documents_checked_at,
+        a.rejection_reason, a.correction_note,
+        a.status, a.submitted_at, a.reviewed_at,
+        u.status AS user_status
+      FROM driver_applications a
+      JOIN users u ON u.id = a.user_id
+      WHERE a.status IN (${statuses.map(() => "?").join(", ")})
+        AND a.deleted_at IS NULL
+        AND u.deleted_at IS NULL
+      ORDER BY (a.status = 'pending') DESC, a.submitted_at ASC, a.id ASC
+    `,
+    statuses
+  );
+}
+
+async function countApplicationsByStatus(client = db) {
+  const rows = await client.query(
+    `SELECT a.status, COUNT(*) AS n FROM driver_applications a
+      JOIN users u ON u.id = a.user_id
+      WHERE a.deleted_at IS NULL AND u.deleted_at IS NULL AND a.status <> 'archived'
+      GROUP BY a.status`
+  );
+  const counts = { pending: 0, needs_correction: 0, rejected: 0, approved: 0 };
+  for (const row of rows) counts[row.status] = Number(row.n);
+  return counts;
+}
+
 async function listPendingApplications(client = db) {
   return client.query(
     `
@@ -180,6 +221,8 @@ module.exports = {
   findById,
   findByDriverId,
   listPendingApplications,
+  listApplicationsForAdmin,
+  countApplicationsByStatus,
   markApproved,
   markRejected,
   markNeedsCorrection,

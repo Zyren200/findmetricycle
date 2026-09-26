@@ -11,8 +11,12 @@ const statusHistoryModel = require("../models/application-status-history.model")
 const db = require("../config/db");
 const ApiError = require("../utils/api-error");
 
-async function listPendingDrivers() {
-  return driverApplicationModel.listPendingApplications();
+async function listPendingDrivers(status = "pending") {
+  const [applications, counts] = await Promise.all([
+    driverApplicationModel.listApplicationsForAdmin(status),
+    driverApplicationModel.countApplicationsByStatus(),
+  ]);
+  return { applications, counts };
 }
 
 // NOTE: the "driverId" the Admin Dashboard sends here is actually the

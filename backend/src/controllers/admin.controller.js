@@ -4,8 +4,8 @@ const notificationService = require("../services/notification.service");
 
 async function getPendingDrivers(req, res, next) {
   try {
-    const drivers = await adminService.listPendingDrivers();
-    res.json({ success: true, data: drivers });
+    const { applications, counts } = await adminService.listPendingDrivers(String(req.query.status || "pending"));
+    res.json({ success: true, data: applications, meta: { counts } });
   } catch (error) {
     next(error);
   }

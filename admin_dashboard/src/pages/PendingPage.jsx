@@ -1,232 +1,272 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../api/client";
-import DocumentCheckBadge from "../components/DocumentCheckBadge";
+import DocumentCheckBadge, { hasDocumentWarning } from "../components/DocumentCheckBadge";
 import PageHero from "../components/PageHero";
-import PendingDriversTable from "../components/PendingDriversTable";
+import PendingDriversTable, { APPLICATION_STATUS } from "../components/PendingDriversTable";
 import ConfirmDialog from "../components/ConfirmDialog";
+import StatusPill from "../components/StatusPill";
 import { formatDateTime, resolveDriverDocumentUrl } from "../utils/admin-formatters";
 
+const TABS = [
+  ["pending", "Pending"],
+  ["needs_correction", "Needs correction"],
+  ["rejected", "Rejected"],
+  ["approved", "Approved"],
+  ["all", "All"],
+];
+
+const EMPTY_TEXT = {
+  pending: "No applications waiting for review.",
+  needs_correction: "No applications waiting for the applicant to fix documents.",
+  rejected: "No rejected applications.",
+  approved: "No approved applications.",
+  all: "No driver applications yet.",
+};
+
+const LIVENESS = {
+  passed: ["Passed", "success"],
+  needs_review: ["Needs review — compare the selfie with the license photo", "warning"],
+  failed: ["Failed", "danger"],
+  pending: ["Not done", "neutral"],
+};
+
+const TIMELINE_LABELS = {
+  pending: "Submitted",
+  approved: "Approved",
+  rejected: "Rejected",
+  needs_correction: "Correction requested",
+  archived: "Replaced by a newer application",
+};
+
+function DocumentPreview({ label, url, check }) {
+  const src = url ? resolveDriverDocumentUrl(url) : null;
+  return (
+    <figure className="doc-preview-card">
+      <figcaption>
+        <span>{label}</span>
+        {check ? <DocumentCheckBadge kind={check.kind} status={check.status} /> : null}
+      </figcaption>
+      {src ? (
+        <a href={src} target="_blank" rel="noreferrer" title="Open full size">
+          <img src={src} alt={label} loading="lazy" />
+        </a>
+      ) : (
+        <div className="doc-preview-missing">Not uploaded</div>
+      )}
+    </figure>
+  );
+}
+
 export default function PendingPage() {
+  const [tab, setTab] = useState("pending");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [drivers, setDrivers] = useState([]);
-  const [actionLoadingId, setActionLoadingId] = useState(null);
-  const [selectedDriver, setSelectedDriver] = useState(null);
-  const [showModal, setShowModal] = useState(false);
+  const [applications, setApplications] = useState([]);
+  const [counts, setCounts] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState(null);
   const [timeline, setTimeline] = useState([]);
-  const [dialog, setDialog] = useState(null); // { type: "reject" | "correction", driverId }
+  const [dialog, setDialog] = useState(null); // "reject" | "correction"
 
-  const loadPending = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
       setError(null);
-      const { data } = await apiClient.get("/admin/drivers/pending");
-      setDrivers(Array.isArray(data?.data) ? data.data : []);
+      const { data } = await apiClient.get("/admin/drivers/pending", { params: { status: tab } });
+      setApplications(Array.isArray(data?.data) ? data.data : []);
+      setCounts(data?.meta?.counts || {});
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to load pending drivers.");
+      setError(err?.response?.data?.message || "Failed to load driver applications.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [tab]);
 
   useEffect(() => {
-    loadPending();
-  }, [loadPending]);
+    setLoading(true);
+    load();
+  }, [load]);
 
-  async function handleApprove(driverId) {
-    setActionLoadingId(driverId);
+  async function openReview(applicationId) {
     try {
+      const [detailRes, timelineRes] = await Promise.all([
+        apiClient.get(`/admin/drivers/${applicationId}`),
+        apiClient.get(`/admin/drivers/${applicationId}/timeline`).catch(() => ({ data: { data: [] } })),
+      ]);
+      setSelected(detailRes.data?.data || null);
+      setTimeline(Array.isArray(timelineRes.data?.data) ? timelineRes.data.data : []);
+    } catch (err) {
+      setError(err?.response?.data?.message || "Failed to load the application.");
+    }
+  }
+
+  async function runAction(request, failureMessage) {
+    setBusy(true);
+    try {
+      await request();
+      setSelected(null);
+      await load();
+    } catch (err) {
+      setError(err?.response?.data?.message || failureMessage);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function approve() {
+    const id = selected.id;
+    return runAction(async () => {
       try {
-        await apiClient.post(`/admin/drivers/${driverId}/approve`);
+        await apiClient.post(`/admin/drivers/${id}/approve`);
       } catch (err) {
-        // The server refuses to approve flagged documents unless the admin
-        // explicitly confirms they checked them by eye.
+        // The server refuses flagged documents unless the admin confirms
+        // they checked the photos themselves.
         const details = err?.response?.data?.details;
         if (details?.code !== "DOCUMENT_CHECK_WARNING") throw err;
         const confirmed = window.confirm(
           "The automatic document check flagged this application:\n\n• " +
             details.warnings.join("\n• ") +
-            "\n\nOnly approve if you opened the photos and they really are a valid driver's license and franchise / permit.\n\nApprove anyway?"
+            "\n\nOnly approve if the photos really are a valid driver's license and franchise / permit.\n\nApprove anyway?"
         );
         if (!confirmed) return;
-        await apiClient.post(`/admin/drivers/${driverId}/approve`, { acknowledgeDocumentWarnings: true });
+        await apiClient.post(`/admin/drivers/${id}/approve`, { acknowledgeDocumentWarnings: true });
       }
-      setShowModal(false);
-      await loadPending();
-    } catch (err) {
-      setError(err?.response?.data?.message || "Approval failed.");
-    } finally {
-      setActionLoadingId(null);
-    }
-  }
-
-  async function submitReject(driverId, reason) {
-    setActionLoadingId(driverId);
-    try {
-      await apiClient.post(`/admin/drivers/${driverId}/reject`, { reason });
-      setShowModal(false);
-      await loadPending();
-    } catch (err) {
-      setError(err?.response?.data?.message || "Reject failed.");
-    } finally {
-      setActionLoadingId(null);
-    }
-  }
-
-  async function submitRequestCorrection(driverId, note) {
-    setActionLoadingId(driverId);
-    try {
-      await apiClient.post(`/admin/drivers/${driverId}/request-correction`, { note });
-      setShowModal(false);
-      await loadPending();
-    } catch (err) {
-      setError(err?.response?.data?.message || "Request correction failed.");
-    } finally {
-      setActionLoadingId(null);
-    }
+    }, "Approval failed.");
   }
 
   function handleDialogConfirm(value) {
-    if (!dialog) return;
-    if (dialog.type === "reject") submitReject(dialog.driverId, value);
-    if (dialog.type === "correction") submitRequestCorrection(dialog.driverId, value);
+    const id = selected?.id;
+    const type = dialog;
     setDialog(null);
-  }
-
-  async function openReview(driverId) {
-    try {
-      const [detailRes, timelineRes] = await Promise.all([
-        apiClient.get(`/admin/drivers/${driverId}`),
-        apiClient.get(`/admin/drivers/${driverId}/timeline`).catch(() => ({ data: { data: [] } })),
-      ]);
-      setSelectedDriver(detailRes.data?.data || null);
-      setTimeline(Array.isArray(timelineRes.data?.data) ? timelineRes.data.data : []);
-      setShowModal(true);
-    } catch (err) {
-      setError(err?.response?.data?.message || "Failed to load driver details.");
+    if (!id) return;
+    if (type === "reject") {
+      runAction(() => apiClient.post(`/admin/drivers/${id}/reject`, { reason: value }), "Reject failed.");
+    } else if (type === "correction") {
+      runAction(
+        () => apiClient.post(`/admin/drivers/${id}/request-correction`, { note: value }),
+        "Request correction failed."
+      );
     }
   }
+
+  const check = selected?.documentCheck || {};
+  const flagged = selected ? hasDocumentWarning(check.license, check.permit) : false;
+  const [statusLabel, statusTone] = APPLICATION_STATUS[selected?.approvalStatus] || [selected?.approvalStatus, "neutral"];
+  const [livenessLabel, livenessTone] = LIVENESS[selected?.livenessStatus] || LIVENESS.pending;
 
   return (
     <div className="page-stack">
       <PageHero
         eyebrow="Approvals"
-        title="Pending Drivers"
-        description="Review and approve driver applications before they go live."
+        title="Driver Applications"
+        description="Review applicants' documents before they can drive."
         actions={
-          <button type="button" className="ghost-btn" onClick={loadPending}>
+          <button type="button" className="ghost-btn" onClick={load}>
             Refresh
           </button>
         }
       />
 
       {error ? <div className="error-banner">{error}</div> : null}
-      {loading ? <div className="state-block">Loading pending drivers...</div> : null}
 
-      {!loading ? (
-        <PendingDriversTable
-          drivers={drivers}
-          onApprove={handleApprove}
-          onReject={(driverId) => setDialog({ type: "reject", driverId })}
-          onView={openReview}
-          actionLoadingId={actionLoadingId}
-        />
-      ) : null}
+      <section className="panel">
+        <div className="tab-row" role="tablist">
+          {TABS.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              className={tab === key ? "tab-btn active" : "tab-btn"}
+              onClick={() => setTab(key)}
+            >
+              {label}
+              {key !== "all" && counts[key] ? <span className="tab-count">{counts[key]}</span> : null}
+            </button>
+          ))}
+        </div>
 
-      {showModal && selectedDriver ? (
+        {loading ? (
+          <div className="state-block">Loading applications…</div>
+        ) : (
+          <PendingDriversTable applications={applications} onReview={openReview} emptyText={EMPTY_TEXT[tab]} />
+        )}
+      </section>
+
+      {selected ? (
         <div className="modal-overlay open">
-          <div className="modal">
+          <div className="modal" style={{ width: 720 }}>
             <div className="modal-header">
-              <div className="modal-title">Driver Application Review</div>
-              <button className="modal-close" type="button" onClick={() => setShowModal(false)}>
+              <div className="modal-title">
+                {selected.fullName} <StatusPill label={statusLabel} tone={statusTone} />
+              </div>
+              <button className="modal-close" type="button" onClick={() => setSelected(null)}>
                 ×
               </button>
             </div>
             <div className="modal-body">
-              <div className="detail-list">
-                <div className="detail-row"><span>Full Name</span><strong>{selectedDriver.fullName}</strong></div>
-                <div className="detail-row"><span>Email</span><strong>{selectedDriver.email || "-"}</strong></div>
-                <div className="detail-row"><span>Mobile Number</span><strong>{selectedDriver.phone || "-"}</strong></div>
-                <div className="detail-row"><span>Plate Number</span><strong>{selectedDriver.tricycleNumber || "-"}</strong></div>
-                <div className="detail-row"><span>Submitted</span><strong>{formatDateTime(selectedDriver.createdAt)}</strong></div>
-                <div className="detail-row"><span>Status</span><strong>{selectedDriver.approvalStatus || "pending"}</strong></div>
+              {flagged ? (
+                <div className="warning-banner" style={{ marginBottom: 12 }}>
+                  The automatic check doesn't think these are the right documents
+                  {check.details?.license?.otherDocument ? ` (the license photo reads as "${check.details.license.otherDocument}")` : ""}.
+                  Look at the photos below before deciding.
+                </div>
+              ) : null}
+
+              <div className="doc-preview-grid">
+                <DocumentPreview
+                  label="Driver's license"
+                  url={selected.licenseImageUrl}
+                  check={{ kind: "license", status: check.license }}
+                />
+                <DocumentPreview
+                  label="Franchise / permit"
+                  url={selected.businessPermitImageUrl}
+                  check={{ kind: "permit", status: check.permit }}
+                />
+                <DocumentPreview label="Selfie" url={selected.selfieImageUrl} />
               </div>
 
-              <div style={{ marginTop: 16 }} className="detail-list">
+              <div className="detail-list" style={{ marginTop: 16 }}>
+                <div className="detail-row"><span>Email</span><strong>{selected.email || "-"}</strong></div>
+                <div className="detail-row"><span>Mobile</span><strong>{selected.phone || "-"}</strong></div>
+                <div className="detail-row"><span>Address</span><strong>{selected.address || "-"}</strong></div>
+                <div className="detail-row"><span>Plate number</span><strong>{selected.tricycleNumber || "-"}</strong></div>
+                <div className="detail-row"><span>Franchise number</span><strong>{selected.franchiseNumber || "-"}</strong></div>
+                <div className="detail-row"><span>License type</span><strong>{selected.licenseType || "-"}</strong></div>
+                <div className="detail-row"><span>License number</span><strong>{selected.licenseNumber || "-"}</strong></div>
+                <div className="detail-row"><span>License expiry</span><strong>{selected.licenseExpiresAt ? formatDateTime(selected.licenseExpiresAt) : "-"}</strong></div>
+                <div className="detail-row"><span>Liveness check</span><StatusPill label={livenessLabel} tone={livenessTone} /></div>
                 <div className="detail-row">
-                  <span>Driver License</span>
-                  <a href={resolveDriverDocumentUrl(selectedDriver.licenseImageUrl) || "#"} target="_blank" rel="noreferrer">View</a>
+                  <span>Emergency contact</span>
+                  <strong>
+                    {selected.emergencyContactName || "-"}
+                    {selected.emergencyContactPhone ? ` · ${selected.emergencyContactPhone}` : ""}
+                  </strong>
                 </div>
-                <div className="detail-row">
-                  <span>Business Permit</span>
-                  <a href={resolveDriverDocumentUrl(selectedDriver.businessPermitImageUrl) || "#"} target="_blank" rel="noreferrer">View</a>
-                </div>
-                <div className="detail-row">
-                  <span>Selfie</span>
-                  {selectedDriver.selfieImageUrl ? (
-                    <a href={resolveDriverDocumentUrl(selectedDriver.selfieImageUrl)} target="_blank" rel="noreferrer">View</a>
-                  ) : (
-                    <strong>-</strong>
-                  )}
-                </div>
-                <div className="detail-row">
-                  <span>License Expiry</span>
-                  <strong>{formatDateTime(selectedDriver.licenseExpiresAt)}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>License check</span>
-                  <DocumentCheckBadge kind="license" status={selectedDriver.documentCheck?.license} />
-                </div>
-                <div className="detail-row">
-                  <span>Permit check</span>
-                  <DocumentCheckBadge kind="permit" status={selectedDriver.documentCheck?.permit} />
-                </div>
-                {selectedDriver.documentCheck?.details?.license?.otherDocument ? (
+                <div className="detail-row"><span>Submitted</span><strong>{formatDateTime(selected.createdAt)}</strong></div>
+                {selected.rejectionReason ? (
+                  <div className="detail-row"><span>Rejection reason</span><strong>{selected.rejectionReason}</strong></div>
+                ) : null}
+                {selected.correctionNote ? (
+                  <div className="detail-row"><span>Correction asked</span><strong>{selected.correctionNote}</strong></div>
+                ) : null}
+                {selected.reviewedAt ? (
                   <div className="detail-row">
-                    <span>License photo reads as</span>
-                    <strong>{selectedDriver.documentCheck.details.license.otherDocument}</strong>
+                    <span>Reviewed</span>
+                    <strong>{formatDateTime(selected.reviewedAt)}{selected.reviewedByName ? ` · ${selected.reviewedByName}` : ""}</strong>
                   </div>
                 ) : null}
-                <div className="detail-row">
-                  <span>OCR Status</span>
-                  <strong>{selectedDriver.ocrStatus || "-"}</strong>
-                </div>
-                {selectedDriver.ocrFailureReason ? (
-                  <div className="detail-row">
-                    <span>OCR Note</span>
-                    <strong>{selectedDriver.ocrFailureReason}</strong>
-                  </div>
-                ) : null}
-                <div className="detail-row">
-                  <span>Liveness Status</span>
-                  <strong>{selectedDriver.livenessStatus || "-"}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>Rejection Reason</span>
-                  <strong>{selectedDriver.rejectionReason || "-"}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>Correction Note</span>
-                  <strong>{selectedDriver.correctionNote || "-"}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>Reviewed By</span>
-                  <strong>{selectedDriver.reviewedByName || "-"}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>Reviewed At</span>
-                  <strong>{selectedDriver.reviewedAt ? formatDateTime(selectedDriver.reviewedAt) : "-"}</strong>
-                </div>
               </div>
 
               {timeline.length > 0 ? (
                 <div style={{ marginTop: 16 }}>
-                  <h4 style={{ margin: "0 0 8px" }}>Application Timeline</h4>
+                  <h4 style={{ margin: "0 0 8px" }}>History</h4>
                   <div className="timeline">
                     {timeline.map((item) => (
                       <div className="tl-item" key={item.id}>
                         <div className="tl-dot" />
                         <div className="tl-content">
-                          <div className="tl-title">{item.status}</div>
+                          <div className="tl-title">{TIMELINE_LABELS[item.status] || item.status}</div>
                           <div className="tl-time">
                             {formatDateTime(item.created_at)}
                             {item.changed_by_name ? ` · by ${item.changed_by_name}` : ""}
@@ -240,9 +280,23 @@ export default function PendingPage() {
               ) : null}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-danger" type="button" onClick={() => setDialog({ type: "reject", driverId: selectedDriver.id })}>Reject</button>
-              <button className="btn btn-warning" type="button" onClick={() => setDialog({ type: "correction", driverId: selectedDriver.id })}>Request Correction</button>
-              <button className="btn btn-success" type="button" onClick={() => handleApprove(selectedDriver.id)}>Approve</button>
+              {selected.approvalStatus === "pending" ? (
+                <>
+                  <button className="btn btn-danger" type="button" disabled={busy} onClick={() => setDialog("reject")}>
+                    Reject
+                  </button>
+                  <button className="btn btn-warning" type="button" disabled={busy} onClick={() => setDialog("correction")}>
+                    Request correction
+                  </button>
+                  <button className="btn btn-success" type="button" disabled={busy} onClick={approve}>
+                    {busy ? "Saving…" : "Approve"}
+                  </button>
+                </>
+              ) : (
+                <button className="btn btn-ghost" type="button" onClick={() => setSelected(null)}>
+                  Close
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -250,12 +304,18 @@ export default function PendingPage() {
 
       <ConfirmDialog
         open={Boolean(dialog)}
-        title={dialog?.type === "correction" ? "Request Document Correction" : "Reject Driver Application"}
+        title={dialog === "correction" ? "Request document correction" : "Reject driver application"}
         requireInput
-        inputLabel={dialog?.type === "correction" ? "What should the driver correct or re-upload?" : "Rejection reason"}
-        defaultValue={dialog?.type === "correction" ? "License photo is blurry, please re-upload." : "Incomplete documents"}
-        confirmLabel={dialog?.type === "correction" ? "Send Correction Request" : "Reject Application"}
-        danger={dialog?.type === "reject"}
+        inputLabel={dialog === "correction" ? "What should the applicant fix or re-upload?" : "Reason for rejecting"}
+        defaultValue={
+          dialog === "correction"
+            ? flagged
+              ? "The uploaded photos are not a valid driver's license and franchise / permit. Please upload clear photos of the correct documents."
+              : "Please upload a clearer photo of your documents."
+            : "The documents submitted are not valid."
+        }
+        confirmLabel={dialog === "correction" ? "Send correction request" : "Reject application"}
+        danger={dialog === "reject"}
         onConfirm={handleDialogConfirm}
         onCancel={() => setDialog(null)}
       />

@@ -1,4 +1,13 @@
-import { resolveDriverDocumentUrl } from "../utils/admin-formatters";
+import StatusPill from "./StatusPill";
+import { hasDocumentWarning } from "./DocumentCheckBadge";
+import { formatDateTime } from "../utils/admin-formatters";
+
+export const APPLICATION_STATUS = {
+  pending: ["Pending review", "warning"],
+  needs_correction: ["Needs correction", "info"],
+  rejected: ["Rejected", "danger"],
+  approved: ["Approved", "success"],
+};
 
 function initials(name) {
   return String(name || "?")
@@ -10,97 +19,69 @@ function initials(name) {
     .toUpperCase();
 }
 
-export default function PendingDriversTable({
-  drivers,
-  onApprove,
-  onReject,
-  onView,
-  actionLoadingId,
-}) {
-  function resolveAssetUrl(path) {
-    return resolveDriverDocumentUrl(path) || "#";
+function DocumentsSummary({ application }) {
+  if (!application.documents_checked_at) {
+    return <StatusPill label="Checking…" tone="neutral" />;
   }
+  if (!hasDocumentWarning(application.license_check_status, application.permit_check_status)) {
+    return <StatusPill label="✓ Documents look right" tone="success" />;
+  }
+  const bad = [
+    application.license_check_status !== "verified" ? "license" : null,
+    application.permit_check_status !== "verified" ? "permit" : null,
+  ].filter(Boolean);
+  return <StatusPill label={`⚠ Check ${bad.join(" & ")}`} tone="danger" />;
+}
 
+/** Application list; every decision happens in the review dialog. */
+export default function PendingDriversTable({ applications, onReview, emptyText }) {
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <div>
-          <p className="panel-label">Approvals</p>
-          <h3>Pending Driver Registrations</h3>
-        </div>
-        <span className="status-pill status-warning">{drivers.length} waiting</span>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Applicant</th>
+            <th>Plate #</th>
+            <th>Submitted</th>
+            <th>Documents</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {applications.length === 0 ? (
             <tr>
-              <th>Name</th>
-              <th>Phone</th>
-              <th>Tricycle #</th>
-              <th>License Expiry</th>
-              <th>License</th>
-              <th>Permit</th>
-              <th>Action</th>
+              <td colSpan="6">{emptyText}</td>
             </tr>
-          </thead>
-          <tbody>
-            {drivers.length === 0 ? (
-              <tr>
-                <td colSpan="7">No pending drivers.</td>
-              </tr>
-            ) : (
-              drivers.map((driver) => (
-                <tr key={driver.id}>
+          ) : (
+            applications.map((app) => {
+              const [statusLabel, statusTone] = APPLICATION_STATUS[app.status] || [app.status, "neutral"];
+              return (
+                <tr key={app.id}>
                   <td>
                     <div className="who">
-                      <span className="avatar" aria-hidden="true">{initials(driver.full_name)}</span>
+                      <span className="avatar" aria-hidden="true">{initials(app.full_name)}</span>
                       <div>
-                        <b>{driver.full_name}</b>
-                        <small>{driver.email || "-"}</small>
+                        <b>{app.full_name}</b>
+                        <small>{app.phone || app.email || "-"}</small>
                       </div>
                     </div>
                   </td>
-                  <td>{driver.phone}</td>
-                  <td>{driver.tricycle_number}</td>
-                  <td>{driver.license_expires_at ? new Date(driver.license_expires_at).toLocaleDateString() : "-"}</td>
+                  <td style={{ fontFamily: "monospace", fontSize: 12 }}>{app.plate_number || "-"}</td>
+                  <td>{formatDateTime(app.submitted_at)}</td>
+                  <td><DocumentsSummary application={app} /></td>
+                  <td><StatusPill label={statusLabel} tone={statusTone} /></td>
                   <td>
-                    <a href={resolveAssetUrl(driver.license_image_url)} target="_blank" rel="noreferrer">
-                      View
-                    </a>
-                  </td>
-                  <td>
-                    <a href={resolveAssetUrl(driver.business_permit_image_url)} target="_blank" rel="noreferrer">
-                      View
-                    </a>
-                  </td>
-                  <td className="inline-actions">
-                    <button
-                      onClick={() => onView(driver.id)}
-                      className="btn-ghost"
-                    >
-                      View
-                    </button>
-                    <button
-                      disabled={actionLoadingId === driver.id}
-                      onClick={() => onApprove(driver.id)}
-                      className="btn-success"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      disabled={actionLoadingId === driver.id}
-                      onClick={() => onReject(driver.id)}
-                      className="btn-danger"
-                    >
-                      Reject
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => onReview(app.id)}>
+                      {app.status === "pending" ? "Review" : "View"}
                     </button>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
