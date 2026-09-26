@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const db = require("../config/db");
 
@@ -5,9 +6,24 @@ const db = require("../config/db");
 // treated as expired and reassigned to the next nearest driver.
 const OFFER_TTL_SECONDS = 20;
 const MAX_PIN_ATTEMPTS = 5;
+const PIN_STATUSES = ["pending", "searching", "accepted", "assigned", "arriving"];
+
+function generatePin() {
+  return String(crypto.randomInt(1000, 10000));
+}
+
+// The plain pickup PIN is kept so the passenger can see it again after an
+// app restart, but it must only ever reach the passenger who owns the
+// booking — every general-purpose read strips it here, and the passenger
+// gets it through getPickupPinForPassenger() instead.
+function withoutPin(row) {
+  if (!row) return row;
+  const { pickup_pin, ...rest } = row;
+  return rest;
+}
 
 async function createBooking(payload) {
-  const pin = String(Math.floor(1000 + Math.random() * 9000));
+  const pin = generatePin();
   const pinHash = await bcrypt.hash(pin, 8);
 
   const result = await db.query(
@@ -26,9 +42,10 @@ async function createBooking(payload) {
         estimated_fare,
         fare_breakdown_json,
         pickup_pin_hash,
+        pickup_pin,
         status
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
     `,
     [
       payload.passengerId,
@@ -44,6 +61,7 @@ async function createBooking(payload) {
       payload.estimatedFare,
       payload.fareBreakdown ? JSON.stringify(payload.fareBreakdown) : null,
       pinHash,
+      pin,
     ]
   );
 
@@ -80,7 +98,7 @@ async function findById(bookingId, client = db) {
     [bookingId]
   );
 
-  return rows[0] || null;
+  return withoutPin(rows[0]) || null;
 }
 
 async function findActiveByPassenger(passengerId) {
@@ -111,7 +129,7 @@ async function findActiveByPassenger(passengerId) {
     `,
     [passengerId]
   );
-  return rows[0] || null;
+  return withoutPin(rows[0]) || null;
 }
 
 async function findActiveByDriver(driverId) {
@@ -142,7 +160,7 @@ async function findActiveByDriver(driverId) {
     `,
     [driverId]
   );
-  return rows[0] || null;
+  return withoutPin(rows[0]) || null;
 }
 
 // Atomic: only succeeds if the booking is still pending and unassigned, so
@@ -184,7 +202,7 @@ async function clearAssignedDriver(bookingId, expectedDriverId, declineReason = 
 // (ride-offer-scheduler.service.js) treats these the same as a decline:
 // clear the driver and try to reassign to the next nearest one.
 async function findExpiredPendingOffers() {
-  return db.query(
+  const rows = await db.query(
     `
       SELECT * FROM bookings
       WHERE status = 'pending'
@@ -194,6 +212,28 @@ async function findExpiredPendingOffers() {
         AND deleted_at IS NULL
     `
   );
+  return rows.map(withoutPin);
+}
+
+// The passenger's PIN for their own pre-trip booking. Bookings created
+// before the plain PIN was stored (or whose PIN got locked out by wrong
+// guesses) get a fresh PIN so the passenger is never left without one.
+async function getPickupPinForPassenger(bookingId, passengerId) {
+  const rows = await db.query(
+    "SELECT pickup_pin, pin_attempts, pin_verified_at, status FROM bookings WHERE id = ? AND passenger_id = ? LIMIT 1",
+    [bookingId, passengerId]
+  );
+  const row = rows[0];
+  if (!row || !PIN_STATUSES.includes(row.status) || row.pin_verified_at) return null;
+  if (row.pickup_pin && row.pin_attempts < MAX_PIN_ATTEMPTS) return row.pickup_pin;
+
+  const pin = generatePin();
+  const pinHash = await bcrypt.hash(pin, 8);
+  await db.query(
+    "UPDATE bookings SET pickup_pin = ?, pickup_pin_hash = ?, pin_attempts = 0 WHERE id = ? AND pin_verified_at IS NULL",
+    [pin, pinHash, bookingId]
+  );
+  return pin;
 }
 
 async function verifyPickupPin(bookingId, code) {
@@ -222,8 +262,9 @@ async function verifyPickupPin(bookingId, code) {
     };
   }
 
+  // Trip is starting — the plain PIN has done its job, drop it.
   await db.query(
-    "UPDATE bookings SET pin_verified_at = NOW() WHERE id = ?",
+    "UPDATE bookings SET pin_verified_at = NOW(), pickup_pin = NULL WHERE id = ?",
     [bookingId]
   );
   return { ok: true };
@@ -490,6 +531,7 @@ module.exports = {
   clearAssignedDriver,
   findExpiredPendingOffers,
   verifyPickupPin,
+  getPickupPinForPassenger,
   markAccepted,
   markArriving,
   markOngoing,

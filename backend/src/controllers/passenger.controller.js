@@ -101,7 +101,11 @@ async function getBooking(req, res, next) {
 
     res.json({
       success: true,
-      data: decorateBookingRecord(booking),
+      data: {
+        ...decorateBookingRecord(booking),
+        // Only ever sent to the booking's own passenger (checked above).
+        pickupPin: await bookingModel.getPickupPinForPassenger(booking.id, req.user.id),
+      },
     });
   } catch (error) {
     next(error);
@@ -128,6 +132,15 @@ async function chooseDriver(req, res, next) {
       message: "Request sent to the rider. Waiting for them to accept.",
       data: result,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getActiveBooking(req, res, next) {
+  try {
+    const data = await bookingService.getActiveBookingForPassenger(req.user.id);
+    res.json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -250,6 +263,7 @@ module.exports = {
   getBooking,
   chooseDriver,
   getNearbyDrivers,
+  getActiveBooking,
   getBookingHistory,
   getFare,
   getNotifications,

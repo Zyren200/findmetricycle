@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   driver_id BIGINT UNSIGNED NULL,
   offer_expires_at DATETIME NULL,
   pickup_pin_hash VARCHAR(100) NULL,
+  pickup_pin VARCHAR(6) NULL,
   pin_attempts INT NOT NULL DEFAULT 0,
   pin_verified_at DATETIME NULL,
   pickup_address VARCHAR(255) NULL,

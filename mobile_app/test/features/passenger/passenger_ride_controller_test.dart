@@ -28,6 +28,7 @@ class FakePassengerRepository extends PassengerRepository {
   Map<String, dynamic> findRideResponse = {};
   Map<String, dynamic> chooseResponse = {};
   Map<String, dynamic> nearbyResponse = {};
+  Map<String, dynamic> activeResponse = {"success": true, "data": null};
   final List<int> chosenDriverIds = [];
 
   @override
@@ -58,6 +59,9 @@ class FakePassengerRepository extends PassengerRepository {
   @override
   Future<Map<String, dynamic>> getNearbyDrivers(int bookingId) async =>
       nearbyResponse;
+
+  @override
+  Future<Map<String, dynamic>> getActiveBooking() async => activeResponse;
 }
 
 Map<String, dynamic> rider(int id, String name, double km) => {
@@ -211,5 +215,57 @@ void main() {
     await controller.refreshNearbyDrivers();
 
     expect(controller.nearbyDrivers.map((d) => d["full_name"]), ["Cora"]);
+  });
+
+  group("pickup PIN", () {
+    test("comes back after an app restart", () async {
+      final restartedRepo = FakePassengerRepository()
+        ..activeResponse = {
+          "success": true,
+          "data": {
+            "booking": {
+              "id": 10,
+              "status": "accepted",
+              "driver_id": 7,
+              "pickup_lat": 11.033,
+              "pickup_lng": 125.722,
+              "dropoff_lat": 11.04,
+              "dropoff_lng": 125.74,
+            },
+            "pickupPin": "4821",
+            "driver": rider(7, "Ana", 0.3),
+            "nearbyDrivers": [],
+          },
+        };
+      final restarted = PassengerRideController(restartedRepo, FakeSocketClient());
+      await restarted.initialize();
+
+      expect(restarted.activeBookingId, 10);
+      expect(restarted.pickupPin, "4821");
+      expect(restarted.shouldShowPickupPin, isTrue);
+      expect(restarted.driverName, "Ana");
+      restarted.dispose();
+    });
+
+    test("rider arrival re-sends the PIN and asks the page to show it", () async {
+      await findRideWith([rider(1, "Ana", 0.3)]);
+      controller.pickupPin = null; // e.g. lost somehow
+      final prompts = controller.pinPromptRequest;
+
+      socket.push("passenger:driver_arrived", {"bookingId": 10, "pickupPin": "7302"});
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.bookingStatus, "arriving");
+      expect(controller.pickupPin, "7302");
+      expect(controller.pinPromptRequest, prompts + 1);
+      expect(controller.shouldShowPickupPin, isTrue);
+    });
+
+    test("is hidden once the trip has started", () async {
+      await findRideWith([rider(1, "Ana", 0.3)]);
+      controller.bookingStatus = "ongoing";
+
+      expect(controller.shouldShowPickupPin, isFalse);
+    });
   });
 }

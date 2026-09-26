@@ -86,6 +86,7 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
     _rideController?.removeListener(_handleRideControllerChanged);
     _rideController = controller;
     _seenPickerRequest = controller.driverPickerRequest;
+    _seenPinPrompt = controller.pinPromptRequest;
     _rideController?.addListener(_handleRideControllerChanged);
     _requestSync();
   }
@@ -98,6 +99,55 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
   }
 
   int _seenPickerRequest = 0;
+  int _seenPinPrompt = 0;
+  bool _pinDialogOpen = false;
+
+  /// Big, readable PIN for the passenger to show/read to the rider.
+  Future<void> _showPinDialog(PassengerRideController controller) async {
+    final pin = controller.pickupPin;
+    if (!mounted || pin == null || _pinDialogOpen) return;
+    _pinDialogOpen = true;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: DesignTokens.bg2,
+        title: const Text(
+          "Ang iyong Pickup PIN",
+          style:
+              TextStyle(color: DesignTokens.text, fontWeight: FontWeight.w800),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Ibigay ang PIN na ito sa rider para masimulan ang biyahe.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: DesignTokens.muted),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              pin,
+              style: const TextStyle(
+                color: DesignTokens.accent,
+                fontSize: 48,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 14,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child:
+                const Text("OK", style: TextStyle(color: DesignTokens.accent)),
+          ),
+        ],
+      ),
+    );
+    _pinDialogOpen = false;
+  }
+
   bool _pickerOpen = false;
 
   void _handleRideControllerChanged() {
@@ -106,6 +156,16 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
     // The chosen rider declined / timed out: reopen the picker so the
     // passenger can choose someone else right away.
     final controller = _rideController;
+
+    // The rider just arrived and will ask for the PIN — put it front and
+    // centre instead of leaving it somewhere in the panel.
+    if (controller != null && controller.pinPromptRequest != _seenPinPrompt) {
+      _seenPinPrompt = controller.pinPromptRequest;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showPinDialog(controller);
+      });
+    }
+
     if (controller != null &&
         controller.driverPickerRequest != _seenPickerRequest) {
       _seenPickerRequest = controller.driverPickerRequest;
@@ -830,7 +890,8 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
                               ? const SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Icon(Icons.refresh_rounded,
                                   color: DesignTokens.accent),
@@ -882,7 +943,8 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
                         child: ListView.separated(
                           shrinkWrap: true,
                           itemCount: drivers.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
                           itemBuilder: (context, index) => _DriverOptionTile(
                             driver: drivers[index],
                             isNearest: index == 0,
@@ -891,8 +953,8 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
                               Navigator.pop(sheetContext);
                               await controller.chooseDriver(id);
                               if (!mounted) return;
-                              final message = controller.error ??
-                                  controller.rideNotice;
+                              final message =
+                                  controller.error ?? controller.rideNotice;
                               if (message != null) {
                                 ScaffoldMessenger.of(this.context).showSnackBar(
                                   SnackBar(content: Text(message)),
@@ -948,36 +1010,52 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
           // the card's status chip. Laying them out in one Row instead
           // makes the card shrink to leave room for the buttons, so they
           // can never overlap regardless of card/button size.
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: _MapStatusCard(
-                  mapReady: _mapReady,
-                  passengerName: session?.fullName ?? "Passenger",
-                  onNotificationsTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const NotificationsPage()),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Column(
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _MapControlButton(
-                    icon: Icons.my_location_rounded,
-                    label: "Center",
-                    color: _currentColor,
-                    onPressed: _moveToCurrentLocation,
+                  Expanded(
+                    child: _MapStatusCard(
+                      mapReady: _mapReady,
+                      passengerName: session?.fullName ?? "Passenger",
+                      onNotificationsTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const NotificationsPage()),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  _MapControlButton(
-                    icon: Icons.zoom_out_map_rounded,
-                    label: "Fit",
-                    color: _pickupColor,
-                    onPressed: _fitToSelection,
+                  const SizedBox(width: 8),
+                  Column(
+                    children: [
+                      _MapControlButton(
+                        icon: Icons.my_location_rounded,
+                        label: "Center",
+                        color: _currentColor,
+                        onPressed: _moveToCurrentLocation,
+                      ),
+                      const SizedBox(height: 8),
+                      _MapControlButton(
+                        icon: Icons.zoom_out_map_rounded,
+                        label: "Fit",
+                        color: _pickupColor,
+                        onPressed: _fitToSelection,
+                      ),
+                    ],
                   ),
                 ],
               ),
+              // Pinned over the map (not inside the draggable panel) so the
+              // PIN stays visible however far the panel is collapsed.
+              if (ctrl.shouldShowPickupPin) ...[
+                const SizedBox(height: 8),
+                _PickupPinBanner(
+                  pin: ctrl.pickupPin!,
+                  highlight: ctrl.bookingStatus == "arriving",
+                  onTap: () => _showPinDialog(ctrl),
+                ),
+              ],
             ],
           ),
         ),
@@ -1204,11 +1282,13 @@ class _RidePanel extends StatelessWidget {
               ],
               OutlinedButton.icon(
                 onPressed: controller.isSendingSos ? null : onSos,
-                icon: const Icon(Icons.sos_rounded, color: Colors.red, size: 18),
+                icon:
+                    const Icon(Icons.sos_rounded, color: Colors.red, size: 18),
                 label: const Text("SOS", style: TextStyle(color: Colors.red)),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Colors.red),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 ),
               ),
             ],
@@ -1273,18 +1353,21 @@ class _RidePanel extends StatelessWidget {
                 children: [
                   IconButton(
                     icon: const Icon(Icons.remove_circle_outline),
-                    onPressed: controller.passengerCount <= PassengerRideController.minPassengers
+                    onPressed: controller.passengerCount <=
+                            PassengerRideController.minPassengers
                         ? null
                         : () => controller
                             .setPassengerCount(controller.passengerCount - 1),
                   ),
                   Text(
                     "${controller.passengerCount}",
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 16),
                   ),
                   IconButton(
                     icon: const Icon(Icons.add_circle_outline),
-                    onPressed: controller.passengerCount >= PassengerRideController.maxPassengers
+                    onPressed: controller.passengerCount >=
+                            PassengerRideController.maxPassengers
                         ? null
                         : () => controller
                             .setPassengerCount(controller.passengerCount + 1),
@@ -1306,7 +1389,8 @@ class _RidePanel extends StatelessWidget {
                     controller.isWaitingForDriverResponse ||
                     (controller.bookingStatus != null &&
                         controller.bookingStatus != "pending" &&
-                        kActiveBookingStatuses.contains(controller.bookingStatus))
+                        kActiveBookingStatuses
+                            .contains(controller.bookingStatus))
                 ? null
                 : () async {
                     await onFindRide!();
@@ -1366,7 +1450,7 @@ class _RidePanel extends StatelessWidget {
               ),
             ),
           ],
-          if (controller.pickupPin != null && !controller.hasCompletedBooking) ...[
+          if (controller.shouldShowPickupPin) ...[
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
@@ -1475,11 +1559,13 @@ class _RidePanel extends StatelessWidget {
               "Total Fare: ${formatMoney(double.tryParse(controller.bookingData?["final_fare"]?.toString() ?? "") ?? controller.estimatedFare)}",
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
-            const Text("Payment Method: 💵 Cash", style: TextStyle(fontSize: 13)),
+            const Text("Payment Method: 💵 Cash",
+                style: TextStyle(fontSize: 13)),
             if (controller.activeBookingId != null) ...[
               const SizedBox(height: 10),
               OutlinedButton.icon(
-                onPressed: () => _rateRide(context, controller.activeBookingId!),
+                onPressed: () =>
+                    _rateRide(context, controller.activeBookingId!),
                 icon: const Icon(Icons.star_outline_rounded),
                 label: const Text("Rate Your Ride"),
               ),
@@ -1947,7 +2033,8 @@ class _DriverOptionTile extends StatelessWidget {
           ),
           if (isNearest) ...[
             const SizedBox(width: 6),
-            const AppBadge(label: "Pinakamalapit", style: BadgeStyle.greenStyle),
+            const AppBadge(
+                label: "Pinakamalapit", style: BadgeStyle.greenStyle),
           ],
         ],
       ),
@@ -1973,6 +2060,65 @@ class _DriverOptionTile extends StatelessWidget {
         ],
       ),
       onTap: id == null ? null : () => onTap(id),
+    );
+  }
+}
+
+/// Always-visible pickup PIN chip shown over the map until the trip starts.
+class _PickupPinBanner extends StatelessWidget {
+  const _PickupPinBanner({
+    required this.pin,
+    required this.highlight,
+    required this.onTap,
+  });
+
+  final String pin;
+  final bool highlight;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: highlight ? DesignTokens.accent : DesignTokens.bg2,
+      borderRadius: BorderRadius.circular(16),
+      elevation: 4,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              Icon(
+                Icons.pin_rounded,
+                color: highlight ? DesignTokens.bg : DesignTokens.accent,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  highlight
+                      ? "Nandito na ang rider — ibigay ang PIN"
+                      : "Pickup PIN (ibigay sa rider pagdating)",
+                  style: TextStyle(
+                    color: highlight ? DesignTokens.bg : DesignTokens.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                pin,
+                style: TextStyle(
+                  color: highlight ? DesignTokens.bg : DesignTokens.text,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 6,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

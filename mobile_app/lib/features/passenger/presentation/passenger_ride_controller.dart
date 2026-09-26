@@ -250,6 +250,7 @@ class PassengerRideController extends ChangeNotifier {
     // updates (accept/decline, driver location) for the whole session.
     _bindSocketEvents();
     await _loadFareSettings();
+    await restoreActiveBooking();
     try {
       await _resolveCurrentLocation();
     } catch (e) {
@@ -257,6 +258,65 @@ class PassengerRideController extends ChangeNotifier {
     } finally {
       isInitializing = false;
       notifyListeners();
+    }
+  }
+
+  /// Bumped when the rider arrives, so the map page can pop the pickup PIN
+  /// up in front of the passenger.
+  int pinPromptRequest = 0;
+
+  /// Whether the pickup PIN should be on screen: from booking until the
+  /// rider has verified it and the trip starts.
+  bool get shouldShowPickupPin =>
+      pickupPin != null &&
+      activeBookingId != null &&
+      kPreTripBookingStatuses.contains(bookingStatus);
+
+  /// Picks an in-progress booking back up (after an app restart or the
+  /// passenger screen being rebuilt), including the pickup PIN — which used
+  /// to be lost for good once the app forgot it.
+  Future<void> restoreActiveBooking() async {
+    try {
+      final response = await _repository.getActiveBooking();
+      if (response["success"] != true || response["data"] == null) return;
+      final data = _toMap(response["data"]);
+      final booking = _toMap(data["booking"]);
+      final bookingId = int.tryParse(booking["id"]?.toString() ?? "");
+      if (bookingId == null) return;
+
+      activeBookingId = bookingId;
+      bookingStatus = booking["status"]?.toString();
+      bookingData = booking;
+      pickupPin = data["pickupPin"]?.toString() ?? pickupPin;
+
+      final pickupLat = double.tryParse(booking["pickup_lat"]?.toString() ?? "");
+      final pickupLng = double.tryParse(booking["pickup_lng"]?.toString() ?? "");
+      final dropoffLat = double.tryParse(booking["dropoff_lat"]?.toString() ?? "");
+      final dropoffLng = double.tryParse(booking["dropoff_lng"]?.toString() ?? "");
+      if (pickupLat != null && pickupLng != null) {
+        pickup = ll.LatLng(pickupLat, pickupLng);
+        pickupAddress = booking["pickup_address"]?.toString();
+      }
+      if (dropoffLat != null && dropoffLng != null) {
+        dropoff = ll.LatLng(dropoffLat, dropoffLng);
+        dropoffAddress = booking["dropoff_address"]?.toString();
+      }
+
+      final driver = _toMap(data["driver"]);
+      driverInfo = driver["id"] != null ? driver : null;
+      driverPosition = _pointOf(driverInfo);
+      nearbyDrivers = _toDriverList(data["nearbyDrivers"]);
+
+      if (isChoosingDriver) {
+        rideNotice = "Pumili ng rider mula sa listahan.";
+        _startNearbyRefresh();
+      } else if (isWaitingForDriverResponse) {
+        rideNotice = "Hinihintay ang sagot ng rider…";
+      }
+      notifyListeners();
+      _fetchRouteIfReady();
+    } catch (_) {
+      // Nothing to resume (or offline) — the passenger just starts fresh.
     }
   }
 
@@ -851,6 +911,10 @@ class PassengerRideController extends ChangeNotifier {
       final bookingId = int.tryParse(payload["bookingId"]?.toString() ?? "");
       if (activeBookingId == null || bookingId != activeBookingId) return;
       bookingStatus = "arriving";
+      // The server re-sends the PIN on arrival in case this app lost it.
+      pickupPin = payload["pickupPin"]?.toString() ?? pickupPin;
+      rideNotice = "Nandito na ang rider mo! Ibigay ang PIN kapag hiningi.";
+      pinPromptRequest++;
       notifyListeners();
     });
 

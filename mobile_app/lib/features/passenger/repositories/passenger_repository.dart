@@ -30,6 +30,12 @@ class PassengerRepository {
     );
   }
 
+  /// The passenger's in-progress booking (with their pickup PIN), or null
+  /// data when there's none — used to resume after an app restart.
+  Future<Map<String, dynamic>> getActiveBooking() {
+    return _apiClient.get("/passenger/bookings/active");
+  }
+
   Future<Map<String, dynamic>> getBooking(int bookingId) {
     return _apiClient.get("/passenger/bookings/$bookingId");
   }

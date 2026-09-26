@@ -99,6 +99,7 @@ async function createBookingAndFindDriver(payload) {
     const waitingForChoice = active.status === bookingStatus.PENDING && !active.driver_id;
     return {
       booking: withRideProgress(active),
+      pickupPin: await bookingModel.getPickupPinForPassenger(active.id, payload.passengerId),
       matchedDriver: activeDriver,
       nearbyDrivers: waitingForChoice ? await listChoosableDrivers(active) : [],
       message: "You already have an active booking.",
@@ -235,6 +236,25 @@ async function passengerChooseDriver(payload) {
     booking: withRideProgress(updated),
     driver: toPublicDriver(chosen),
     driverUserId: chosen.user_id,
+  };
+}
+
+// Everything the passenger app needs to resume an in-progress booking after
+// a restart: the booking, their pickup PIN, the rider (if any) and — while
+// still choosing — the current rider list. Null when nothing is active.
+async function getActiveBookingForPassenger(passengerId) {
+  const active = await bookingModel.findActiveByPassenger(passengerId);
+  if (!active) return null;
+
+  const driver = active.driver_id
+    ? toPublicDriver(await driverModel.findById(active.driver_id))
+    : null;
+  const waitingForChoice = active.status === bookingStatus.PENDING && !active.driver_id;
+  return {
+    booking: withRideProgress(active),
+    pickupPin: await bookingModel.getPickupPinForPassenger(active.id, passengerId),
+    driver,
+    nearbyDrivers: waitingForChoice ? await listChoosableDrivers(active) : [],
   };
 }
 
@@ -629,6 +649,7 @@ module.exports = {
   createBookingAndFindDriver,
   passengerChooseDriver,
   listNearbyDriversForBooking,
+  getActiveBookingForPassenger,
   getIncomingOfferForDriver,
   driverRespond,
   arriveAtPickup,

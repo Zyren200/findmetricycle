@@ -176,7 +176,7 @@ function buildRideProgress(record) {
 // passenger client — decorateBookingRecord is the shaping step used
 // everywhere a booking gets attached to an HTTP response or socket event.
 function omitPinInternals(booking) {
-  const { pickup_pin_hash, pin_attempts, ...rest } = booking;
+  const { pickup_pin_hash, pickup_pin, pin_attempts, ...rest } = booking;
   return rest;
 }
 

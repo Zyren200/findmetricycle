@@ -1,5 +1,6 @@
 const bookingService = require("../services/booking.service");
 const driverService = require("../services/driver.service");
+const bookingModel = require("../models/booking.model");
 const notificationModel = require("../models/notification.model");
 const sosService = require("../services/sos.service");
 const complaintService = require("../services/complaint.service");
@@ -130,11 +131,16 @@ async function arriveAtPickup(req, res, next) {
       driverId: driver.id,
     });
 
+    // The rider is about to ask for the PIN — resend it to the passenger
+    // (their rooms only) in case their app lost it.
+    const pickupPin = await bookingModel.getPickupPinForPassenger(booking.id, booking.passenger_id);
     getIO()
       .to(`passenger:${booking.passenger_id}`)
+      .to(`user:${booking.passenger_id}`)
       .emit("passenger:driver_arrived", {
         bookingId: booking.id,
         booking,
+        pickupPin,
         rideState: booking.rideState,
         rideStateLabel: booking.rideStateLabel,
         rideProgress: booking.rideProgress,

@@ -16,6 +16,8 @@ router.use(authMiddleware, requireRole(roles.PASSENGER));
 
 router.post("/bookings/find-ride", validate(passengerSchema.findRideSchema), passengerController.findRide);
 router.get("/bookings/history", passengerController.getBookingHistory);
+// Must stay above "/bookings/:bookingId" so "active" isn't read as an id.
+router.get("/bookings/active", passengerController.getActiveBooking);
 router.get("/fare", passengerController.getFare);
 router.get("/notifications", passengerController.getNotifications);
 router.post("/sos", validate(passengerSchema.sosSchema), passengerController.triggerSos);
