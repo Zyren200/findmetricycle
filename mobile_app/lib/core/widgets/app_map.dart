@@ -15,6 +15,10 @@ class AppMap extends StatefulWidget {
   final ml.LatLng? initialPosition;
   final double initialZoom;
 
+  /// Distance (logical px) of the map-credits ⓘ button from the bottom
+  /// edge, so it can sit above panels/cards that cover the map's bottom.
+  final double attributionBottomInset;
+
   const AppMap({
     this.onMapCreated,
     this.onStyleLoaded,
@@ -22,6 +26,7 @@ class AppMap extends StatefulWidget {
     required this.initialStyleUrl,
     this.initialPosition,
     this.initialZoom = 14.0,
+    this.attributionBottomInset = 12,
     super.key,
   });
 
@@ -49,6 +54,12 @@ class _AppMapState extends State<AppMap> {
       tiltGesturesEnabled: true,
       compassEnabled: true,
       myLocationEnabled: false,
+      // The data licences require the "© OpenStreetMap contributors" credit;
+      // MapLibre shows it behind this small ⓘ button (tap to open). Same
+      // corner on Android and iOS, lifted clear of the app's bottom UI.
+      logoEnabled: false,
+      attributionButtonPosition: ml.AttributionButtonPosition.bottomRight,
+      attributionButtonMargins: math.Point(12, widget.attributionBottomInset),
       trackCameraPosition: true,
       minMaxZoomPreference: const ml.MinMaxZoomPreference(3.0, 20.0),
     );

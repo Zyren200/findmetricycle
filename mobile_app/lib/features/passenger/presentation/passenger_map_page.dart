@@ -992,6 +992,8 @@ class _PassengerMapPageState extends State<PassengerMapPage>
       children: [
         Positioned.fill(
           child: AppMap(
+            // Keep the map-credits ⓘ above the ride panel (30% tall at rest).
+            attributionBottomInset: MediaQuery.sizeOf(context).height * 0.3 + 8,
             initialStyleUrl: AppConfig.openFreeMapStyleUrl,
             initialPosition: ml.LatLng(
                 (currentLocation ?? _fallbackCenter).latitude,

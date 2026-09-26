@@ -215,11 +215,22 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
         zoom: DEFAULT_ZOOM,
         pitch: 0,
         bearing: 0,
-        attributionControl: true,
+        // Added below as a compact ⓘ button instead.
+        attributionControl: false,
         cooperativeGestures: true,
       });
 
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+      // Map credits (© CARTO, © OpenStreetMap contributors) are required by
+      // the data licences, but only need to be one tap away: show just the
+      // ⓘ button and reveal the text when it's clicked. MapLibre starts the
+      // compact control expanded, so collapse it once the map has drawn.
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+      map.once("idle", () => {
+        containerRef.current
+          ?.querySelectorAll(".maplibregl-ctrl-attrib.maplibregl-compact-show")
+          .forEach((el) => el.classList.remove("maplibregl-compact-show"));
+      });
       map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
 
       map.on("load", () => {
