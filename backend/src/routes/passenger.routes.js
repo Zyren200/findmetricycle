@@ -20,6 +20,7 @@ router.get("/bookings/history", passengerController.getBookingHistory);
 router.get("/bookings/active", passengerController.getActiveBooking);
 router.get("/fare", passengerController.getFare);
 router.get("/notifications", passengerController.getNotifications);
+router.post("/notifications/read", passengerController.markNotificationsRead);
 router.post("/sos", validate(passengerSchema.sosSchema), passengerController.triggerSos);
 router.patch(
   "/profile",

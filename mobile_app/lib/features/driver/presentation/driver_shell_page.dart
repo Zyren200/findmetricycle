@@ -6,6 +6,7 @@ import "../../../core/network/api_client.dart";
 import "../../../core/network/socket_client.dart";
 import "../../../core/theme/design_tokens.dart";
 import "../repositories/driver_repository.dart";
+import "../../shared/state/notifications_controller.dart";
 import "driver_earnings_page.dart";
 import "driver_home_page.dart";
 import "driver_profile_page.dart";
@@ -43,6 +44,9 @@ class _DriverShellPageState extends State<DriverShellPage> {
         // Lets tabs (e.g. Rides) react when they're opened — the
         // IndexedStack keeps them alive, so initState only runs once.
         ChangeNotifierProvider.value(value: _navIndex),
+        ChangeNotifierProvider(
+          create: (_) => NotificationsController(apiClient, socketClient, role: "driver")..load(),
+        ),
         ChangeNotifierProvider(
           create: (_) {
             final controller = DriverRideController(

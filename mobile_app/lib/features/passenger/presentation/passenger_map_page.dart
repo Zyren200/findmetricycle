@@ -18,7 +18,8 @@ import "../../shared/state/session_store.dart";
 import "../repositories/passenger_repository.dart";
 import "passenger_ride_controller.dart";
 import "pages/place_search_page.dart";
-import "pages/notifications_page.dart";
+import "../../shared/presentation/notifications_screen.dart";
+import "../../shared/state/notifications_controller.dart";
 import "../../booking/presentation/rating_page.dart";
 import "../../booking/repositories/booking_repository.dart";
 
@@ -1023,9 +1024,13 @@ class _PassengerMapPageState extends State<PassengerMapPage>
                     child: _MapStatusCard(
                       mapReady: _mapReady,
                       passengerName: session?.fullName ?? "Passenger",
+                      notifications: context.read<NotificationsController>(),
                       onNotificationsTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
-                            builder: (_) => const NotificationsPage()),
+                          builder: (_) => NotificationsScreen(
+                            controller: context.read<NotificationsController>(),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1682,11 +1687,13 @@ class _MapStatusCard extends StatelessWidget {
   const _MapStatusCard({
     required this.mapReady,
     required this.passengerName,
+    required this.notifications,
     required this.onNotificationsTap,
   });
 
   final bool mapReady;
   final String passengerName;
+  final NotificationsController notifications;
   final VoidCallback onNotificationsTap;
 
   @override
@@ -1734,14 +1741,7 @@ class _MapStatusCard extends StatelessWidget {
               tone: mapReady ? "success" : "warning",
             ),
             const SizedBox(width: 4),
-            IconButton(
-              onPressed: onNotificationsTap,
-              icon: const Icon(Icons.notifications_outlined, size: 20),
-              color: DesignTokens.text,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              tooltip: "Notifications",
-            ),
+            NotificationBell(controller: notifications, onPressed: onNotificationsTap),
           ],
         ),
       ),

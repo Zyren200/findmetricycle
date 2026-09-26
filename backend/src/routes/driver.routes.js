@@ -54,6 +54,7 @@ router.get("/earnings", driverController.getEarnings);
 router.get("/performance", driverController.getPerformance);
 router.get("/ratings", driverController.getRatings);
 router.get("/notifications", driverController.getNotifications);
+router.post("/notifications/read", driverController.markNotificationsRead);
 router.post("/sos", validate(driverSchema.sosSchema), driverController.triggerSos);
 router.post("/report", validate(driverSchema.reportDriverSchema), driverController.reportIssue);
 router.post(

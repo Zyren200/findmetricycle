@@ -14,6 +14,7 @@ import "passenger_profile_controller.dart";
 import "pages/ride_history_page.dart";
 import "pages/favorites_page.dart";
 import "pages/profile_page.dart";
+import "../../shared/state/notifications_controller.dart";
 
 class PassengerShellPage extends StatefulWidget {
   const PassengerShellPage({super.key});
@@ -51,6 +52,9 @@ class _PassengerShellPageState extends State<PassengerShellPage> {
             controller.initialize();
             return controller;
           },
+        ),
+        ChangeNotifierProvider(
+          create: (_) => NotificationsController(apiClient, socketClient, role: "passenger")..load(),
         ),
         ChangeNotifierProvider(
           create: (_) {

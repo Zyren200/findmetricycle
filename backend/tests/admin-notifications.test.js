@@ -31,3 +31,20 @@ describe("admin notification feed", () => {
     expect(db.query.mock.calls[0][0]).toMatch(ADMIN_SCOPE);
   });
 });
+
+describe("passenger / driver notification feeds", () => {
+  it("keeps a dual-role account's passenger and driver notifications apart", async () => {
+    await notificationModel.listForUser(27, { role: "passenger" });
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toMatch(/user_id = \? AND recipient_role IN \(\?, 'everyone'\)/);
+    expect(params.slice(0, 3)).toEqual([27, "passenger", "passenger"]);
+  });
+
+  it("marks read only the caller's own notifications", async () => {
+    await notificationModel.markReadForUser(27, "driver", [4, 5]);
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toMatch(/user_id = \?/);
+    expect(sql).toMatch(/id IN \(\?, \?\)/);
+    expect(params).toEqual([27, "driver", 4, 5]);
+  });
+});

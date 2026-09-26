@@ -10,7 +10,8 @@ import "package:provider/provider.dart";
 import "../../../core/network/socket_client.dart";
 import "../../../core/theme/design_tokens.dart";
 import "../../../core/components/index.dart";
-import "driver_notifications_page.dart";
+import "../../shared/presentation/notifications_screen.dart";
+import "../../shared/state/notifications_controller.dart";
 import "driver_ride_controller.dart";
 import "driver_profile_page.dart";
 
@@ -387,17 +388,15 @@ class _DriverTopCards extends StatelessWidget {
                 const SizedBox(width: 10),
                 _MiniStat(label: "Earned", value: "₱${summary["total_earnings"] ?? 0}"),
                 const SizedBox(width: 4),
-                IconButton(
+                NotificationBell(
+                  controller: context.read<NotificationsController>(),
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => const DriverNotificationsPage(),
+                      builder: (_) => NotificationsScreen(
+                        controller: context.read<NotificationsController>(),
+                      ),
                     ),
                   ),
-                  icon: const Icon(Icons.notifications_outlined, size: 20),
-                  color: DesignTokens.text,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  tooltip: "Notifications",
                 ),
               ],
             ),

@@ -35,18 +35,48 @@ async function listNotifications({ search = "", limit = 50, offset = 0 } = {}, c
   );
 }
 
+// A user's feed for one app mode. One account can be both passenger and
+// driver, so personal notifications are split by the role they were sent
+// to — ride requests don't show up in the passenger app and vice versa.
+const USER_SCOPE = `(
+  (user_id = ? AND recipient_role IN (?, 'everyone'))
+  OR (user_id IS NULL AND recipient_role IN ('everyone', ?))
+)`;
+
 async function listForUser(userId, { limit = 50, offset = 0, role = "passenger" } = {}, client = db) {
   return client.query(
     `
       SELECT *
       FROM notifications
       WHERE deleted_at IS NULL
-        AND (user_id = ? OR (user_id IS NULL AND recipient_role IN ('everyone', ?)))
+        AND ${USER_SCOPE}
         AND type NOT LIKE 'wallet_%'
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
     `,
-    [userId, role, Number(limit), Number(offset)]
+    [userId, role, role, Number(limit), Number(offset)]
+  );
+}
+
+// Unread / mark-read cover the user's personal notifications only (a
+// broadcast row is shared by everyone, so one user can't mark it read).
+async function countUnreadForUser(userId, role, client = db) {
+  const [row] = await client.query(
+    `SELECT COUNT(*) AS n FROM notifications
+      WHERE deleted_at IS NULL AND is_read = 0 AND user_id = ?
+        AND recipient_role IN (?, 'everyone') AND type NOT LIKE 'wallet_%'`,
+    [userId, role]
+  );
+  return Number(row?.n || 0);
+}
+
+async function markReadForUser(userId, role, ids = null, client = db) {
+  const idFilter = Array.isArray(ids) && ids.length ? `AND id IN (${ids.map(() => "?").join(", ")})` : "";
+  await client.query(
+    `UPDATE notifications SET is_read = 1, read_at = COALESCE(read_at, NOW())
+      WHERE deleted_at IS NULL AND is_read = 0 AND user_id = ?
+        AND recipient_role IN (?, 'everyone') ${idFilter}`,
+    [userId, role, ...(idFilter ? ids : [])]
   );
 }
 
@@ -85,4 +115,6 @@ module.exports = {
   markRead,
   markAllRead,
   countUnreadForAdmin,
+  countUnreadForUser,
+  markReadForUser,
 };

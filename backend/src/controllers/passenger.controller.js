@@ -250,13 +250,35 @@ async function triggerSos(req, res, next) {
 
 async function getNotifications(req, res, next) {
   try {
-    const limit = req.query.limit ? Number(req.query.limit) : 50;
-    const offset = req.query.offset ? Number(req.query.offset) : 0;
-    const notifications = await notificationModel.listForUser(req.user.id, { limit, offset });
+    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 50, 1), 100);
+    const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0);
+    const [notifications, unread] = await Promise.all([
+      notificationModel.listForUser(req.user.id, { limit, offset, role: "passenger" }),
+      notificationModel.countUnreadForUser(req.user.id, "passenger"),
+    ]);
     res.json({
       success: true,
-      data: notifications,
+      data: notifications.map(({ metadata_json: metadata, ...row }) => ({
+        ...row,
+        metadata: metadata ? JSON.parse(metadata) : null,
+      })),
+      meta: { unread },
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Marks the given notifications (or all when no ids) as read — only the
+// caller's own.
+async function markNotificationsRead(req, res, next) {
+  try {
+    const ids = Array.isArray(req.body?.ids)
+      ? req.body.ids.map(Number).filter((id) => Number.isInteger(id) && id > 0).slice(0, 200)
+      : null;
+    await notificationModel.markReadForUser(req.user.id, "passenger", ids);
+    const unread = await notificationModel.countUnreadForUser(req.user.id, "passenger");
+    res.json({ success: true, meta: { unread } });
   } catch (error) {
     next(error);
   }
@@ -273,6 +295,7 @@ module.exports = {
   getBookingHistory,
   getFare,
   getNotifications,
+  markNotificationsRead,
   triggerSos,
   updateProfile,
   deleteAccount,
