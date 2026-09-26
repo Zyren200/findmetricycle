@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FindMeTricycle — Mobile App</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* ── EXACT ADMIN DASHBOARD DESIGN TOKENS ── */
+:root {
+  --bg:       #0e0f14;
+  --bg2:      #161820;
+  --bg3:      #1d1f2a;
+  --border:   rgba(255,255,255,0.08);
+  --border2:  rgba(255,255,255,0.14);
+  --text:     #f0f0f4;
+  --muted:    #8b8d99;
+  --accent:   #f9b84c;
+  --accent2:  #ff7c45;
+  --green:    #3ecf78;
+  --red:      #f05c5c;
+  --blue:     #4fa3e8;
+  --purple:   #a78bfa;
+  --radius:   10px;
+  --radius-lg: 16px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 16px 56px;
+}
+h1,h2,h3,h4,h5 { font-family: 'Syne', sans-serif; }
+
+.page-header { text-align: center; margin-bottom: 24px; }
+.page-header h1 { font-family:'Syne',sans-serif; font-size:24px; font-weight:700; color:var(--accent); letter-spacing:-0.3px; }
+.page-header p  { font-size:11px; color:var(--muted); margin-top:4px; letter-spacing:0.5px; text-transform:uppercase; }
+
+.mode-switcher { display:flex; gap:4px; background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:4px; margin-bottom:18px; }
+.mode-btn { padding:7px 20px; border-radius:9px; border:none; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500; cursor:pointer; background:transparent; color:var(--muted); transition:all 0.15s; }
+.mode-btn.active { background:rgba(249,184,76,0.12); color:var(--accent); }
+
+.screen-tabs { display:flex; gap:5px; flex-wrap:wrap; justify-content:center; margin-bottom:22px; max-width:700px; }
+.screen-tab { padding:5px 12px; border-radius:20px; border:1px solid var(--border); background:transparent; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:500; color:var(--muted); cursor:pointer; transition:all 0.15s; }
+.screen-tab:hover { border-color:var(--accent); color:var(--accent); }
+.screen-tab.active { background:rgba(249,184,76,0.12); border-color:var(--accent); color:var(--accent); }
+
+/* PHONE */
+.phone-frame {
+  width:375px; height:812px;
+  background:var(--bg);
+  border-radius:50px;
+  box-shadow: 0 0 0 10px var(--bg2), 0 0 0 11px var(--border2), 0 48px 96px rgba(0,0,0,0.7);
+  overflow:hidden; position:relative; display:flex; flex-direction:column;
+}
+.phone-notch { position:absolute; top:0; left:50%; transform:translateX(-50%); width:120px; height:34px; background:var(--bg2); border-radius:0 0 20px 20px; z-index:100; }
+
+/* STATUS BAR */
+.sb { padding:14px 22px 0; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; z-index:5; color:var(--muted); font-size:11px; }
+.sb-dark { color:var(--text); background:var(--bg2); }
+.sb-abs  { position:absolute; top:0; left:0; right:0; z-index:20; }
+
+/* SCREENS */
+.screen { flex:1; display:none; flex-direction:column; overflow:hidden; position:relative; }
+.screen.active { display:flex; }
+.scroll-y { overflow-y:auto; }
+.scroll-y::-webkit-scrollbar { width:0; }
+
+/* ATOMS */
+.badge { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:500; }
+.badge::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
+.badge-green  { background:rgba(62,207,120,0.12); color:var(--green); }
+.badge-red    { background:rgba(240,92,92,0.12);  color:var(--red); }
+.badge-yellow { background:rgba(249,184,76,0.12); color:var(--accent); }
+.badge-blue   { background:rgba(79,163,232,0.12); color:var(--blue); }
+.badge-gray   { background:rgba(255,255,255,0.06); color:var(--muted); }
+
+.btn { width:100%; padding:14px; border-radius:var(--radius-lg); border:none; font-family:'Syne',sans-serif; font-size:14px; font-weight:600; cursor:pointer; transition:all 0.15s; }
+.btn:active { transform:scale(0.98); }
+.btn-a { background:var(--accent); color:#0e0f14; }
+.btn-g { background:var(--bg3); color:var(--text); border:1px solid var(--border); }
+.btn-d { background:rgba(240,92,92,0.1); color:var(--red); border:1px solid rgba(240,92,92,0.2); }
+.btn-s { background:rgba(62,207,120,0.1); color:var(--green); border:1px solid rgba(62,207,120,0.2); }
+
+.fi { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; font-family:'DM Sans',sans-serif; font-size:14px; color:var(--text); outline:none; margin-bottom:12px; transition:border-color 0.15s; }
+.fi:focus { border-color:var(--accent); }
+.fi::placeholder { color:var(--muted); }
+.fl { font-size:10px; font-weight:500; color:var(--muted); letter-spacing:0.8px; text-transform:uppercase; margin-bottom:7px; }
+
+.divider { height:1px; background:var(--border); margin:12px 0; }
+
+/* STAT CARD — same as admin */
+.sc { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius-lg); padding:13px 14px; position:relative; overflow:hidden; }
+.sc::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; border-radius:var(--radius-lg) var(--radius-lg) 0 0; }
+.sc-a::before { background:var(--accent); }
+.sc-g::before { background:var(--green); }
+.sc-r::before { background:var(--red); }
+.sc-b::before { background:var(--blue); }
+.sl { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:5px; }
+.sv { font-family:'Syne',sans-serif; font-size:22px; font-weight:700; line-height:1; }
+.ss { font-size:11px; color:var(--muted); margin-top:3px; }
+.ss span { color:var(--green); }
+
+/* TABLE-WRAP rows */
+.tw { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; }
+.twr { display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px solid var(--border); font-size:13px; }
+.twr:last-child { border-bottom:none; }
+
+/* AVATAR */
+.ava { border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--accent2)); display:flex; align-items:center; justify-content:center; font-family:'Syne',sans-serif; font-weight:700; color:#0e0f14; flex-shrink:0; }
+
+/* BOTTOM NAV */
+.bnav { background:var(--bg2); border-top:1px solid var(--border); display:flex; padding:8px 0 18px; flex-shrink:0; }
+.nt { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; padding:4px 0; }
+.nt .ni { font-size:20px; transition:transform 0.15s; }
+.nt .nl { font-size:10px; font-weight:500; color:var(--muted); }
+.nt.on .nl { color:var(--accent); }
+.nt.on .ni { transform:scale(1.1); }
+
+/* MAP */
+.mapbg { flex:1; background:var(--bg3); position:relative; overflow:hidden; }
+.mgrid { position:absolute; inset:0; background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px); background-size:32px 32px; }
+.mroadh { position:absolute; left:0; right:0; height:22px; background:rgba(255,255,255,0.03); }
+.mroadv { position:absolute; top:0; bottom:0; width:22px; background:rgba(255,255,255,0.03); }
+.mbld { position:absolute; border-radius:4px; background:rgba(255,255,255,0.04); border:1px solid var(--border); }
+.youdot { position:absolute; width:14px; height:14px; border-radius:50%; background:var(--accent); border:2px solid var(--bg); box-shadow:0 0 0 4px rgba(249,184,76,0.2); top:50%; left:50%; transform:translate(-50%,-50%); }
+.youdot.gn { background:var(--green); box-shadow:0 0 0 4px rgba(62,207,120,0.2); }
+.pulse { position:absolute; width:44px; height:44px; border-radius:50%; background:rgba(249,184,76,0.1); top:50%; left:50%; transform:translate(-50%,-50%); animation:mp 2s infinite; }
+.pulse.gn { background:rgba(62,207,120,0.1); }
+@keyframes mp { 0%,100%{transform:translate(-50%,-50%)scale(1);opacity:1} 50%{transform:translate(-50%,-50%)scale(1.9);opacity:0} }
+.dpin { position:absolute; font-size:20px; transform:translate(-50%,-50%); filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5)); }
+
+/* MAP TOPBAR */
+.mtb { position:absolute; top:46px; left:0; right:0; padding:10px 14px; display:flex; align-items:center; gap:10px; z-index:10; }
+.gchip { flex:1; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius-lg); padding:9px 12px; display:flex; align-items:center; gap:10px; box-shadow:0 4px 20px rgba(0,0,0,0.5); }
+.gname { font-family:'Syne',sans-serif; font-size:13px; font-weight:600; color:var(--text); }
+.gsub  { font-size:11px; color:var(--muted); }
+.ibtn  { width:40px; height:40px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); display:flex; align-items:center; justify-content:center; font-size:15px; cursor:pointer; position:relative; box-shadow:0 4px 20px rgba(0,0,0,0.5); }
+.rdot  { position:absolute; top:7px; right:7px; width:7px; height:7px; background:var(--red); border-radius:50%; border:2px solid var(--bg2); }
+
+/* TOAST */
+.toastWrap { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:8px; z-index:999; align-items:center; }
+.toastMsg { background:var(--bg2); border:1px solid var(--border2); border-radius:10px; padding:10px 16px; font-size:12.5px; color:var(--text); min-width:200px; max-width:320px; box-shadow:0 8px 24px rgba(0,0,0,0.5); animation:toastIn 0.2s ease; display:flex; align-items:center; gap:8px; }
+.toastMsg.success { border-color:rgba(62,207,120,0.4); }
+.toastMsg.error { border-color:rgba(240,92,92,0.4); }
+@keyframes toastIn { from{transform:translateY(12px);opacity:0} to{transform:translateY(0);opacity:1} }
+
+/* WALLET / STELLAR */
+.walletHero { background:linear-gradient(135deg, rgba(249,184,76,0.14), rgba(167,139,250,0.10)); border:1px solid var(--border2); border-radius:20px; padding:20px; position:relative; overflow:hidden; margin-bottom:14px; }
+.walletHero::after { content:''; position:absolute; top:-36px; right:-36px; width:120px; height:120px; border-radius:50%; background:radial-gradient(circle,rgba(249,184,76,0.18),transparent 70%); }
+.walletBal { font-family:'Syne',sans-serif; font-size:32px; font-weight:700; color:var(--text); line-height:1; margin:4px 0 2px; }
+.walletAddr { font-family:monospace; font-size:11.5px; color:var(--muted); background:rgba(0,0,0,0.25); border:1px solid var(--border); padding:6px 10px; border-radius:8px; display:inline-flex; align-items:center; gap:8px; margin-top:8px; }
+.mono-addr { font-family:monospace; font-size:11px; color:var(--text); background:var(--bg3); padding:3px 8px; border-radius:6px; }
+.tx-hash { font-family:monospace; color:var(--blue); cursor:pointer; }
+.walletActions { display:flex; gap:8px; margin-top:14px; }
+.waBtn { flex:1; background:rgba(255,255,255,0.06); border:1px solid var(--border2); border-radius:12px; padding:10px 6px; text-align:center; cursor:pointer; }
+.waIcon { font-size:17px; margin-bottom:3px; }
+.waLbl { font-size:10.5px; color:var(--text); font-weight:500; }
+.stellarChip { display:inline-flex; align-items:center; gap:5px; background:rgba(167,139,250,0.14); border:1px solid rgba(167,139,250,0.3); color:var(--purple); font-size:10.5px; font-weight:500; padding:3px 9px; border-radius:20px; }
+.qrBox { width:190px; height:190px; margin:14px auto; border-radius:14px; background:
+    repeating-linear-gradient(0deg, #fff 0 7px, #0e0f14 7px 14px),
+    repeating-linear-gradient(90deg, #fff 0 7px, transparent 7px 14px);
+  background-blend-mode: screen; border:7px solid #fff; }
+.qrBoxSm { width:52px; height:52px; border-radius:8px; background:
+    repeating-linear-gradient(0deg, #fff 0 4px, #0e0f14 4px 8px),
+    repeating-linear-gradient(90deg, #fff 0 4px, transparent 4px 8px);
+  background-blend-mode: screen; border:3px solid #fff; flex-shrink:0; }
+.receiptCard { background:var(--bg2); border:1px solid var(--border); border-radius:18px; padding:18px; position:relative; }
+.receiptCard::before, .receiptCard::after { content:''; position:absolute; width:18px; height:18px; background:var(--bg); border-radius:50%; top:50%; transform:translateY(-50%); }
+.receiptCard::before { left:-9px; } .receiptCard::after { right:-9px; }
+.rline { display:flex; justify-content:space-between; font-size:12.5px; padding:7px 0; border-bottom:1px dashed var(--border); }
+.rline:last-child { border-bottom:none; }
+.rline span:first-child { color:var(--muted); }
+.rline span:last-child { color:var(--text); font-weight:500; }
+.payProcessing { width:64px; height:64px; border:3px solid rgba(167,139,250,0.15); border-top-color:var(--purple); border-radius:50%; animation:sp 1s linear infinite; margin:0 auto 14px; }
+
+/* SHEET */
+.sheet { background:var(--bg2); border-radius:20px 20px 0 0; border-top:1px solid var(--border); padding:10px 18px 18px; flex-shrink:0; }
+.handle { width:36px; height:3px; background:var(--border2); border-radius:3px; margin:0 auto 14px; }
+
+/* LOCATION ROW */
+.lr { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.ldot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.lf { flex:1; background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius); padding:11px 12px; font-size:13px; color:var(--text); cursor:pointer; font-weight:500; }
+.lf.ph { color:var(--muted); font-weight:400; }
+
+/* RECENT PLACE */
+.rp { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); cursor:pointer; }
+.rp:last-child { border-bottom:none; }
+.rpi { width:34px; height:34px; border-radius:var(--radius); background:var(--bg3); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0; }
+.rpn { font-size:13px; font-weight:500; color:var(--text); }
+.rpa { font-size:11px; color:var(--muted); margin-top:1px; }
+
+/* LIVE PILL */
+.livepill { display:inline-flex; align-items:center; gap:5px; background:rgba(62,207,120,0.1); border:1px solid rgba(62,207,120,0.2); border-radius:20px; padding:4px 10px; font-size:11px; color:var(--green); }
+.ldotl { width:6px; height:6px; border-radius:50%; background:var(--green); animation:lp 1.5s infinite; }
+@keyframes lp { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+/* ESTIMATE CARD */
+.ec { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius-lg); padding:14px; display:flex; align-items:center; gap:12px; margin-bottom:10px; cursor:pointer; transition:border-color 0.15s; }
+.ec.sel { border-color:var(--accent); background:rgba(249,184,76,0.04); }
+.enm { font-size:13px; font-weight:500; color:var(--text); }
+.eds { font-size:11px; color:var(--muted); margin-top:2px; }
+.epr { font-family:'Syne',sans-serif; font-size:18px; font-weight:700; color:var(--text); }
+.eta { font-size:11px; color:var(--accent); text-align:right; margin-top:2px; }
+
+/* SEARCHING SPIN */
+.spin { width:56px; height:56px; border:3px solid rgba(249,184,76,0.15); border-top-color:var(--accent); border-radius:50%; animation:sp 1s linear infinite; margin-bottom:12px; }
+@keyframes sp { to{transform:rotate(360deg)} }
+
+/* DRIVER FOUND CARD */
+.dfc { background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius-lg); padding:14px; display:flex; gap:12px; align-items:center; margin-bottom:14px; }
+.dname { font-family:'Syne',sans-serif; font-size:15px; font-weight:600; color:var(--text); }
+.dplate { display:inline-block; background:var(--bg); color:var(--accent); font-family:'Syne',sans-serif; font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; margin-top:3px; border:1px solid rgba(249,184,76,0.25); letter-spacing:1px; }
+.drat { font-size:12px; color:var(--accent); margin-top:4px; }
+
+/* ETA BADGE */
+.etab { background:rgba(249,184,76,0.1); border:1px solid rgba(249,184,76,0.25); border-radius:var(--radius); padding:10px 12px; text-align:center; }
+.etanum { font-family:'Syne',sans-serif; font-size:26px; font-weight:700; color:var(--accent); line-height:1; }
+.etal   { font-size:10px; color:var(--muted); margin-top:2px; text-transform:uppercase; letter-spacing:0.3px; }
+
+/* ACTION ROW */
+.ar  { display:flex; gap:8px; margin-bottom:12px; }
+.ab  { flex:1; padding:11px 8px; border-radius:var(--radius); border:none; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:500; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; }
+.ab-c { background:rgba(62,207,120,0.1);  color:var(--green);  border:1px solid rgba(62,207,120,0.2); }
+.ab-m { background:rgba(79,163,232,0.1);  color:var(--blue);   border:1px solid rgba(79,163,232,0.2); }
+.ab-x { background:rgba(240,92,92,0.1);   color:var(--red);    border:1px solid rgba(240,92,92,0.2); }
+
+/* TRIP CARD */
+.tc { background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius-lg); padding:14px; display:flex; flex-direction:column; gap:9px; }
+.tr { display:flex; justify-content:space-between; align-items:center; font-size:13px; }
+.trl { color:var(--muted); }
+.trv { font-weight:500; color:var(--text); }
+
+/* TIMELINE */
+.tli { display:flex; gap:12px; position:relative; }
+.tli:not(:last-child)::after { content:''; position:absolute; left:5px; top:14px; width:1px; height:calc(100% + 4px); background:var(--border); }
+.tldot { width:12px; height:12px; border-radius:50%; flex-shrink:0; margin-top:2px; position:relative; z-index:1; }
+.tlb { flex:1; padding-bottom:16px; }
+.tln { font-size:13px; font-weight:500; color:var(--text); }
+.tlt { font-size:11px; color:var(--muted); margin-top:2px; }
+
+/* PROGRESS */
+.ptk { height:5px; background:var(--bg3); border-radius:5px; overflow:hidden; }
+.pfl { height:100%; background:var(--accent); border-radius:5px; }
+
+/* STARS */
+.starrow { display:flex; justify-content:center; gap:10px; margin-bottom:16px; }
+.star { font-size:32px; cursor:pointer; filter:grayscale(1) opacity(0.2); transition:filter 0.1s,transform 0.1s; line-height:1; }
+.star.lit { filter:none; transform:scale(1.1); }
+
+/* PROFILE */
+.phdr { background:var(--bg2); border-bottom:1px solid var(--border); padding:52px 20px 20px; flex-shrink:0; }
+.pavar { display:flex; align-items:flex-end; gap:14px; margin-bottom:10px; }
+.pava { width:66px; height:66px; border-radius:20px; background:linear-gradient(135deg,var(--accent),var(--accent2)); border:2px solid var(--border2); display:flex; align-items:center; justify-content:center; font-family:'Syne',sans-serif; font-size:22px; font-weight:700; color:#0e0f14; }
+.pname { font-family:'Syne',sans-serif; font-size:20px; font-weight:700; color:var(--text); }
+.prole { font-size:12px; color:var(--muted); margin-top:3px; }
+.pbody { flex:1; overflow-y:auto; padding:14px 16px 8px; background:var(--bg); }
+.pbody::-webkit-scrollbar { width:0; }
+.pcard { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; margin-bottom:10px; }
+.pcs  { font-size:10px; font-weight:500; color:var(--muted); letter-spacing:0.8px; text-transform:uppercase; padding:12px 14px 8px; }
+.pcr  { display:flex; align-items:center; gap:12px; padding:11px 14px; border-top:1px solid var(--border); cursor:pointer; transition:background 0.12s; }
+.pcr:hover { background:var(--bg3); }
+.pci  { width:32px; height:32px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:14px; background:var(--bg3); border:1px solid var(--border); flex-shrink:0; }
+.pcl  { flex:1; font-size:13px; font-weight:400; color:var(--text); }
+.pcv  { font-size:12px; color:var(--muted); }
+.pcc  { font-size:14px; color:var(--border2); }
+
+/* HISTORY ITEM */
+.hi { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius-lg); padding:12px 14px; display:flex; gap:12px; align-items:flex-start; margin-bottom:8px; }
+.hii { width:36px; height:36px; border-radius:var(--radius); display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; border:1px solid var(--border); }
+.hir { font-size:13px; font-weight:500; color:var(--text); }
+.him { font-size:11px; color:var(--muted); margin-top:3px; }
+.hif { font-family:'Syne',sans-serif; font-size:15px; font-weight:600; color:var(--accent); }
+
+/* DRIVER REQUEST */
+.cring { width:46px; height:46px; border-radius:50%; background:var(--bg3); border:2px solid var(--accent); display:flex; align-items:center; justify-content:center; font-family:'Syne',sans-serif; font-size:20px; font-weight:700; color:var(--accent); }
+.rpcard { background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius-lg); padding:14px; margin-bottom:12px; }
+.paxava { width:44px; height:44px; border-radius:14px; background:var(--bg); border:1px solid var(--border2); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+.paxnm  { font-family:'Syne',sans-serif; font-size:15px; font-weight:600; color:var(--text); }
+.paxrt  { font-size:12px; color:var(--accent); }
+.rline  { display:flex; align-items:center; gap:10px; position:relative; }
+.rline:not(:last-child)::after { content:''; position:absolute; left:5px; top:13px; width:1px; height:22px; background:var(--border2); }
+.rdots { width:12px; height:12px; border-radius:50%; flex-shrink:0; position:relative; z-index:1; }
+.rlinename { font-size:13px; color:var(--text); padding:5px 0; }
+
+/* RIDE BANNER (driver on-ride) */
+.rbanner { background:rgba(249,184,76,0.1); border:1px solid rgba(249,184,76,0.2); border-radius:var(--radius-lg); padding:12px 14px; display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.rbl { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; }
+.rbs { font-family:'Syne',sans-serif; font-size:14px; font-weight:600; color:var(--accent); }
+.rbt { font-family:'Syne',sans-serif; font-size:24px; font-weight:700; color:var(--accent); line-height:1; }
+
+/* NOTIF */
+.nitem { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius-lg); padding:12px 14px; display:flex; gap:10px; align-items:flex-start; margin-bottom:8px; }
+.ntxt { font-size:13px; color:var(--text); line-height:1.5; }
+.ntm  { font-size:11px; color:var(--muted); margin-top:4px; }
+.nud  { width:7px; height:7px; border-radius:50%; background:var(--accent); flex-shrink:0; margin-top:4px; }
+
+/* WARNING BANNER */
+.wbanner { background:rgba(240,92,92,0.08); border:1px solid rgba(240,92,92,0.2); border-radius:var(--radius); padding:12px 14px; display:flex; gap:10px; font-size:13px; color:var(--red); margin-bottom:12px; }
+
+/* ROLE CARD */
+.rc { flex:1; padding:13px 10px; background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius-lg); text-align:center; cursor:pointer; transition:all 0.15s; }
+.rc.sel { border-color:var(--accent); background:rgba(249,184,76,0.07); }
+.rci { font-size:24px; margin-bottom:5px; }
+.rcn { font-size:12px; font-weight:500; color:var(--muted); }
+.rc.sel .rcn { color:var(--accent); }
+
+/* UPLOAD BOX */
+.upbox { border:1px dashed var(--border2); border-radius:var(--radius); padding:16px; text-align:center; margin-bottom:12px; cursor:pointer; transition:border-color 0.15s; }
+.upbox:hover { border-color:var(--accent); }
+.upi { font-size:22px; margin-bottom:5px; opacity:0.4; }
+.upt { font-size:13px; font-weight:500; color:var(--text); margin-bottom:2px; }
+.ups { font-size:11px; color:var(--muted); }
+
+/* STEP DOTS */
+.stepdots { display:flex; gap:6px; margin-bottom:18px; }
+.sd { flex:1; height:3px; border-radius:3px; background:var(--border); }
+.sd.done { background:var(--accent); }
+
+/* PAGE HEADER BACK */
+.phd { background:var(--bg2); border-bottom:1px solid var(--border); padding:6px 18px 18px; flex-shrink:0; display:flex; align-items:center; gap:12px; }
+.backbtn { width:34px; height:34px; border-radius:var(--radius); background:var(--bg3); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:15px; color:var(--muted); flex-shrink:0; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>🛺 FindMeTricycle</h1>
+  <p>Mobile App · Interactive Prototype</p>
+</div>
+
+<div class="mode-switcher">
+  <button class="mode-btn active" onclick="setMode('passenger')">🧑 Passenger</button>
+  <button class="mode-btn"        onclick="setMode('driver')">🧑‍✈️ Driver</button>
+</div>
+<div class="screen-tabs" id="screenTabs"></div>
+
+<div class="phone-frame" id="phone">
+  <div class="phone-notch"></div>
+
+  <!-- SPLASH -->
+  <div class="screen active" id="splash" data-mode="both" data-label="Splash">
+    <div class="sb sb-abs"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg)">
+      <div style="font-size:64px;margin-bottom:16px">🛺</div>
+      <div style="font-family:'Syne',sans-serif;font-size:40px;font-weight:800;color:var(--accent);line-height:1;text-align:center;letter-spacing:-1px">FindMe<br>Tricycle</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;letter-spacing:1.5px;text-transform:uppercase">Cebu's smarter ride</div>
+      <div style="margin-top:48px;display:flex;gap:6px">
+        <div style="width:24px;height:3px;background:var(--accent);border-radius:3px"></div>
+        <div style="width:6px;height:3px;background:var(--border2);border-radius:3px"></div>
+        <div style="width:6px;height:3px;background:var(--border2);border-radius:3px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOGIN -->
+  <div class="screen" id="login" data-mode="both" data-label="Login">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div style="background:var(--bg2);padding:6px 20px 22px;flex-shrink:0;border-bottom:1px solid var(--border)">
+      <div style="font-size:26px;margin-bottom:10px">👋</div>
+      <div style="font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:var(--text);line-height:1.1">Welcome <span style="color:var(--accent)">Back</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:5px">Login to your account</div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:18px 20px;background:var(--bg)">
+      <div style="display:flex;gap:8px;margin-bottom:18px">
+        <div class="rc sel" onclick="selRole(this)"><div class="rci">🧑</div><div class="rcn">Passenger</div></div>
+        <div class="rc"     onclick="selRole(this)"><div class="rci">🧑‍✈️</div><div class="rcn">Driver</div></div>
+      </div>
+      <div class="fl">Phone Number</div>
+      <input class="fi" type="tel" placeholder="+63 9XX XXX XXXX">
+      <div class="fl">Password</div>
+      <input class="fi" type="password" placeholder="Enter password">
+      <button class="btn btn-a" style="margin-top:4px" onclick="showScreen('pax-home')">Login</button>
+      <button class="btn btn-g" style="margin-top:10px" onclick="showScreen('register')">Create Account</button>
+      <div style="text-align:center;font-size:12px;color:var(--muted);margin-top:14px">Forgot password? <span style="color:var(--accent);cursor:pointer;font-weight:500">Reset</span></div>
+    </div>
+  </div>
+
+  <!-- REGISTER -->
+  <div class="screen" id="register" data-mode="both" data-label="Register">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div class="phd">
+      <div class="backbtn" onclick="showScreen('login')">←</div>
+      <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:600;color:var(--text)">Create Account</div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:16px 20px;background:var(--bg)">
+      <div class="stepdots"><div class="sd done"></div><div class="sd done"></div><div class="sd"></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:18px">
+        <div class="rc sel" id="regPax" onclick="selRegRole('passenger',this)"><div class="rci">🧑</div><div class="rcn">Passenger</div></div>
+        <div class="rc"     id="regDrv" onclick="selRegRole('driver',this)"><div class="rci">🧑‍✈️</div><div class="rcn">Driver</div></div>
+      </div>
+      <div class="fl">Full Name</div><input class="fi" placeholder="Juan Dela Cruz">
+      <div class="fl">Phone Number</div><input class="fi" type="tel" placeholder="+63 9XX XXX XXXX">
+      <div class="fl">Email (optional)</div><input class="fi" type="email" placeholder="juan@email.com">
+      <div class="fl">Password</div><input class="fi" type="password" placeholder="Create strong password">
+      <div id="driverDocs" style="display:none">
+        <div class="divider"></div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px;font-weight:500">Driver Documents</div>
+        <div class="fl">Tricycle Plate Number</div><input class="fi" placeholder="ABC 1234">
+        <div class="upbox"><div class="upi">🪪</div><div class="upt">Driver's License</div><div class="ups">Tap to upload photo</div></div>
+        <div class="upbox"><div class="upi">📄</div><div class="upt">Business Permit</div><div class="ups">Tap to upload photo</div></div>
+      </div>
+      <button class="btn btn-a" style="margin-top:6px" onclick="showScreen('pax-home')">Create Account</button>
+      <div style="text-align:center;font-size:12px;color:var(--muted);margin-top:12px">Already have an account? <span style="color:var(--accent);cursor:pointer;font-weight:500" onclick="showScreen('login')">Login</span></div>
+    </div>
+  </div>
+
+  <!-- PAX HOME -->
+  <div class="screen" id="pax-home" data-mode="passenger" data-label="Pax Home">
+    <div class="sb sb-abs"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div class="mapbg">
+      <div class="mgrid"></div>
+      <div class="mroadh" style="top:42%"></div><div class="mroadh" style="top:68%"></div>
+      <div class="mroadv" style="left:28%"></div><div class="mroadv" style="left:62%"></div>
+      <div class="mbld" style="top:17%;left:8%;width:54px;height:46px"></div>
+      <div class="mbld" style="top:13%;left:38%;width:72px;height:54px"></div>
+      <div class="mbld" style="top:50%;left:65%;width:48px;height:40px"></div>
+      <div class="dpin" style="top:34%;left:21%">🛺</div>
+      <div class="dpin" style="top:57%;left:54%">🛺</div>
+      <div class="dpin" style="top:27%;left:67%">🛺</div>
+      <div class="pulse"></div><div class="youdot"></div>
+      <div class="mtb">
+        <div class="gchip">
+          <div class="ava" style="width:28px;height:28px;font-size:10px;flex-shrink:0">MS</div>
+          <div><div class="gname">Maria Santos</div><div class="gsub">Good morning</div></div>
+        </div>
+        <div class="ibtn" onclick="showScreen('pax-notifs')">🔔<div class="rdot"></div></div>
+      </div>
+      <div style="position:absolute;bottom:16px;right:12px;display:flex;flex-direction:column;gap:6px;z-index:10">
+        <div class="ibtn" style="width:34px;height:34px;font-size:13px" onclick="showToast('Zoomed in','info')">＋</div>
+        <div class="ibtn" style="width:34px;height:34px;font-size:13px" onclick="showToast('Zoomed out','info')">－</div>
+        <div class="ibtn" style="width:34px;height:34px;font-size:13px" onclick="showToast('Tilted to 3D','info')">🏔️</div>
+      </div>
+      <div style="position:absolute;top:98px;left:12px;font-size:9.5px;color:var(--muted);background:rgba(14,15,20,0.7);padding:3px 8px;border-radius:6px;z-index:10">🗺️ MapLibre GL · OpenFreeMap</div>
+    </div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:600;color:var(--text);margin-bottom:12px">Where are you going?</div>
+      <div class="lr"><div class="ldot" style="background:var(--accent)"></div><div class="lf">My Location</div></div>
+      <div class="lr" style="margin-bottom:14px"><div class="ldot" style="background:var(--muted)"></div><div class="lf ph" onclick="showScreen('pax-estimate')">Where to?</div></div>
+      <div style="font-size:10px;font-weight:500;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:10px">Recent Places</div>
+      <div class="rp" onclick="showScreen('pax-estimate')"><div class="rpi">🏬</div><div><div class="rpn">SM City Cebu</div><div class="rpa">North Reclamation Area</div></div></div>
+      <div class="rp" onclick="showScreen('pax-estimate')"><div class="rpi">🏥</div><div><div class="rpn">Chong Hua Hospital</div><div class="rpa">Don Marcelino Velez St.</div></div></div>
+      <div class="rp" onclick="showScreen('pax-estimate')"><div class="rpi">🎓</div><div><div class="rpn">University of Cebu</div><div class="rpa">Sanciangko St.</div></div></div>
+    </div>
+    <div class="bnav">
+      <div class="nt on"><div class="ni">🗺️</div><div class="nl" style="color:var(--accent)">Home</div></div>
+      <div class="nt" onclick="showScreen('pax-history')"><div class="ni">🧾</div><div class="nl">History</div></div>
+      <div class="nt" onclick="showScreen('pax-wallet')"><div class="ni">👛</div><div class="nl">Wallet</div></div>
+      <div class="nt" onclick="showScreen('pax-profile')"><div class="ni">👤</div><div class="nl">Profile</div></div>
+    </div>
+  </div>
+
+  <!-- PAX FARE ESTIMATE -->
+  <div class="screen" id="pax-estimate" data-mode="passenger" data-label="Fare Estimate">
+    <div class="sb sb-dark"><span>9:42</span><span>▲ ● ▐▐▐</span></div>
+    <div class="phd">
+      <div class="backbtn" onclick="showScreen('pax-home')">←</div>
+      <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:600;color:var(--text)">Choose Ride</div>
+    </div>
+    <div style="background:var(--bg2);padding:0 18px 14px;flex-shrink:0;border-bottom:1px solid var(--border)">
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+        <div class="lr" style="margin-bottom:8px"><div class="ldot" style="background:var(--accent)"></div><div style="font-size:13px;color:var(--muted)">My Current Location</div></div>
+        <div class="lr" style="margin-bottom:0"><div class="ldot" style="background:var(--text)"></div><div style="font-size:13px;color:var(--text);font-weight:500">SM City Cebu</div></div>
+      </div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:14px 18px;background:var(--bg)">
+      <div style="font-size:10px;font-weight:500;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:12px">Available Options</div>
+      <div class="ec sel" onclick="selEst(this)">
+        <div style="font-size:26px">🛺</div>
+        <div style="flex:1"><div class="enm">Regular Tricycle</div><div class="eds">Up to 3 passengers</div></div>
+        <div style="text-align:right"><div class="epr">₱45</div><div class="eta">~4 min</div></div>
+      </div>
+      <div class="ec" onclick="selEst(this)">
+        <div style="font-size:26px">🏍️</div>
+        <div style="flex:1"><div class="enm">Habal-habal</div><div class="eds">Motorcycle, 1 pax</div></div>
+        <div style="text-align:right"><div class="epr">₱35</div><div class="eta">~2 min</div></div>
+      </div>
+      <div class="tw">
+        <div class="twr"><span style="color:var(--muted)">Distance</span><span style="font-weight:500;color:var(--text)">3.2 km</span></div>
+        <div class="twr"><span style="color:var(--muted)">Est. time</span><span style="font-weight:500;color:var(--text)">12 mins</span></div>
+        <div class="twr"><span style="color:var(--muted)">Payment</span><span style="font-weight:500;color:var(--text)" id="payMethodLbl">💵 Cash</span></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <div class="waBtn" style="flex:1" onclick="setPayMethod('💵 Cash')"><div class="waLbl">💵 Cash</div></div>
+        <div class="waBtn" style="flex:1;border-color:rgba(167,139,250,0.35)" onclick="setPayMethod('⭐ Stellar Wallet')"><div class="waLbl">⭐ Stellar Wallet</div></div>
+      </div>
+    </div>
+    <div style="padding:14px 18px 20px;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0">
+      <button class="btn btn-a" onclick="showScreen('pax-searching')">Find Tricycle — ₱45</button>
+    </div>
+  </div>
+
+  <!-- PAX SEARCHING -->
+  <div class="screen" id="pax-searching" data-mode="passenger" data-label="Searching">
+    <div class="sb sb-abs"><span>9:43</span><span>▲ ● ▐▐▐</span></div>
+    <div class="mapbg" style="flex:1">
+      <div class="mgrid"></div>
+      <div class="mroadh" style="top:45%"></div><div class="mroadv" style="left:50%"></div>
+      <div class="mbld" style="top:20%;left:10%;width:58px;height:48px"></div>
+      <div class="mbld" style="top:58%;left:62%;width:50px;height:42px"></div>
+      <div class="youdot"></div>
+      <div style="position:absolute;inset:0;background:rgba(14,15,20,0.65);display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div class="spin"></div>
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:600;color:var(--text)">Finding nearby drivers…</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">12 drivers available</div>
+      </div>
+    </div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;display:flex;align-items:center;margin-bottom:14px">
+        <div style="flex:1"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">From</div><div style="font-size:13px;font-weight:500;color:var(--text);margin-top:2px">My Location</div></div>
+        <div style="color:var(--accent);font-size:18px;padding:0 10px">→</div>
+        <div style="flex:1;text-align:right"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">To</div><div style="font-size:13px;font-weight:500;color:var(--text);margin-top:2px">SM City Cebu</div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <span style="font-size:13px;color:var(--muted)">Estimated fare</span>
+        <span style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--accent)">₱45</span>
+      </div>
+      <button class="btn btn-g" onclick="showScreen('pax-home')">Cancel Search</button>
+      <div style="text-align:center;margin-top:10px;font-size:12px;color:var(--accent);cursor:pointer;font-weight:500" onclick="showScreen('pax-driver-found')">→ Simulate: Driver Found</div>
+    </div>
+  </div>
+
+  <!-- PAX DRIVER FOUND -->
+  <div class="screen" id="pax-driver-found" data-mode="passenger" data-label="Driver Found">
+    <div class="sb sb-dark"><span>9:44</span><span>▲ ● ▐▐▐</span></div>
+    <div class="mapbg" style="height:210px;flex-shrink:0">
+      <div class="mgrid"></div>
+      <div class="mroadh" style="top:50%"></div><div class="mroadv" style="left:40%"></div>
+      <div class="mbld" style="top:18%;left:8%;width:54px;height:46px"></div>
+      <div class="youdot"></div>
+      <div class="dpin" style="top:32%;left:22%;font-size:22px">🛺</div>
+      <div style="position:absolute;top:32%;left:22%;width:28%;height:2px;background:var(--accent);opacity:0.5;transform:rotate(8deg)"></div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:14px 18px;background:var(--bg)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:600;color:var(--text)">Driver on the way!</div>
+        <div class="etab"><div class="etanum">4</div><div class="etal">min away</div></div>
+      </div>
+      <div class="dfc">
+        <div class="ava" style="width:50px;height:50px;font-size:15px;border-radius:14px">JD</div>
+        <div style="flex:1">
+          <div class="dname">Juan Dela Cruz</div>
+          <div><span class="dplate">ABC 1234</span></div>
+          <div class="drat">★★★★★ <span style="color:var(--muted);font-size:11px">4.9 (342)</span></div>
+        </div>
+      </div>
+      <div class="ar">
+        <button class="ab ab-c">📞 Call</button>
+        <button class="ab ab-m">💬 Chat</button>
+        <button class="ab ab-x" onclick="showScreen('pax-home')">✕ Cancel</button>
+      </div>
+      <div class="tc">
+        <div class="tr"><span class="trl">Pickup</span><span class="trv">My Location</span></div>
+        <div style="height:1px;background:var(--border)"></div>
+        <div class="tr"><span class="trl">Destination</span><span class="trv">SM City Cebu</span></div>
+        <div style="height:1px;background:var(--border)"></div>
+        <div class="tr"><span class="trl">Fare</span><span class="trv" style="color:var(--accent);font-family:'Syne',sans-serif;font-weight:700">₱45</span></div>
+        <div style="height:1px;background:var(--border)"></div>
+        <div class="tr"><span class="trl">Payment</span><span class="trv">💵 Cash</span></div>
+      </div>
+    </div>
+    <div style="padding:14px 18px 20px;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0">
+      <button class="btn btn-a" onclick="showScreen('pax-on-ride')">Driver Arrived — Start Ride</button>
+    </div>
+  </div>
+
+  <!-- PAX ON RIDE -->
+  <div class="screen" id="pax-on-ride" data-mode="passenger" data-label="On Ride">
+    <div class="sb sb-abs"><span>9:51</span><span>▲ ● ▐▐▐</span></div>
+    <div class="mapbg" style="height:295px;flex-shrink:0">
+      <div class="mgrid"></div>
+      <div class="mroadh" style="top:40%"></div><div class="mroadh" style="top:70%"></div>
+      <div class="mroadv" style="left:28%"></div><div class="mroadv" style="left:62%"></div>
+      <div class="mbld" style="top:13%;left:33%;width:72px;height:54px"></div>
+      <div style="position:absolute;top:40%;left:28%;width:34%;height:2px;background:var(--accent);opacity:0.6"></div>
+      <div class="dpin" style="top:38%;left:47%;font-size:22px">🛺</div>
+      <div style="position:absolute;top:30%;right:12%;font-size:20px">📍</div>
+      <div style="position:absolute;top:48px;left:14px;right:14px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:10px 14px;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Destination</div>
+        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:600;color:var(--text);margin-top:2px">SM City Cebu</div>
+        <div style="font-size:11px;color:var(--accent);margin-top:2px">~6 min remaining</div>
+      </div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:14px 18px;background:var(--bg)">
+      <div style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:7px"><span>My Location</span><span>SM City Cebu</span></div>
+        <div class="ptk"><div class="pfl" style="width:60%"></div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0;margin-bottom:14px">
+        <div class="tli"><div class="tldot" style="background:var(--green)"></div><div class="tlb"><div class="tln">Picked up ✓</div><div class="tlt">9:48 AM · Colon Street</div></div></div>
+        <div class="tli"><div class="tldot" style="background:var(--accent);box-shadow:0 0 0 3px rgba(249,184,76,0.2)"></div><div class="tlb"><div class="tln" style="color:var(--accent)">In transit — Now</div><div class="tlt">Passing Carbon Market</div></div></div>
+        <div class="tli"><div class="tldot" style="background:var(--border2)"></div><div class="tlb"><div class="tln" style="color:var(--muted)">SM City Cebu</div><div class="tlt">~6 min · 1.8 km left</div></div></div>
+      </div>
+      <div class="ar"><button class="ab ab-c" style="flex:1">📞 Call Driver</button><button class="ab ab-x" style="flex:1" onclick="showScreen('pax-home')">🚨 Emergency</button></div>
+      <button class="btn btn-a" style="margin-top:10px" onclick="showScreen('pax-rating')">Arrive — Complete Ride</button>
+    </div>
+  </div>
+
+  <!-- PAX RATING -->
+  <div class="screen" id="pax-rating" data-mode="passenger" data-label="Rate Driver">
+    <div class="sb sb-dark"><span>10:03</span><span>▲ ● ▐▐▐</span></div>
+    <div class="scroll-y" style="flex:1;padding:20px 18px;background:var(--bg);display:flex;flex-direction:column;align-items:center">
+      <div style="text-align:center;margin-bottom:18px">
+        <div style="font-size:54px;margin-bottom:12px">🎉</div>
+        <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:700;color:var(--text);line-height:1">Ride Complete!</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:6px">You've arrived at SM City Cebu</div>
+      </div>
+      <div class="dfc" style="width:100%">
+        <div class="ava" style="width:42px;height:42px;font-size:13px;border-radius:12px">JD</div>
+        <div style="flex:1"><div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--text)">Juan Dela Cruz</div><div class="drat">★★★★★</div></div>
+        <div style="text-align:right"><div style="font-size:10px;color:var(--muted)">Total Fare</div><div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:var(--accent)">₱45</div></div>
+      </div>
+      <button class="btn btn-a" style="width:100%;margin-top:12px" onclick="showScreen('pax-payment')">💫 Pay with Stellar</button>
+      <div style="font-size:13px;font-weight:500;color:var(--text);margin:14px 0 12px;text-align:center">How was your ride?</div>
+      <div class="starrow" id="starRow">
+        <div class="star lit" onclick="setRating(1)">⭐</div>
+        <div class="star lit" onclick="setRating(2)">⭐</div>
+        <div class="star lit" onclick="setRating(3)">⭐</div>
+        <div class="star lit" onclick="setRating(4)">⭐</div>
+        <div class="star lit" onclick="setRating(5)">⭐</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin-bottom:14px;width:100%">
+        <span class="badge badge-yellow" style="cursor:pointer">Safe Driver</span>
+        <span class="badge badge-yellow" style="cursor:pointer">On time</span>
+        <span class="badge badge-gray"   style="cursor:pointer">Good Chat</span>
+        <span class="badge badge-gray"   style="cursor:pointer">Clean Trike</span>
+      </div>
+      <textarea style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);resize:none;height:68px;outline:none;margin-bottom:14px;transition:border-color 0.15s" placeholder="Leave a comment (optional)…" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+      <button class="btn btn-a" style="width:100%" onclick="showScreen('pax-home')">Submit Rating</button>
+      <div style="font-size:12px;color:var(--muted);margin-top:10px;cursor:pointer" onclick="showScreen('pax-home')">Skip</div>
+    </div>
+  </div>
+
+  <!-- PAX HISTORY -->
+  <div class="screen" id="pax-history" data-mode="passenger" data-label="Pax History">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div style="background:var(--bg2);padding:6px 20px 16px;flex-shrink:0;border-bottom:1px solid var(--border)">
+      <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text)">My Rides</div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:12px 16px;background:var(--bg)">
+      <div class="hi"><div class="hii" style="background:rgba(62,207,120,0.08)">🛺</div><div style="flex:1"><div class="hir">My Loc → SM City Cebu</div><div class="him">Juan D. · Today 9:51 AM · ★ 5.0</div></div><div class="hif">₱45</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(79,163,232,0.08)">🛺</div><div style="flex:1"><div class="hir">Colon → Chong Hua Hosp.</div><div class="him">Roy A. · Yesterday 2:15 PM · ★ 4.8</div></div><div class="hif">₱38</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(240,92,92,0.08)">🛺</div><div style="flex:1"><div class="hir">Ayala → IT Park</div><div class="him">Cancelled · Mar 16 · No charge</div></div><div class="hif" style="color:var(--muted)">₱0</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(249,184,76,0.08)">🛺</div><div style="flex:1"><div class="hir">UC → Carbon Market</div><div class="him">Ben T. · Mar 15 · ★ 4.7</div></div><div class="hif">₱29</div></div>
+    </div>
+    <div class="bnav">
+      <div class="nt" onclick="showScreen('pax-home')"><div class="ni">🗺️</div><div class="nl">Home</div></div>
+      <div class="nt on"><div class="ni">🧾</div><div class="nl" style="color:var(--accent)">History</div></div>
+      <div class="nt" onclick="showScreen('pax-wallet')"><div class="ni">👛</div><div class="nl">Wallet</div></div>
+      <div class="nt" onclick="showScreen('pax-profile')"><div class="ni">👤</div><div class="nl">Profile</div></div>
+    </div>
+  </div>
+
+  <!-- PAX PROFILE -->
+  <div class="screen" id="pax-profile" data-mode="passenger" data-label="Pax Profile">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div class="phdr">
+      <div class="pavar">
+        <div class="pava">MS</div>
+        <div><div class="pname">Maria Santos</div><div class="prole">Passenger Account</div><div style="margin-top:6px"><span class="badge badge-green">Verified</span></div></div>
+      </div>
+    </div>
+    <div class="pbody">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div class="sc sc-a"><div class="sl">Total Rides</div><div class="sv" style="color:var(--accent)">45</div></div>
+        <div class="sc sc-b"><div class="sl">Total Spent</div><div class="sv" style="color:var(--blue);font-size:18px">₱1,845</div></div>
+      </div>
+      <div class="pcard">
+        <div class="pcs">Account Info</div>
+        <div class="pcr"><div class="pci">📞</div><div class="pcl">Phone</div><div class="pcv">+63 911 111 0001</div><div class="pcc">›</div></div>
+        <div class="pcr"><div class="pci">📧</div><div class="pcl">Email</div><div class="pcv">maria@email.com</div><div class="pcc">›</div></div>
+      </div>
+      <div class="pcard">
+        <div class="pcs">Wallet</div>
+        <div class="pcr" onclick="showScreen('pax-wallet')"><div class="pci">👛</div><div class="pcl">Stellar Wallet</div><div class="pcv">842.50 XLM</div><div class="pcc">›</div></div>
+        <div class="pcr" onclick="showScreen('pax-payment-history')"><div class="pci">🧾</div><div class="pcl">Payment History</div><div class="pcc">›</div></div>
+      </div>
+      <div class="pcard">
+        <div class="pcs">Settings</div>
+        <div class="pcr"><div class="pci">🔔</div><div class="pcl">Notifications</div><div class="pcc">›</div></div>
+        <div class="pcr"><div class="pci">🔒</div><div class="pcl">Change Password</div><div class="pcc">›</div></div>
+        <div class="pcr" onclick="showScreen('login')"><div class="pci">🚪</div><div class="pcl" style="color:var(--red)">Logout</div><div class="pcc" style="color:var(--red)">›</div></div>
+      </div>
+    </div>
+    <div class="bnav">
+      <div class="nt" onclick="showScreen('pax-home')"><div class="ni">🗺️</div><div class="nl">Home</div></div>
+      <div class="nt" onclick="showScreen('pax-history')"><div class="ni">🧾</div><div class="nl">History</div></div>
+      <div class="nt" onclick="showScreen('pax-wallet')"><div class="ni">👛</div><div class="nl">Wallet</div></div>
+      <div class="nt on"><div class="ni">👤</div><div class="nl" style="color:var(--accent)">Profile</div></div>
+    </div>
+  </div>
+
+  <!-- PAX NOTIFICATIONS -->
+  <div class="screen" id="pax-notifs" data-mode="passenger" data-label="Notifications">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div class="phd"><div class="backbtn" onclick="showScreen('pax-home')">←</div><div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:600;color:var(--text)">Notifications</div></div>
+    <div class="scroll-y" style="flex:1;padding:12px 16px;background:var(--bg)">
+      <div class="nitem"><div style="font-size:19px">🛺</div><div style="flex:1"><div class="ntxt">Your driver <strong style="color:var(--text)">Juan Dela Cruz</strong> is 3 minutes away!</div><div class="ntm">Just now</div></div><div class="nud"></div></div>
+      <div class="nitem"><div style="font-size:19px">✅</div><div style="flex:1"><div class="ntxt">Ride complete. Fare: <strong style="color:var(--accent)">₱38</strong>. Thanks for riding!</div><div class="ntm">Yesterday 2:30 PM</div></div><div class="nud"></div></div>
+      <div class="nitem"><div style="font-size:19px">🎉</div><div style="flex:1"><div class="ntxt">Welcome to FindMeTricycle! Book your first ride.</div><div class="ntm">Jan 10</div></div></div>
+    </div>
+  </div>
+
+  <!-- PAX WALLET -->
+  <div class="screen" id="pax-wallet" data-mode="passenger" data-label="Wallet">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div style="background:var(--bg2);padding:6px 18px 14px;flex-shrink:0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text)">Wallet</div>
+      <div class="stellarChip">⭐ Stellar Testnet</div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:14px 16px;background:var(--bg)">
+      <div class="walletHero">
+        <div class="sl">Available Balance</div>
+        <div class="walletBal">842.50 <span style="font-size:16px;color:var(--muted);font-weight:500">XLM</span></div>
+        <div class="ss">≈ ₱4,212.50 test value</div>
+        <div class="walletAddr">GABC…7F3KX9Q2 <span onclick="showToast('Address copied','info')" style="cursor:pointer">⧉ Copy</span></div>
+        <div class="walletActions">
+          <div class="waBtn" onclick="showScreen('pax-recharge')"><div class="waIcon">➕</div><div class="waLbl">Recharge</div></div>
+          <div class="waBtn" onclick="showScreen('pax-qr-scan')"><div class="waIcon">📷</div><div class="waLbl">Scan &amp; Pay</div></div>
+          <div class="waBtn" onclick="showScreen('pax-payment-history')"><div class="waIcon">🧾</div><div class="waLbl">History</div></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:center;margin-bottom:14px">
+        <div class="qrBox" id="paxQrCode"></div>
+      </div>
+      <div style="font-size:10px;font-weight:500;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:10px;text-align:center">Your Wallet QR Code</div>
+      <div style="font-size:10px;font-weight:500;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:10px">Recent Transactions</div>
+      <div class="hi"><div class="hii" style="background:rgba(240,92,92,0.08)">🛺</div><div style="flex:1"><div class="hir">Ride payment to Juan D.</div><div class="him">Today 9:51 AM · Confirmed</div></div><div class="hif" style="color:var(--red)">-45 XLM</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(62,207,120,0.08)">💰</div><div style="flex:1"><div class="hir">Test balance recharge</div><div class="him">Yesterday 6:02 PM · Confirmed</div></div><div class="hif" style="color:var(--green)">+500 XLM</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(240,92,92,0.08)">🛺</div><div style="flex:1"><div class="hir">Ride payment to Roy A.</div><div class="him">Mar 16 · Confirmed</div></div><div class="hif" style="color:var(--red)">-38 XLM</div></div>
+    </div>
+    <div class="bnav">
+      <div class="nt" onclick="showScreen('pax-home')"><div class="ni">🗺️</div><div class="nl">Home</div></div>
+      <div class="nt" onclick="showScreen('pax-history')"><div class="ni">🧾</div><div class="nl">History</div></div>
+      <div class="nt on"><div class="ni">👛</div><div class="nl" style="color:var(--accent)">Wallet</div></div>
+      <div class="nt" onclick="showScreen('pax-profile')"><div class="ni">👤</div><div class="nl">Profile</div></div>
+    </div>
+  </div>
+
+  <!-- PAX RECHARGE -->
+  <div class="screen" id="pax-recharge" data-mode="passenger" data-label="Recharge">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div class="phd"><div class="backbtn" onclick="showScreen('pax-wallet')">←</div><div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:600;color:var(--text)">Recharge Test Balance</div></div>
+    <div class="scroll-y" style="flex:1;padding:18px;background:var(--bg)">
+      <div class="wbanner" style="background:rgba(167,139,250,0.08);border-color:rgba(167,139,250,0.2);color:var(--purple)">
+        <div>ℹ️</div><div>Demo only — Test XLM is funded instantly via Stellar Testnet Friendbot. No real money involved.</div>
+      </div>
+      <div class="fl">Amount (Test XLM)</div>
+      <input class="fi" id="rechargeAmt" type="number" value="500" placeholder="Enter amount">
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <div class="waBtn" onclick="document.getElementById('rechargeAmt').value=100">100</div>
+        <div class="waBtn" onclick="document.getElementById('rechargeAmt').value=500">500</div>
+        <div class="waBtn" onclick="document.getElementById('rechargeAmt').value=1000">1,000</div>
+        <div class="waBtn" onclick="document.getElementById('rechargeAmt').value=5000">5,000</div>
+      </div>
+      <div class="tw" style="margin-bottom:16px">
+        <div class="twr"><span style="color:var(--muted)">Current Balance</span><span style="font-weight:500;color:var(--text)">842.50 XLM</span></div>
+        <div class="twr"><span style="color:var(--muted)">Network</span><span class="stellarChip">⭐ Testnet</span></div>
+      </div>
+      <button class="btn btn-a" onclick="doRecharge()">Press Recharge</button>
+    </div>
+  </div>
+
+  <!-- PAX PAY WITH STELLAR -->
+  <div class="screen" id="pax-payment" data-mode="passenger" data-label="Pay with Stellar">
+    <div class="sb sb-dark"><span>10:04</span><span>▲ ● ▐▐▐</span></div>
+    <div class="scroll-y" style="flex:1;padding:24px 18px;background:var(--bg);display:flex;flex-direction:column;align-items:center" id="payScreenBody">
+      <div style="text-align:center;margin-bottom:16px">
+        <div style="font-size:40px;margin-bottom:8px">⭐</div>
+        <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text)">Pay with Stellar</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Ride #R-1042 · Juan Dela Cruz</div>
+      </div>
+      <div class="tw" style="width:100%;margin-bottom:14px">
+        <div class="twr"><span style="color:var(--muted)">Fare Amount</span><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:18px;color:var(--accent)">45 XLM</span></div>
+        <div class="twr"><span style="color:var(--muted)">From</span><span class="mono-addr" style="font-size:11px">GABC…7F3K</span></div>
+        <div class="twr"><span style="color:var(--muted)">To (Driver)</span><span class="mono-addr" style="font-size:11px">GJKL…T1Q6</span></div>
+        <div class="twr"><span style="color:var(--muted)">Wallet Balance After</span><span style="font-weight:500;color:var(--text)">797.50 XLM</span></div>
+      </div>
+      <button class="btn btn-a" style="width:100%;margin-bottom:10px" onclick="processPayment()">💫 Pay with Stellar</button>
+      <button class="btn btn-g" style="width:100%" onclick="showScreen('pax-rating')">Cancel</button>
+    </div>
+  </div>
+
+  <!-- PAX RECEIPT -->
+  <div class="screen" id="pax-receipt" data-mode="passenger" data-label="Receipt">
+    <div class="sb sb-dark"><span>10:04</span><span>▲ ● ▐▐▐</span></div>
+    <div class="scroll-y" style="flex:1;padding:22px 18px;background:var(--bg)">
+      <div style="text-align:center;margin-bottom:16px">
+        <div style="font-size:44px;margin-bottom:6px">✅</div>
+        <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:var(--text)">Payment Successful</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Blockchain Receipt</div>
+      </div>
+      <div class="receiptCard">
+        <div style="text-align:center;margin-bottom:10px">
+          <div style="font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:var(--accent)">45 XLM</div>
+          <div class="stellarChip" style="margin-top:6px">⭐ Confirmed on Stellar Testnet</div>
+        </div>
+        <div class="divider"></div>
+        <div class="rline"><span>Booking ID</span><span>#R-1042</span></div>
+        <div class="rline"><span>Passenger</span><span>Maria Santos</span></div>
+        <div class="rline"><span>Driver</span><span>Juan Dela Cruz</span></div>
+        <div class="rline"><span>Date</span><span>Mar 18, 2025</span></div>
+        <div class="rline"><span>Time</span><span>10:04 AM</span></div>
+        <div class="rline"><span>Tx Hash</span><span class="tx-hash" onclick="showToast('Tx hash copied','info')">a1F9…88bd</span></div>
+        <div class="rline"><span>Status</span><span style="color:var(--green)">Payment Successful</span></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-g" onclick="showToast('Receipt downloaded (PDF)','success')">⬇ Download</button>
+        <button class="btn btn-a" onclick="showScreen('pax-rating')">Rate Driver →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAX PAYMENT HISTORY -->
+  <div class="screen" id="pax-payment-history" data-mode="passenger" data-label="Payment History">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div class="phd"><div class="backbtn" onclick="showScreen('pax-wallet')">←</div><div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:600;color:var(--text)">Payment History</div></div>
+    <div class="scroll-y" style="flex:1;padding:14px 16px;background:var(--bg)">
+      <div class="hi"><div class="hii" style="background:rgba(240,92,92,0.08)">🛺</div><div style="flex:1"><div class="hir">Juan D. — Ride #R-1042</div><div class="him">Mar 18 · a1F9…88bd</div></div><div class="hif" style="color:var(--red)">-45 XLM</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(240,92,92,0.08)">🛺</div><div style="flex:1"><div class="hir">Roy A. — Ride #R-1028</div><div class="him">Mar 16 · f61E…c410</div></div><div class="hif" style="color:var(--red)">-38 XLM</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(62,207,120,0.08)">💰</div><div style="flex:1"><div class="hir">Test balance recharge</div><div class="him">Mar 17 · d40C…7ac2</div></div><div class="hif" style="color:var(--green)">+500 XLM</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(240,92,92,0.08)">🛺</div><div style="flex:1"><div class="hir">Ben T. — Ride #R-0994</div><div class="him">Mar 12 · 4bC1…09e3</div></div><div class="hif" style="color:var(--red)">-52 XLM</div></div>
+    </div>
+  </div>
+
+  <!-- PAX QR SCAN -->
+  <div class="screen" id="pax-qr-scan" data-mode="passenger" data-label="QR Scanner">
+    <div class="sb sb-abs" style="color:var(--text)"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div style="flex:1;background:#000;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div class="backbtn" style="position:absolute;top:46px;left:16px;z-index:5" onclick="showScreen('pax-wallet')">←</div>
+      <div style="width:220px;height:220px;border:2.5px solid var(--accent);border-radius:20px;position:relative">
+        <div style="position:absolute;top:-2px;left:-2px;width:26px;height:26px;border-top:4px solid var(--accent);border-left:4px solid var(--accent);border-radius:8px 0 0 0"></div>
+        <div style="position:absolute;top:-2px;right:-2px;width:26px;height:26px;border-top:4px solid var(--accent);border-right:4px solid var(--accent);border-radius:0 8px 0 0"></div>
+        <div style="position:absolute;bottom:-2px;left:-2px;width:26px;height:26px;border-bottom:4px solid var(--accent);border-left:4px solid var(--accent);border-radius:0 0 0 8px"></div>
+        <div style="position:absolute;bottom:-2px;right:-2px;width:26px;height:26px;border-bottom:4px solid var(--accent);border-right:4px solid var(--accent);border-radius:0 0 8px 0"></div>
+      </div>
+      <div style="color:#fff;font-size:13px;margin-top:20px;text-align:center;padding:0 30px">Point your camera at the driver's QR code to pay the ride fare</div>
+      <button class="btn btn-a" style="width:200px;margin-top:24px" onclick="showScreen('pax-payment')">Simulate: Scan Detected</button>
+    </div>
+  </div>
+
+  <!-- DRIVER HOME -->
+  <div class="screen" id="drv-home" data-mode="driver" data-label="Driver Home">
+    <div class="sb sb-abs"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div class="mapbg" style="flex:1">
+      <div class="mgrid"></div>
+      <div class="mroadh" style="top:42%"></div><div class="mroadh" style="top:68%"></div>
+      <div class="mroadv" style="left:28%"></div><div class="mroadv" style="left:62%"></div>
+      <div class="mbld" style="top:17%;left:8%;width:54px;height:46px"></div>
+      <div class="mbld" style="top:13%;left:38%;width:72px;height:54px"></div>
+      <div class="mbld" style="top:50%;left:65%;width:48px;height:40px"></div>
+      <div class="pulse gn"></div><div class="youdot gn"></div>
+      <div class="mtb">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 14px;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 4px 20px rgba(0,0,0,0.5)" onclick="togDrv(this)">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--green)" id="ddot"></div>
+          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--green)" id="dlbl">Online</div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 14px;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+          <div style="font-size:10px;color:var(--muted)">Today</div>
+          <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--accent)">₱680</div>
+        </div>
+      </div>
+      <div style="position:absolute;bottom:16px;right:12px;display:flex;flex-direction:column;gap:6px;z-index:10">
+        <div class="ibtn" style="width:34px;height:34px;font-size:13px" onclick="showToast('Zoomed in','info')">＋</div>
+        <div class="ibtn" style="width:34px;height:34px;font-size:13px" onclick="showToast('Zoomed out','info')">－</div>
+        <div class="ibtn" style="width:34px;height:34px;font-size:13px" onclick="showToast('Heading rotated','info')">🧭</div>
+      </div>
+      <div style="position:absolute;top:98px;left:12px;font-size:9.5px;color:var(--muted);background:rgba(14,15,20,0.7);padding:3px 8px;border-radius:6px;z-index:10">🗺️ MapLibre GL · OpenFreeMap</div>
+    </div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:600;color:var(--text)">Today's Summary</div>
+        <div class="livepill"><div class="ldotl"></div>Live</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+        <div class="sc sc-a"><div class="sl">Rides</div><div class="sv" style="color:var(--accent)">12</div></div>
+        <div class="sc sc-g"><div class="sl">Earned</div><div class="sv" style="color:var(--green);font-size:17px">₱680</div></div>
+        <div class="sc sc-b"><div class="sl">Rating</div><div class="sv" style="color:var(--blue)">4.9</div></div>
+      </div>
+      <button class="btn btn-a" onclick="showScreen('drv-request')">Simulate: Incoming Request →</button>
+    </div>
+    <div class="bnav">
+      <div class="nt on"><div class="ni">🗺️</div><div class="nl" style="color:var(--accent)">Map</div></div>
+      <div class="nt" onclick="showScreen('drv-history')"><div class="ni">🧾</div><div class="nl">History</div></div>
+      <div class="nt" onclick="showScreen('drv-wallet')"><div class="ni">👛</div><div class="nl">Wallet</div></div>
+      <div class="nt" onclick="showScreen('drv-profile')"><div class="ni">👤</div><div class="nl">Profile</div></div>
+    </div>
+  </div>
+
+  <!-- DRIVER REQUEST -->
+  <div class="screen" id="drv-request" data-mode="driver" data-label="Ride Request">
+    <div class="sb sb-dark"><span>9:43</span><span>▲ ● ▐▐▐</span></div>
+    <div class="mapbg" style="height:230px;flex-shrink:0">
+      <div class="mgrid"></div>
+      <div class="mroadh" style="top:50%"></div><div class="mroadv" style="left:40%"></div>
+      <div class="mbld" style="top:18%;left:8%;width:54px;height:46px"></div>
+      <div class="youdot gn"></div>
+      <div style="position:absolute;top:28%;left:63%;font-size:20px;transform:translate(-50%,-50%)">📍</div>
+      <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(249,184,76,0.1);border-top:1px solid rgba(249,184,76,0.25);padding:9px 14px;display:flex;align-items:center;gap:8px">
+        <div style="font-size:16px">🔔</div>
+        <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--accent)">New Ride Request!</div>
+      </div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:14px 18px;background:var(--bg)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:600;color:var(--text)">Incoming Request</div>
+        <div class="cring" id="countdown">15</div>
+      </div>
+      <div class="rpcard">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <div class="paxava">👤</div>
+          <div style="flex:1"><div class="paxnm">Maria Santos</div><div class="paxrt">★★★★★ 4.9 rating</div></div>
+          <div style="text-align:right"><div style="font-size:10px;color:var(--muted)">Fare</div><div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--accent)">₱45</div></div>
+        </div>
+        <div class="divider"></div>
+        <div style="display:flex;flex-direction:column;gap:0;margin:10px 0">
+          <div class="rline"><div class="rdots" style="background:var(--accent)"></div><div class="rlinename">Colon Street, Cebu City</div></div>
+          <div style="height:18px"></div>
+          <div class="rline"><div class="rdots" style="background:var(--muted)"></div><div class="rlinename">SM City Cebu, NRA</div></div>
+        </div>
+        <div class="divider"></div>
+        <div style="display:flex;gap:20px;margin-top:10px">
+          <div><div style="font-size:10px;color:var(--muted)">Distance</div><div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:600;color:var(--text)">3.2 km</div></div>
+          <div><div style="font-size:10px;color:var(--muted)">Est. Time</div><div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:600;color:var(--text)">12 min</div></div>
+          <div><div style="font-size:10px;color:var(--muted)">Your Cut</div><div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:600;color:var(--green)">₱36</div></div>
+        </div>
+      </div>
+    </div>
+    <div style="padding:12px 18px 20px;background:var(--bg2);border-top:1px solid var(--border);display:flex;gap:10px;flex-shrink:0">
+      <button class="btn btn-g" style="flex:1;padding:14px" onclick="showScreen('drv-home')">Decline</button>
+      <button class="btn btn-a" style="flex:2" onclick="showScreen('drv-on-ride')">Accept Ride</button>
+    </div>
+  </div>
+
+  <!-- DRIVER ON RIDE -->
+  <div class="screen" id="drv-on-ride" data-mode="driver" data-label="On Ride (Driver)">
+    <div class="sb sb-dark"><span>9:44</span><span>▲ ● ▐▐▐</span></div>
+    <div class="mapbg" style="height:260px;flex-shrink:0">
+      <div class="mgrid"></div>
+      <div class="mroadh" style="top:40%"></div><div class="mroadh" style="top:70%"></div>
+      <div class="mroadv" style="left:28%"></div><div class="mroadv" style="left:62%"></div>
+      <div class="mbld" style="top:13%;left:33%;width:72px;height:54px"></div>
+      <div style="position:absolute;top:40%;left:28%;width:34%;height:2px;background:var(--accent);opacity:0.6"></div>
+      <div class="youdot gn" style="top:41%;left:48%"></div>
+      <div style="position:absolute;top:30%;right:14%;font-size:20px">📍</div>
+      <div style="position:absolute;top:48px;left:14px;right:14px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:10px 14px;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Heading to</div>
+        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:600;color:var(--text);margin-top:2px">SM City Cebu</div>
+        <div style="font-size:11px;color:var(--green);margin-top:2px">On route · 1.8 km left</div>
+      </div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:14px 18px;background:var(--bg)">
+      <div class="rbanner">
+        <div><div class="rbl">Current Status</div><div class="rbs">Passenger on board</div></div>
+        <div style="text-align:right"><div style="font-size:10px;color:var(--muted)">Elapsed</div><div class="rbt">08:24</div></div>
+      </div>
+      <div class="tw" style="margin-bottom:12px">
+        <div class="twr" style="gap:10px">
+          <div style="font-size:22px">👤</div>
+          <div style="flex:1"><div style="font-size:13px;font-weight:500;color:var(--text)">Maria Santos</div><div style="font-size:11px;color:var(--muted)">+63 911 111 0001</div></div>
+          <button class="ab ab-c" style="padding:7px 12px;border-radius:var(--radius)">📞 Call</button>
+        </div>
+      </div>
+      <div class="tc" style="margin-bottom:12px">
+        <div class="tr"><span class="trl">Pickup</span><span class="trv">Colon Street</span></div>
+        <div style="height:1px;background:var(--border)"></div>
+        <div class="tr"><span class="trl">Drop-off</span><span class="trv">SM City Cebu</span></div>
+        <div style="height:1px;background:var(--border)"></div>
+        <div class="tr"><span class="trl">Your earning</span><span class="trv" style="color:var(--accent);font-family:'Syne',sans-serif;font-size:16px;font-weight:700">₱36</span></div>
+      </div>
+    </div>
+    <div style="padding:12px 18px 20px;background:var(--bg2);border-top:1px solid var(--border);display:flex;gap:10px;flex-shrink:0">
+      <button class="btn btn-g" style="flex:1;padding:14px">← Wrong way</button>
+      <button class="btn btn-a" style="flex:2" onclick="showScreen('drv-complete')">Complete Ride ✓</button>
+    </div>
+  </div>
+
+  <!-- DRIVER COMPLETE -->
+  <div class="screen" id="drv-complete" data-mode="driver" data-label="Ride Done">
+    <div class="sb sb-dark"><span>10:03</span><span>▲ ● ▐▐▐</span></div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 20px;background:var(--bg);text-align:center">
+      <div style="font-size:58px;margin-bottom:14px">✅</div>
+      <div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:700;color:var(--text);line-height:1;margin-bottom:6px">Ride Done!</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:22px">Waiting for passenger rating…</div>
+      <div class="tw" style="width:100%;margin-bottom:20px">
+        <div class="twr"><span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Route</span><span style="font-size:13px;font-weight:500;color:var(--text)">Colon → SM Cebu</span></div>
+        <div class="twr"><span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Distance</span><span style="font-size:13px;font-weight:500;color:var(--text)">3.2 km</span></div>
+        <div class="twr"><span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Duration</span><span style="font-size:13px;font-weight:500;color:var(--text)">12 min</span></div>
+        <div class="twr" style="border-top:1px solid var(--border2)"><span style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--text)">Earned</span><span style="font-family:'Syne',sans-serif;font-size:24px;font-weight:700;color:var(--accent)">₱36</span></div>
+      </div>
+      <button class="btn btn-a" style="width:100%" onclick="showScreen('drv-home')">Back to Map</button>
+    </div>
+  </div>
+
+  <!-- DRIVER HISTORY -->
+  <div class="screen" id="drv-history" data-mode="driver" data-label="Driver History">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div style="background:var(--bg2);padding:6px 20px 16px;flex-shrink:0;border-bottom:1px solid var(--border)">
+      <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text);margin-bottom:10px">Ride History</div>
+      <div style="display:flex;gap:8px">
+        <div style="background:rgba(249,184,76,0.12);border:1px solid rgba(249,184,76,0.25);border-radius:20px;padding:5px 14px;font-size:12px;font-weight:500;color:var(--accent)">Today ₱680</div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:5px 14px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer">Week ₱3,840</div>
+      </div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:12px 16px;background:var(--bg)">
+      <div class="hi"><div class="hii" style="background:rgba(62,207,120,0.08)">🛺</div><div style="flex:1"><div class="hir">Colon → SM Cebu</div><div class="him">Maria S. · 9:51 AM · ★ 5.0</div></div><div class="hif">₱36</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(79,163,232,0.08)">🛺</div><div style="flex:1"><div class="hir">Lahug → Capitol</div><div class="him">Pedro C. · 8:30 AM · ★ 4.5</div></div><div class="hif">₱30</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(240,92,92,0.08)">🛺</div><div style="flex:1"><div class="hir">IT Park → Talamban</div><div class="him">Declined · 8:05 AM</div></div><div class="hif" style="color:var(--muted)">—</div></div>
+    </div>
+    <div class="bnav">
+      <div class="nt" onclick="showScreen('drv-home')"><div class="ni">🗺️</div><div class="nl">Map</div></div>
+      <div class="nt on"><div class="ni">🧾</div><div class="nl" style="color:var(--accent)">History</div></div>
+      <div class="nt" onclick="showScreen('drv-wallet')"><div class="ni">👛</div><div class="nl">Wallet</div></div>
+      <div class="nt" onclick="showScreen('drv-profile')"><div class="ni">👤</div><div class="nl">Profile</div></div>
+    </div>
+  </div>
+
+  <!-- DRIVER PROFILE -->
+  <div class="screen" id="drv-profile" data-mode="driver" data-label="Driver Profile">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div class="phdr">
+      <div class="pavar">
+        <div class="pava">JD</div>
+        <div><div class="pname">Juan Dela Cruz</div><div class="prole">Driver · ABC 1234</div><div style="margin-top:6px;display:flex;gap:6px"><span class="badge badge-green">Approved</span><span class="badge badge-yellow">Online</span></div></div>
+      </div>
+    </div>
+    <div class="pbody">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div class="sc sc-a"><div class="sl">Total Rides</div><div class="sv" style="color:var(--accent)">342</div></div>
+        <div class="sc sc-g"><div class="sl">Rating</div><div class="sv" style="color:var(--green)">4.9</div><div class="ss"><span>97%</span> completion</div></div>
+        <div class="sc sc-b"><div class="sl">Total Earned</div><div class="sv" style="color:var(--blue);font-size:16px">₱18,460</div></div>
+        <div class="sc sc-r"><div class="sl">Cancellations</div><div class="sv" style="color:var(--red)">3%</div></div>
+      </div>
+      <div class="pcard">
+        <div class="pcs">Documents</div>
+        <div class="pcr"><div class="pci">🪪</div><div class="pcl">Driver's License</div><div class="pcv" style="color:var(--green)">Verified ✓</div></div>
+        <div class="pcr"><div class="pci">📄</div><div class="pcl">Business Permit</div><div class="pcv" style="color:var(--green)">Verified ✓</div></div>
+        <div class="pcr"><div class="pci">🏍️</div><div class="pcl">Plate No.</div><div class="pcv">ABC 1234</div></div>
+      </div>
+      <div class="pcard">
+        <div class="pcs">Wallet</div>
+        <div class="pcr" onclick="showScreen('drv-wallet')"><div class="pci">👛</div><div class="pcl">Stellar Wallet</div><div class="pcv">2,140.75 XLM</div><div class="pcc">›</div></div>
+        <div class="pcr" onclick="showScreen('drv-transactions')"><div class="pci">🧾</div><div class="pcl">Transaction History</div><div class="pcc">›</div></div>
+      </div>
+      <div class="pcard">
+        <div class="pcs">Account</div>
+        <div class="pcr"><div class="pci">📞</div><div class="pcl">Phone</div><div class="pcv">+63 917 100 1000</div></div>
+        <div class="pcr"><div class="pci">🔔</div><div class="pcl">Notifications</div><div class="pcc">›</div></div>
+        <div class="pcr"><div class="pci">🔒</div><div class="pcl">Change Password</div><div class="pcc">›</div></div>
+        <div class="pcr" onclick="showScreen('login')"><div class="pci">🚪</div><div class="pcl" style="color:var(--red)">Logout</div><div class="pcc" style="color:var(--red)">›</div></div>
+      </div>
+    </div>
+    <div class="bnav">
+      <div class="nt" onclick="showScreen('drv-home')"><div class="ni">🗺️</div><div class="nl">Map</div></div>
+      <div class="nt" onclick="showScreen('drv-history')"><div class="ni">🧾</div><div class="nl">History</div></div>
+      <div class="nt" onclick="showScreen('drv-wallet')"><div class="ni">👛</div><div class="nl">Wallet</div></div>
+      <div class="nt on"><div class="ni">👤</div><div class="nl" style="color:var(--accent)">Profile</div></div>
+    </div>
+  </div>
+
+  <!-- DRIVER PENDING -->
+  <div class="screen" id="drv-pending" data-mode="driver" data-label="Pending Approval">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 20px;background:var(--bg);text-align:center">
+      <div style="font-size:52px;margin-bottom:14px">⏳</div>
+      <div style="font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:var(--text);line-height:1.1;margin-bottom:8px">Pending<br>Approval</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:22px;line-height:1.7">Your account is under review.<br>You'll be notified once approved.</div>
+      <div class="wbanner" style="width:100%;text-align:left">
+        <div>⚠️</div>
+        <div>Documents submitted: <strong style="color:var(--text)">3/4</strong><br>Missing: <span>Business Permit</span></div>
+      </div>
+      <div class="tw" style="width:100%;margin-bottom:20px">
+        <div class="twr"><span style="font-size:13px;color:var(--text)">🪪 Driver's License</span><span class="badge badge-green">Submitted</span></div>
+        <div class="twr"><span style="font-size:13px;color:var(--text)">📄 Business Permit</span><span style="font-size:12px;color:var(--accent);font-weight:500;cursor:pointer">Upload →</span></div>
+        <div class="twr"><span style="font-size:13px;color:var(--text)">🏍️ Plate No.</span><span class="badge badge-green">ABC 1234</span></div>
+      </div>
+      <button class="btn btn-a" style="width:100%;margin-bottom:10px" onclick="showScreen('drv-home')">Simulate: Approved →</button>
+      <button class="btn btn-g" style="width:100%" onclick="showScreen('login')">Logout</button>
+    </div>
+  </div>
+
+  <!-- DRIVER WALLET -->
+  <div class="screen" id="drv-wallet" data-mode="driver" data-label="Driver Wallet">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div style="background:var(--bg2);padding:6px 18px 14px;flex-shrink:0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text)">Wallet</div>
+      <div class="stellarChip">⭐ Stellar Testnet</div>
+    </div>
+    <div class="scroll-y" style="flex:1;padding:14px 16px;background:var(--bg)">
+      <div class="walletHero">
+        <div class="sl">Current Balance</div>
+        <div class="walletBal">2,140.75 <span style="font-size:16px;color:var(--muted);font-weight:500">XLM</span></div>
+        <div class="ss">Total lifetime earnings: <span>18,460 XLM</span></div>
+        <div class="walletAddr">GJKL…9V1QT6 <span onclick="showToast('Address copied','info')" style="cursor:pointer">⧉ Copy</span></div>
+        <div class="walletActions">
+          <div class="waBtn" onclick="showScreen('drv-qr')"><div class="waIcon">📱</div><div class="waLbl">My QR Code</div></div>
+          <div class="waBtn" onclick="showScreen('drv-transactions')"><div class="waIcon">🧾</div><div class="waLbl">Transactions</div></div>
+          <div class="waBtn" onclick="showToast('Withdrawal request sent','success')"><div class="waIcon">🏦</div><div class="waLbl">Withdraw</div></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+        <div class="sc sc-g"><div class="sl">Today's Earnings</div><div class="sv" style="color:var(--green)">680 XLM</div></div>
+        <div class="sc sc-a"><div class="sl">This Week</div><div class="sv" style="color:var(--accent);font-size:18px">3,840 XLM</div></div>
+      </div>
+      <div style="font-size:10px;font-weight:500;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:10px">Recent Payments Received</div>
+      <div class="hi"><div class="hii" style="background:rgba(62,207,120,0.08)">🛺</div><div style="flex:1"><div class="hir">Payment from Maria S.</div><div class="him">Today 9:51 AM · a1F9…88bd</div></div><div class="hif" style="color:var(--green)">+45 XLM</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(62,207,120,0.08)">🛺</div><div style="flex:1"><div class="hir">Payment from Pedro C.</div><div class="him">Today 8:30 AM · 7bE2…14ff</div></div><div class="hif" style="color:var(--green)">+30 XLM</div></div>
+    </div>
+    <div class="bnav">
+      <div class="nt" onclick="showScreen('drv-home')"><div class="ni">🗺️</div><div class="nl">Map</div></div>
+      <div class="nt" onclick="showScreen('drv-history')"><div class="ni">🧾</div><div class="nl">History</div></div>
+      <div class="nt on"><div class="ni">👛</div><div class="nl" style="color:var(--accent)">Wallet</div></div>
+      <div class="nt" onclick="showScreen('drv-profile')"><div class="ni">👤</div><div class="nl">Profile</div></div>
+    </div>
+  </div>
+
+  <!-- DRIVER QR CODE -->
+  <div class="screen" id="drv-qr" data-mode="driver" data-label="Driver QR Code">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div class="phd"><div class="backbtn" onclick="showScreen('drv-wallet')">←</div><div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:600;color:var(--text)">Receive Payment</div></div>
+    <div class="scroll-y" style="flex:1;padding:24px 18px;background:var(--bg);text-align:center">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:6px">Show this code to your passenger</div>
+      <div class="qrBox" id="drvQrCode"></div>
+      <div class="walletAddr" style="margin-top:14px">GJKL…9V1QT6 <span onclick="showToast('Address copied','info')" style="cursor:pointer">⧉ Copy</span></div>
+      <div class="tw" style="margin-top:18px;text-align:left">
+        <div class="twr"><span style="color:var(--muted)">Driver</span><span style="font-weight:500;color:var(--text)">Juan Dela Cruz</span></div>
+        <div class="twr"><span style="color:var(--muted)">Plate No.</span><span style="font-weight:500;color:var(--text)">ABC 1234</span></div>
+        <div class="twr"><span style="color:var(--muted)">Network</span><span class="stellarChip">⭐ Testnet</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DRIVER TRANSACTIONS -->
+  <div class="screen" id="drv-transactions" data-mode="driver" data-label="Driver Transactions">
+    <div class="sb sb-dark"><span>9:41</span><span>▲ ● ▐▐▐</span></div>
+    <div class="phd"><div class="backbtn" onclick="showScreen('drv-wallet')">←</div><div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:600;color:var(--text)">Transaction History</div></div>
+    <div class="scroll-y" style="flex:1;padding:14px 16px;background:var(--bg)">
+      <div class="hi"><div class="hii" style="background:rgba(62,207,120,0.08)">🛺</div><div style="flex:1"><div class="hir">Maria Santos — Ride #R-1042</div><div class="him">Mar 18 · a1F9…88bd</div></div><div class="hif" style="color:var(--green)">+45 XLM</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(62,207,120,0.08)">🛺</div><div style="flex:1"><div class="hir">Pedro Cruz — Ride #R-1028</div><div class="him">Mar 18 · 7bE2…14ff</div></div><div class="hif" style="color:var(--green)">+30 XLM</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(79,163,232,0.08)">🏦</div><div style="flex:1"><div class="hir">Withdrawal to bank</div><div class="him">Mar 15 · 21Ab…8e90</div></div><div class="hif" style="color:var(--blue)">-2,000 XLM</div></div>
+      <div class="hi"><div class="hii" style="background:rgba(62,207,120,0.08)">🛺</div><div style="flex:1"><div class="hir">Ben Torres pax — Ride #R-0994</div><div class="him">Mar 12 · 4bC1…09e3</div></div><div class="hif" style="color:var(--green)">+52 XLM</div></div>
+    </div>
+  </div>
+
+</div><!-- /phone-frame -->
+
+<div style="text-align:center;margin-top:14px;font-size:11px;color:var(--muted);letter-spacing:0.4px">
+  Tap any screen tab above to navigate · Interactive prototype
+</div>
+
+<div class="toastWrap" id="toastWrap"></div>
+
+<script>
+function showToast(msg, type) {
+  const wrap = document.getElementById('toastWrap');
+  const icons = {success:'✓', error:'✕', info:'ℹ'};
+  const colors = {success:'var(--green)', error:'var(--red)', info:'var(--blue)'};
+  const t = document.createElement('div');
+  t.className = 'toastMsg ' + (type || 'info');
+  t.innerHTML = `<span style="color:${colors[type]||colors.info};font-weight:600">${icons[type]||icons.info}</span><span>${msg}</span>`;
+  wrap.appendChild(t);
+  setTimeout(()=>t.remove(), 2600);
+}
+</script>
+<script>
+const PAX = ['splash','login','register','pax-home','pax-estimate','pax-searching','pax-driver-found','pax-on-ride','pax-rating','pax-payment','pax-receipt','pax-history','pax-wallet','pax-recharge','pax-payment-history','pax-qr-scan','pax-profile','pax-notifs'];
+const DRV = ['login','register','drv-home','drv-request','drv-on-ride','drv-complete','drv-history','drv-wallet','drv-qr','drv-transactions','drv-profile','drv-pending'];
+let mode = 'passenger', cur = 'splash', cdT = null;
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.mode-btn').forEach((b,i) => b.classList.toggle('active',(i===0&&m==='passenger')||(i===1&&m==='driver')));
+  buildTabs();
+  showScreen(m==='passenger'?'pax-home':'drv-home');
+}
+function buildTabs() {
+  const tabs = document.getElementById('screenTabs');
+  tabs.innerHTML = '';
+  (mode==='passenger'?PAX:DRV).forEach(sid => {
+    const el = document.getElementById(sid);
+    if (!el) return;
+    const b = document.createElement('button');
+    b.className = 'screen-tab'+(sid===cur?' active':'');
+    b.textContent = el.dataset.label;
+    b.onclick = ()=>showScreen(sid);
+    tabs.appendChild(b);
+  });
+}
+function showScreen(id) {
+  clearInterval(cdT);
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  const t = document.getElementById(id);
+  if (t) { t.classList.add('active'); cur = id; }
+  document.querySelectorAll('.screen-tab').forEach(tab=>tab.classList.toggle('active',tab.textContent===(t?.dataset.label||'')));
+  if (id==='drv-request') startCD();
+}
+function startCD() {
+  let v=15; const el=document.getElementById('countdown');
+  if(el) el.textContent=v;
+  cdT=setInterval(()=>{ v--; if(el)el.textContent=v; if(v<=0){clearInterval(cdT);if(cur==='drv-request')showScreen('drv-home');}},1000);
+}
+function selRole(c)  { c.parentElement.querySelectorAll('.rc').forEach(x=>x.classList.remove('sel')); c.classList.add('sel'); }
+function selRegRole(r,c) {
+  document.querySelectorAll('#register .rc').forEach(x=>x.classList.remove('sel')); c.classList.add('sel');
+  document.getElementById('driverDocs').style.display=r==='driver'?'block':'none';
+}
+function selEst(c)   { c.closest('div').querySelectorAll('.ec').forEach(x=>x.classList.remove('sel')); c.classList.add('sel'); }
+function setRating(n){ document.querySelectorAll('.star').forEach((s,i)=>s.classList.toggle('lit',i<n)); }
+function setPayMethod(m) { const el=document.getElementById('payMethodLbl'); if(el) el.textContent=m; showToast('Payment method: '+m,'info'); }
+function doRecharge() {
+  const amt = document.getElementById('rechargeAmt').value || 0;
+  showToast(`+${amt} XLM added to wallet ✓`, 'success');
+  showScreen('pax-wallet');
+}
+function processPayment() {
+  const body = document.getElementById('payScreenBody');
+  const original = body.innerHTML;
+  body.innerHTML = `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding-top:60px">
+    <div class="payProcessing"></div>
+    <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:600;color:var(--text)">Processing on Stellar Testnet…</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:6px">Confirming blockchain transaction</div>
+  </div>`;
+  setTimeout(()=>{ body.innerHTML = original; showScreen('pax-receipt'); }, 1400);
+}
+function togDrv(w){
+  const dot=document.getElementById('ddot'),lbl=document.getElementById('dlbl'),on=lbl.textContent==='Online';
+  dot.style.background=on?'var(--muted)':'var(--green)';
+  lbl.style.color=on?'var(--muted)':'var(--green)';
+  lbl.textContent=on?'Offline':'Online';
+}
+buildTabs();
+</script>
+</body>
+</html>

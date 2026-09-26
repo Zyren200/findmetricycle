@@ -1,0 +1,448 @@
+const db = require("../config/db");
+
+async function createDriverProfile(payload, client = db) {
+  const result = await client.query(
+    `
+      INSERT INTO drivers
+      (
+        user_id,
+        tricycle_number,
+        license_image_url,
+        business_permit_image_url,
+        business_permit_expires_at,
+        license_expires_at,
+        license_number,
+        license_holder_name,
+        license_ocr_text,
+        approval_status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    `,
+    [
+      payload.userId,
+      payload.tricycleNumber,
+      payload.licenseImageUrl,
+      payload.businessPermitImageUrl,
+      payload.businessPermitExpiresAt || null,
+      payload.licenseExpiresAt || null,
+      payload.licenseNumber || null,
+      payload.licenseHolderName || null,
+      payload.licenseOcrText || null,
+    ]
+  );
+
+  return findById(result.insertId, client);
+}
+
+async function findById(driverId, client = db) {
+  const rows = await client.query(
+    `
+      SELECT d.*, u.full_name, u.phone, u.email, u.status AS user_status
+      FROM drivers d
+      JOIN users u ON u.id = d.user_id
+      WHERE d.id = ?
+        AND d.deleted_at IS NULL
+        AND u.deleted_at IS NULL
+      LIMIT 1
+    `,
+    [driverId]
+  );
+  return rows[0] || null;
+}
+
+async function findByUserId(userId, client = db) {
+  const rows = await client.query(
+    `
+      SELECT d.*, u.full_name, u.phone, u.email, u.status AS user_status
+      FROM drivers d
+      JOIN users u ON u.id = d.user_id
+      WHERE d.user_id = ?
+        AND d.deleted_at IS NULL
+        AND u.deleted_at IS NULL
+      LIMIT 1
+    `,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
+async function listPending() {
+  return db.query(
+    `
+      SELECT
+        d.id,
+        d.user_id,
+        u.full_name,
+        u.phone,
+        u.email,
+        d.tricycle_number,
+        d.license_image_url,
+        d.business_permit_image_url,
+        d.license_expires_at,
+        d.created_at
+      FROM drivers d
+      JOIN users u ON u.id = d.user_id
+      WHERE d.approval_status = 'pending'
+        AND d.deleted_at IS NULL
+        AND u.deleted_at IS NULL
+      ORDER BY d.created_at ASC
+    `
+  );
+}
+
+async function findByTricycleNumber(tricycleNumber) {
+  const rows = await db.query("SELECT * FROM drivers WHERE tricycle_number = ? AND deleted_at IS NULL LIMIT 1", [
+    tricycleNumber,
+  ]);
+  return rows[0] || null;
+}
+
+async function approveDriver(driverId, adminUserId, client = db) {
+  await client.query(
+    `
+      UPDATE drivers
+      SET approval_status = 'approved',
+          approved_by = ?,
+          approved_at = NOW(),
+          rejection_reason = NULL
+      WHERE id = ?
+    `,
+    [adminUserId, driverId]
+  );
+
+  await client.query(
+    `
+      UPDATE users u
+      JOIN drivers d ON d.user_id = u.id
+      SET u.status = 'active'
+      WHERE d.id = ?
+    `,
+    [driverId]
+  );
+
+  return findById(driverId, client);
+}
+
+async function rejectDriver(driverId, adminUserId, rejectionReason, client = db) {
+  await client.query(
+    `
+      UPDATE drivers
+      SET approval_status = 'rejected',
+          approved_by = ?,
+          approved_at = NOW(),
+          rejection_reason = ?
+      WHERE id = ?
+    `,
+    [adminUserId, rejectionReason || null, driverId]
+  );
+
+  await client.query(
+    `
+      UPDATE users u
+      JOIN drivers d ON d.user_id = u.id
+      SET u.status = 'rejected'
+      WHERE d.id = ?
+    `,
+    [driverId]
+  );
+
+  return findById(driverId, client);
+}
+
+async function setOnlineStatus(driverId, isOnline) {
+  await db.query("UPDATE drivers SET is_online = ? WHERE id = ?", [isOnline ? 1 : 0, driverId]);
+}
+
+async function updateLocation(driverId, lat, lng) {
+  await db.query(
+    `
+      UPDATE drivers
+      SET current_lat = ?, current_lng = ?, last_location_update = NOW()
+      WHERE id = ?
+    `,
+    [lat, lng, driverId]
+  );
+}
+
+// A driver's client is supposed to set is_online back to false the moment
+// they go offline (toggle, switch to Passenger Mode, logout) — but a
+// killed app, closed browser tab, or dropped connection means that never
+// happens. A genuinely active driver pushes a location update every ~4s
+// (see mobile driver_ride_controller.dart), so anyone whose last update is
+// older than this treated as effectively offline for matching purposes,
+// regardless of what is_online still says in the DB.
+const STALE_LOCATION_SECONDS = 60;
+
+async function getApprovedOnlineDriversWithLocation() {
+  return db.query(
+    `
+      SELECT d.*, u.full_name
+      FROM drivers d
+      JOIN users u ON u.id = d.user_id
+      WHERE d.approval_status = 'approved'
+        AND d.is_online = 1
+        AND d.current_lat IS NOT NULL
+        AND d.current_lng IS NOT NULL
+        AND d.last_location_update >= DATE_SUB(NOW(), INTERVAL ${STALE_LOCATION_SECONDS} SECOND)
+        AND d.deleted_at IS NULL
+        AND u.deleted_at IS NULL
+    `
+  );
+}
+
+async function addEarningsAndRideCount(driverId, amount) {
+  await db.query(
+    `
+      UPDATE drivers
+      SET total_rides = total_rides + 1,
+          total_earnings = total_earnings + ?
+      WHERE id = ?
+    `,
+    [amount, driverId]
+  );
+}
+
+async function refreshDriverRating(driverId) {
+  const rows = await db.query(
+    `
+      SELECT AVG(stars) AS avg_stars
+      FROM ratings
+      WHERE driver_id = ?
+    `,
+    [driverId]
+  );
+
+  const avg = rows[0]?.avg_stars ? Number(rows[0].avg_stars) : 5;
+  await db.query("UPDATE drivers SET rating_avg = ? WHERE id = ?", [Number(avg.toFixed(2)), driverId]);
+}
+
+async function getEarningsSummary(driverId) {
+  const rows = await db.query(
+    `
+      SELECT id, total_rides, total_earnings, rating_avg
+      FROM drivers
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [driverId]
+  );
+  return rows[0] || null;
+}
+
+// Cancellation rate here means "of the bookings this driver was assigned
+// to (i.e. actually accepted), what share ended up cancelled by the
+// passenger" — bookings.driver_id is cleared on decline/reassignment, so
+// there's no record of offers the driver never accepted; a true
+// offer-level acceptance rate would need a separate event log, which
+// doesn't exist yet.
+async function getPerformanceStats(driverId) {
+  const [counts] = await db.query(
+    `
+      SELECT
+        SUM(status = 'completed') AS completed,
+        SUM(status = 'cancelled') AS cancelled
+      FROM bookings
+      WHERE driver_id = ? AND deleted_at IS NULL
+    `,
+    [driverId]
+  );
+
+  const [ratingCounts] = await db.query(
+    `
+      SELECT
+        COUNT(*) AS totalRatings,
+        SUM(stars = 5) AS fiveStarRatings
+      FROM ratings
+      WHERE driver_id = ?
+    `,
+    [driverId]
+  );
+
+  const completed = Number(counts?.completed || 0);
+  const cancelled = Number(counts?.cancelled || 0);
+  const totalAssigned = completed + cancelled;
+
+  return {
+    completedRides: completed,
+    cancelledRides: cancelled,
+    cancellationRate: totalAssigned > 0 ? Number(((cancelled / totalAssigned) * 100).toFixed(1)) : 0,
+    totalRatings: Number(ratingCounts?.totalRatings || 0),
+    fiveStarRatings: Number(ratingCounts?.fiveStarRatings || 0),
+  };
+}
+
+async function getProfileByUserId(userId) {
+  const rows = await db.query(
+    `
+      SELECT
+        d.id,
+        d.user_id,
+        u.full_name,
+        u.phone,
+        u.email,
+        u.profile_image_url,
+        u.status AS user_status,
+        d.tricycle_number,
+        d.approval_status,
+        d.rating_avg,
+        d.total_rides,
+        d.total_earnings,
+        d.is_online,
+        d.current_lat,
+        d.current_lng,
+        d.last_location_update,
+        d.license_expires_at,
+        d.license_status,
+        d.business_permit_expires_at,
+        d.created_at
+      FROM drivers d
+      JOIN users u ON u.id = d.user_id
+      WHERE d.user_id = ?
+        AND d.deleted_at IS NULL
+        AND u.deleted_at IS NULL
+      LIMIT 1
+    `,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
+async function updateProfile(driverId, payload) {
+  const fields = [];
+  const values = [];
+
+  if (Object.prototype.hasOwnProperty.call(payload, "tricycleNumber")) {
+    fields.push("tricycle_number = ?");
+    values.push(payload.tricycleNumber);
+  }
+
+  if (fields.length === 0) {
+    return findById(driverId);
+  }
+
+  values.push(driverId);
+  await db.query(`UPDATE drivers SET ${fields.join(", ")} WHERE id = ?`, values);
+  return findById(driverId);
+}
+
+async function listOnlineDriversForAdmin() {
+  return db.query(
+    `
+      SELECT
+        d.id,
+        d.user_id,
+        u.full_name,
+        d.tricycle_number,
+        d.current_lat,
+        d.current_lng,
+        d.last_location_update,
+        d.rating_avg
+      FROM drivers d
+      JOIN users u ON u.id = d.user_id
+      WHERE d.approval_status = 'approved'
+        AND d.is_online = 1
+        AND d.deleted_at IS NULL
+        AND u.deleted_at IS NULL
+    `
+  );
+}
+
+async function listAllForAdmin() {
+  return db.query(
+    `
+      SELECT
+        d.id,
+        d.user_id,
+        u.full_name,
+        u.phone,
+        u.email,
+        u.status as user_status,
+        d.tricycle_number,
+        d.approval_status,
+        d.license_expires_at,
+        d.license_number,
+        d.license_holder_name,
+        d.license_image_url,
+        d.business_permit_image_url,
+        d.is_online,
+        d.current_lat,
+        d.current_lng,
+        d.rating_avg,
+        d.total_rides,
+        d.total_earnings,
+        d.created_at
+      FROM drivers d
+      JOIN users u ON u.id = d.user_id
+      WHERE d.deleted_at IS NULL
+        AND u.deleted_at IS NULL
+      ORDER BY d.created_at DESC
+    `
+  );
+}
+
+async function suspendDriver(driverId, adminUserId, client = db) {
+    await client.query(
+      `
+        UPDATE users u
+        JOIN drivers d ON d.user_id = u.id
+        SET u.status = 'suspended', d.approval_status = 'suspended', d.is_online = 0
+        WHERE d.id = ?
+      `,
+      [driverId]
+    );
+
+    await client.query(`UPDATE drivers SET is_online = 0 WHERE id = ?`, [driverId]);
+  }
+
+  async function reinstateDriver(driverId, adminUserId, client = db) {
+    await client.query(
+      `
+        UPDATE users u
+        JOIN drivers d ON d.user_id = u.id
+        SET u.status = 'active', d.approval_status = 'approved'
+        WHERE d.id = ?
+      `,
+      [driverId]
+    );
+  }
+
+  async function listDriversWithExpiringLicenses(days = 30) {
+    // returns drivers whose license_expires_at is within the next `days` days
+    return db.query(
+      `
+        SELECT d.id, d.user_id, u.full_name, u.phone, d.license_image_url, d.license_expires_at
+        FROM drivers d
+        JOIN users u ON u.id = d.user_id
+        WHERE d.license_expires_at IS NOT NULL
+          AND d.license_expires_at <= DATE_ADD(NOW(), INTERVAL ? DAY)
+          AND d.deleted_at IS NULL
+          AND u.deleted_at IS NULL
+        ORDER BY d.license_expires_at ASC
+      `,
+      [Number(days)]
+    );
+  }
+
+module.exports = {
+  createDriverProfile,
+  findById,
+  findByUserId,
+  findByTricycleNumber,
+  listPending,
+  approveDriver,
+  rejectDriver,
+  setOnlineStatus,
+  updateLocation,
+  getApprovedOnlineDriversWithLocation,
+  addEarningsAndRideCount,
+  refreshDriverRating,
+  getEarningsSummary,
+  getPerformanceStats,
+  getProfileByUserId,
+  updateProfile,
+  listOnlineDriversForAdmin,
+  listAllForAdmin,
+  suspendDriver,
+  reinstateDriver,
+  listDriversWithExpiringLicenses,
+};

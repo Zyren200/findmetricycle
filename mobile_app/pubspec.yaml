@@ -1,0 +1,51 @@
+name: findme_tricycle_mobile
+description: FindMeTricycle Flutter app for Passenger and Driver.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.2
+  dio: ^5.7.0
+  flutter_secure_storage: ^9.2.2
+  socket_io_client: ^3.0.2
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.1
+  geolocator: ^13.0.1
+  image_picker: ^1.1.2
+  maplibre_gl: ^0.26.2
+  url_launcher: ^6.3.1
+  shared_preferences: ^2.3.2
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Unbounded
+      fonts:
+        - asset: assets/fonts/Unbounded-Variable.ttf
+          weight: 500
+        - asset: assets/fonts/Unbounded-Variable.ttf
+          weight: 600
+        - asset: assets/fonts/Unbounded-Variable.ttf
+          weight: 700
+    - family: Onest
+      fonts:
+        - asset: assets/fonts/Onest-Variable.ttf
+          weight: 400
+        - asset: assets/fonts/Onest-Variable.ttf
+          weight: 500
+        - asset: assets/fonts/Onest-Variable.ttf
+          weight: 600
+        - asset: assets/fonts/Onest-Variable.ttf
+          weight: 700

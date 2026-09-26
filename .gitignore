@@ -1,0 +1,56 @@
+# OS clutter
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.idea/
+.vscode/
+
+# Logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Node / JS builds
+node_modules/
+dist/
+coverage/
+.nyc_output/
+
+# Environment files
+.env
+.env.*.local
+backend/.env
+admin_dashboard/.env
+
+# Backend uploads & artifacts
+backend/uploads/
+
+# Admin dashboard build output
+admin_dashboard/dist/
+
+# Flutter / Dart
+mobile_app/.dart_tool/
+mobile_app/build/
+mobile_app/ios/Pods/
+mobile_app/.flutter-plugins
+mobile_app/.flutter-plugins-dependencies
+mobile_app/.pub-cache/
+mobile_app/coverage/
+mobile_app/.metadata
+
+# Database dumps (contain user PII / password hashes)
+backend/sql/backups/
+
+# Build output for the other web apps
+driver_apply/dist/
+mobile_app/test_app/.dart_tool/
+mobile_app/test_app/build/
+
+# Editor backups
+*.bak
+
+# Android SDK tools copied into the project (download separately)
+mobile_app/platform-tools/

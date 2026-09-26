@@ -1,0 +1,1772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FindMeTricycle Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e0f14;
+    --bg2: #161820;
+    --bg3: #1d1f2a;
+    --border: rgba(255,255,255,0.08);
+    --border2: rgba(255,255,255,0.14);
+    --text: #f0f0f4;
+    --muted: #8b8d99;
+    --accent: #f9b84c;
+    --accent2: #ff7c45;
+    --green: #3ecf78;
+    --red: #f05c5c;
+    --blue: #4fa3e8;
+    --purple: #a78bfa;
+    --radius: 10px;
+    --radius-lg: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    min-height: 100vh;
+    font-size: 14px;
+  }
+  h1,h2,h3,h4 { font-family: 'Syne', sans-serif; }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    height: 100vh;
+    overflow-y: auto;
+  }
+  .logo {
+    padding: 24px 20px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.3px;
+  }
+  .logo-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .nav-section {
+    padding: 16px 12px 4px;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    margin: 1px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--muted);
+    transition: all 0.15s;
+    font-size: 13.5px;
+  }
+  .nav-item:hover { background: var(--bg3); color: var(--text); }
+  .nav-item.active { background: rgba(249,184,76,0.12); color: var(--accent); }
+  .nav-item .icon { width: 18px; text-align: center; font-size: 15px; }
+  .nav-badge {
+    margin-left: auto;
+    background: var(--accent2);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 20px;
+  }
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 16px 12px;
+    border-top: 1px solid var(--border);
+  }
+  .admin-profile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .admin-profile:hover { background: var(--bg3); }
+  .avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: #000;
+    flex-shrink: 0;
+  }
+  .admin-info { flex: 1; min-width: 0; }
+  .admin-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .admin-role { font-size: 11px; color: var(--muted); }
+
+  /* MAIN */
+  .main {
+    margin-left: 220px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+  .topbar {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    flex: 1;
+  }
+  .topbar-actions { display: flex; gap: 10px; align-items: center; }
+  .search-box {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 14px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    width: 220px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-box:focus { border-color: var(--accent); }
+  .search-box::placeholder { color: var(--muted); }
+  .btn {
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+  }
+  .btn-primary { background: var(--accent); color: #0e0f14; }
+  .btn-primary:hover { background: #f5aa30; }
+  .btn-ghost { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--border2); }
+  .btn-danger { background: rgba(240,92,92,0.15); color: var(--red); border: 1px solid rgba(240,92,92,0.25); }
+  .btn-success { background: rgba(62,207,120,0.12); color: var(--green); border: 1px solid rgba(62,207,120,0.25); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .notif-btn {
+    width: 36px; height: 36px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    position: relative;
+    font-size: 16px;
+  }
+  .notif-dot {
+    position: absolute;
+    top: 6px; right: 6px;
+    width: 7px; height: 7px;
+    background: var(--red);
+    border-radius: 50%;
+    border: 2px solid var(--bg2);
+  }
+
+  /* CONTENT */
+  .content { padding: 24px 28px; flex: 1; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* STAT CARDS */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+  .stat-card.yellow::before { background: var(--accent); }
+  .stat-card.green::before { background: var(--green); }
+  .stat-card.red::before { background: var(--red); }
+  .stat-card.blue::before { background: var(--blue); }
+  .stat-card.purple::before { background: var(--purple); }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; }
+  .stat-value { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 700; line-height: 1; margin-bottom: 6px; }
+  .stat-sub { font-size: 12px; color: var(--muted); }
+  .stat-sub span { color: var(--green); }
+  .stat-sub span.down { color: var(--red); }
+  .stat-icon {
+    position: absolute;
+    top: 16px; right: 16px;
+    font-size: 22px;
+    opacity: 0.4;
+  }
+
+  /* TABLES */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .section-title { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 600; }
+  .table-wrap {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .filter-bar {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .filter-btn {
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.15s;
+  }
+  .filter-btn.active, .filter-btn:hover {
+    background: rgba(249,184,76,0.12);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    padding: 11px 16px;
+    text-align: left;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+    background: var(--bg3);
+  }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background 0.12s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  td { padding: 13px 16px; font-size: 13px; vertical-align: middle; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .badge-green { background: rgba(62,207,120,0.12); color: var(--green); }
+  .badge-red { background: rgba(240,92,92,0.12); color: var(--red); }
+  .badge-yellow { background: rgba(249,184,76,0.12); color: var(--accent); }
+  .badge-blue { background: rgba(79,163,232,0.12); color: var(--blue); }
+  .badge-purple { background: rgba(167,139,250,0.12); color: var(--purple); }
+  .badge-gray { background: rgba(255,255,255,0.06); color: var(--muted); }
+  .badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* DRIVER CARD */
+  .driver-cell { display: flex; align-items: center; gap: 10px; }
+  .driver-avatar {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .driver-name { font-weight: 500; font-size: 13px; }
+  .driver-phone { font-size: 12px; color: var(--muted); }
+
+  /* RATING */
+  .rating { color: var(--accent); font-size: 12px; }
+
+  /* GRID LAYOUT */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .three-col { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+
+  /* CHART PLACEHOLDER */
+  .chart-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+  }
+  .chart-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    height: 120px;
+    margin-top: 16px;
+  }
+  .bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .bar {
+    width: 100%;
+    background: rgba(249,184,76,0.25);
+    border-radius: 4px 4px 0 0;
+    position: relative;
+    transition: background 0.2s;
+    cursor: pointer;
+  }
+  .bar:hover { background: rgba(249,184,76,0.5); }
+  .bar.accent { background: var(--accent); }
+  .bar-label { font-size: 10px; color: var(--muted); }
+
+  /* MAP PLACEHOLDER */
+  .map-placeholder {
+    background: var(--bg3);
+    border-radius: var(--radius);
+    height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    margin-top: 14px;
+  }
+  .map-grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 30px 30px;
+  }
+  .map-dot {
+    position: absolute;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 4px rgba(62,207,120,0.2);
+  }
+  .map-dot.red { background: var(--red); box-shadow: 0 0 0 4px rgba(240,92,92,0.2); }
+  .map-label {
+    position: absolute;
+    bottom: 12px; left: 12px;
+    font-size: 11px;
+    color: var(--muted);
+    background: rgba(14,15,20,0.8);
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+
+  /* RIDE TIMELINE */
+  .timeline { padding: 0 4px; }
+  .tl-item { display: flex; gap: 12px; padding: 10px 0; position: relative; }
+  .tl-item:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 5px; top: 28px;
+    width: 1px; height: calc(100% - 8px);
+    background: var(--border);
+  }
+  .tl-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+  .tl-content { flex: 1; }
+  .tl-title { font-size: 13px; font-weight: 500; }
+  .tl-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* FORM */
+  .form-group { margin-bottom: 16px; }
+  .form-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: block; }
+  .form-input {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .form-input:focus { border-color: var(--accent); }
+  .form-input::placeholder { color: var(--muted); }
+  select.form-input option { background: var(--bg3); }
+
+  /* MODAL */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius-lg);
+    width: 480px;
+    max-width: 95vw;
+    padding: 24px;
+  }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .modal-title { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 600; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+  .modal-close:hover { color: var(--text); }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+
+  /* TOAST */
+  .toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 999; }
+  .toast {
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    font-size: 13px;
+    min-width: 260px;
+    animation: slideIn 0.2s ease;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .toast.success { border-color: rgba(62,207,120,0.4); }
+  .toast.error { border-color: rgba(240,92,92,0.4); }
+  @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* TABS */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  .tab {
+    padding: 10px 18px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* EMPTY STATE */
+  .empty { text-align: center; padding: 48px; color: var(--muted); }
+  .empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.4; }
+  .empty-text { font-size: 14px; }
+
+  /* PAGINATION */
+  .pagination {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 6px; padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--muted);
+  }
+  .page-btn {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s;
+  }
+  .page-btn:hover, .page-btn.active { background: rgba(249,184,76,0.12); border-color: var(--accent); color: var(--accent); }
+
+  /* LIVE INDICATOR */
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(62,207,120,0.1);
+    border: 1px solid rgba(62,207,120,0.2);
+    border-radius: 20px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--green);
+  }
+  .live-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* EARNINGS DONUT */
+  .donut-wrap { display: flex; align-items: center; gap: 24px; margin-top: 16px; }
+  .donut-legend { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  /* ============ MAP TOOLBAR (MapLibre GL style controls) ============ */
+  .map-placeholder.modern { background: radial-gradient(circle at 30% 20%, rgba(249,184,76,0.06), transparent 60%), radial-gradient(circle at 80% 80%, rgba(79,163,232,0.06), transparent 55%), var(--bg3); }
+  .map-toolbar { position:absolute; top:12px; right:12px; display:flex; flex-direction:column; gap:6px; z-index:5; }
+  .map-tbtn { width:30px; height:30px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:13px; cursor:pointer; color:var(--text); box-shadow:0 2px 10px rgba(0,0,0,0.4); transition:all .15s; }
+  .map-tbtn:hover { border-color:var(--accent); color:var(--accent); }
+  .map-style-toggle { position:absolute; bottom:12px; right:12px; display:flex; gap:3px; background:var(--bg2); border:1px solid var(--border); border-radius:20px; padding:3px; z-index:5; }
+  .map-style-btn { padding:4px 10px; border-radius:16px; font-size:10.5px; border:none; background:transparent; color:var(--muted); cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .map-style-btn.active { background:rgba(249,184,76,0.15); color:var(--accent); }
+  .map-badge-lib { position:absolute; top:12px; left:12px; font-size:10px; color:var(--muted); background:rgba(14,15,20,0.75); padding:4px 9px; border-radius:6px; z-index:5; letter-spacing:0.3px; }
+
+  /* ============ WALLET / BLOCKCHAIN / PAYMENTS ============ */
+  .wallet-card { background:linear-gradient(135deg, rgba(249,184,76,0.10), rgba(167,139,250,0.07)); border:1px solid var(--border2); border-radius:var(--radius-lg); padding:20px; position:relative; overflow:hidden; }
+  .wallet-card::after { content:''; position:absolute; top:-40px; right:-40px; width:140px; height:140px; border-radius:50%; background:radial-gradient(circle,rgba(249,184,76,0.14),transparent 70%); }
+  .mono-addr { font-family:monospace; font-size:12px; color:var(--text); background:var(--bg3); padding:5px 10px; border-radius:6px; letter-spacing:0.3px; display:inline-flex; align-items:center; gap:8px; }
+  .tx-hash { font-family:monospace; font-size:11.5px; color:var(--blue); cursor:pointer; }
+  .tx-hash:hover { text-decoration:underline; }
+  .qr-box { width:170px; height:170px; margin:0 auto; border-radius:12px; background:
+      repeating-linear-gradient(0deg, #fff 0 6px, #0e0f14 6px 12px),
+      repeating-linear-gradient(90deg, #fff 0 6px, transparent 6px 12px);
+    background-blend-mode: screen; border:6px solid #fff; }
+  .stellar-chip { display:inline-flex; align-items:center; gap:6px; background:rgba(167,139,250,0.12); border:1px solid rgba(167,139,250,0.3); color:var(--purple); font-size:11px; font-weight:500; padding:3px 10px; border-radius:20px; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-title">🛺 FindMeTricycle</div>
+    <div class="logo-sub">Admin Dashboard</div>
+  </div>
+
+  <div class="nav-section">Main</div>
+  <div class="nav-item active" onclick="navigate('dashboard', this)">
+    <span class="icon">📊</span> Overview
+  </div>
+  <div class="nav-item" onclick="navigate('live', this)">
+    <span class="icon">🗺️</span> Live Map
+    <span class="nav-badge" id="liveBadge">4</span>
+  </div>
+
+  <div class="nav-section">Management</div>
+  <div class="nav-item" onclick="navigate('drivers', this)">
+    <span class="icon">🧑‍✈️</span> Drivers
+  </div>
+  <div class="nav-item" onclick="navigate('passengers', this)">
+    <span class="icon">👥</span> Passengers
+  </div>
+  <div class="nav-item" onclick="navigate('rides', this)">
+    <span class="icon">🛣️</span> Ride History
+  </div>
+  <div class="nav-item" onclick="navigate('pending', this)">
+    <span class="icon">⏳</span> Approvals
+    <span class="nav-badge" id="pendingBadge">3</span>
+  </div>
+
+  <div class="nav-section">Finance</div>
+  <div class="nav-item" onclick="navigate('earnings', this)">
+    <span class="icon">💰</span> Earnings
+  </div>
+  <div class="nav-item" onclick="navigate('payments', this)">
+    <span class="icon">💳</span> Payments
+  </div>
+  <div class="nav-item" onclick="navigate('wallets', this)">
+    <span class="icon">👛</span> Wallet Management
+  </div>
+  <div class="nav-item" onclick="navigate('blockchain', this)">
+    <span class="icon">⛓️</span> Blockchain Tx
+  </div>
+  <div class="nav-item" onclick="navigate('analytics', this)">
+    <span class="icon">📈</span> Financial Analytics
+  </div>
+
+  <div class="nav-section">System</div>
+  <div class="nav-item" onclick="navigate('settings', this)">
+    <span class="icon">⚙️</span> Settings
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="admin-profile">
+      <div class="avatar">SA</div>
+      <div class="admin-info">
+        <div class="admin-name">System Admin</div>
+        <div class="admin-role">admin@findme.local</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="topbar">
+    <div class="topbar-title" id="pageTitle">Overview</div>
+    <div class="topbar-actions">
+      <input class="search-box" type="text" placeholder="Search drivers, rides..." id="globalSearch" oninput="handleSearch(this.value)">
+      <div class="live-pill"><div class="live-dot"></div> Live</div>
+      <div class="notif-btn" onclick="showToast('3 new driver applications pending', 'info')">
+        🔔<div class="notif-dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- DASHBOARD PAGE -->
+    <div class="page active" id="page-dashboard">
+      <div class="stats-grid">
+        <div class="stat-card yellow">
+          <div class="stat-icon">🛺</div>
+          <div class="stat-label">Active Rides</div>
+          <div class="stat-value" style="color:var(--accent)">4</div>
+          <div class="stat-sub">Right now <span>+2 vs yesterday</span></div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon">🧑‍✈️</div>
+          <div class="stat-label">Online Drivers</div>
+          <div class="stat-value" style="color:var(--green)">12</div>
+          <div class="stat-sub">of 28 total <span>+3</span></div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon">🛣️</div>
+          <div class="stat-label">Rides Today</div>
+          <div class="stat-value" style="color:var(--blue)">87</div>
+          <div class="stat-sub">Completed <span>+12%</span></div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-icon">💵</div>
+          <div class="stat-label">Earnings Today</div>
+          <div class="stat-value" style="color:var(--accent)">₱4,320</div>
+          <div class="stat-sub">Platform fee <span>₱864</span></div>
+        </div>
+      </div>
+
+      <div class="three-col">
+        <div>
+          <!-- RECENT RIDES -->
+          <div class="section-header">
+            <div class="section-title">Recent Rides</div>
+            <button class="btn btn-ghost btn-sm" onclick="navigate('rides', document.querySelector('[onclick*=rides]'))">View all</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ride ID</th>
+                  <th>Passenger</th>
+                  <th>Driver</th>
+                  <th>Fare</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="color:var(--muted);font-family:monospace">#R-1042</td>
+                  <td>Maria Santos</td>
+                  <td>Juan D.</td>
+                  <td>₱45</td>
+                  <td><span class="badge badge-green">Completed</span></td>
+                </tr>
+                <tr>
+                  <td style="color:var(--muted);font-family:monospace">#R-1041</td>
+                  <td>Pedro Cruz</td>
+                  <td>Roy A.</td>
+                  <td>₱38</td>
+                  <td><span class="badge badge-blue">In Progress</span></td>
+                </tr>
+                <tr>
+                  <td style="color:var(--muted);font-family:monospace">#R-1040</td>
+                  <td>Ana Reyes</td>
+                  <td>Ben T.</td>
+                  <td>₱52</td>
+                  <td><span class="badge badge-blue">In Progress</span></td>
+                </tr>
+                <tr>
+                  <td style="color:var(--muted);font-family:monospace">#R-1039</td>
+                  <td>Carlo Lim</td>
+                  <td>Mark P.</td>
+                  <td>₱29</td>
+                  <td><span class="badge badge-green">Completed</span></td>
+                </tr>
+                <tr>
+                  <td style="color:var(--muted);font-family:monospace">#R-1038</td>
+                  <td>Joy Tan</td>
+                  <td>Eric V.</td>
+                  <td>—</td>
+                  <td><span class="badge badge-red">Cancelled</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- WEEKLY CHART -->
+          <div class="chart-box" style="margin-top:14px">
+            <div class="section-header">
+              <div class="section-title" style="font-size:14px">Weekly Rides</div>
+              <span style="font-size:12px;color:var(--muted)">This week</span>
+            </div>
+            <div class="chart-bars">
+              <div class="bar-group"><div class="bar" style="height:55%" title="Mon: 48"></div><div class="bar-label">Mon</div></div>
+              <div class="bar-group"><div class="bar" style="height:72%" title="Tue: 63"></div><div class="bar-label">Tue</div></div>
+              <div class="bar-group"><div class="bar" style="height:60%" title="Wed: 52"></div><div class="bar-label">Wed</div></div>
+              <div class="bar-group"><div class="bar" style="height:85%" title="Thu: 74"></div><div class="bar-label">Thu</div></div>
+              <div class="bar-group"><div class="bar" style="height:90%" title="Fri: 79"></div><div class="bar-label">Fri</div></div>
+              <div class="bar-group"><div class="bar accent" style="height:100%" title="Sat: 87"></div><div class="bar-label">Sat</div></div>
+              <div class="bar-group"><div class="bar" style="height:40%" title="Sun: 35"></div><div class="bar-label">Sun</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <!-- PENDING APPROVALS -->
+          <div>
+            <div class="section-header">
+              <div class="section-title">Pending Approvals</div>
+              <span class="badge badge-yellow">3</span>
+            </div>
+            <div class="table-wrap">
+              <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                  <div class="driver-avatar" style="background:rgba(79,163,232,0.15);color:var(--blue)">RB</div>
+                  <div>
+                    <div class="driver-name">Ramon Bautista</div>
+                    <div class="driver-phone">+63 917 000 1111</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px">
+                  <button class="btn btn-success btn-sm" onclick="approveDriver('Ramon Bautista')">Approve</button>
+                  <button class="btn btn-danger btn-sm" onclick="rejectDriver('Ramon Bautista')">Reject</button>
+                  <button class="btn btn-ghost btn-sm" onclick="openDriverModal('Ramon Bautista','Pending')">View</button>
+                </div>
+              </div>
+              <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                  <div class="driver-avatar" style="background:rgba(167,139,250,0.15);color:var(--purple)">LG</div>
+                  <div>
+                    <div class="driver-name">Lito Garcia</div>
+                    <div class="driver-phone">+63 918 222 3333</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px">
+                  <button class="btn btn-success btn-sm" onclick="approveDriver('Lito Garcia')">Approve</button>
+                  <button class="btn btn-danger btn-sm" onclick="rejectDriver('Lito Garcia')">Reject</button>
+                  <button class="btn btn-ghost btn-sm" onclick="openDriverModal('Lito Garcia','Pending')">View</button>
+                </div>
+              </div>
+              <div style="padding:12px 16px">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                  <div class="driver-avatar" style="background:rgba(62,207,120,0.15);color:var(--green)">NM</div>
+                  <div>
+                    <div class="driver-name">Nina Mendoza</div>
+                    <div class="driver-phone">+63 919 444 5555</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px">
+                  <button class="btn btn-success btn-sm" onclick="approveDriver('Nina Mendoza')">Approve</button>
+                  <button class="btn btn-danger btn-sm" onclick="rejectDriver('Nina Mendoza')">Reject</button>
+                  <button class="btn btn-ghost btn-sm" onclick="openDriverModal('Nina Mendoza','Pending')">View</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TOP DRIVERS -->
+          <div>
+            <div class="section-header">
+              <div class="section-title">Top Drivers</div>
+              <span style="font-size:12px;color:var(--muted)">This week</span>
+            </div>
+            <div class="table-wrap">
+              <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+                <div style="font-size:16px;width:24px;text-align:center">🥇</div>
+                <div class="driver-avatar" style="background:rgba(249,184,76,0.15);color:var(--accent)">JD</div>
+                <div style="flex:1"><div class="driver-name">Juan Dela Cruz</div><div class="driver-phone">42 rides</div></div>
+                <div class="rating">★ 4.9</div>
+              </div>
+              <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+                <div style="font-size:16px;width:24px;text-align:center">🥈</div>
+                <div class="driver-avatar" style="background:rgba(79,163,232,0.15);color:var(--blue)">RA</div>
+                <div style="flex:1"><div class="driver-name">Roy Aquino</div><div class="driver-phone">38 rides</div></div>
+                <div class="rating">★ 4.8</div>
+              </div>
+              <div style="padding:12px 16px;display:flex;align-items:center;gap:10px">
+                <div style="font-size:16px;width:24px;text-align:center">🥉</div>
+                <div class="driver-avatar" style="background:rgba(62,207,120,0.15);color:var(--green)">BT</div>
+                <div style="flex:1"><div class="driver-name">Ben Torres</div><div class="driver-phone">35 rides</div></div>
+                <div class="rating">★ 4.7</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIVE MAP PAGE -->
+    <div class="page" id="page-live">
+      <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stat-card green"><div class="stat-icon">🟢</div><div class="stat-label">Online Drivers</div><div class="stat-value" style="color:var(--green)" id="liveOnlineCount">12</div></div>
+        <div class="stat-card blue"><div class="stat-icon">🛺</div><div class="stat-label">Active Rides</div><div class="stat-value" style="color:var(--blue)">4</div></div>
+        <div class="stat-card yellow"><div class="stat-icon">⏳</div><div class="stat-label">Waiting Pickup</div><div class="stat-value" style="color:var(--accent)">2</div></div>
+        <div class="stat-card red"><div class="stat-icon">📴</div><div class="stat-label">Offline Drivers</div><div class="stat-value" style="color:var(--muted)">16</div></div>
+      </div>
+      <div class="two-col">
+        <div>
+          <div class="section-header">
+            <div class="section-title">Live Driver Map</div>
+            <div class="live-pill"><div class="live-dot"></div> Auto-refresh</div>
+          </div>
+          <div class="map-placeholder modern" style="height:320px" id="liveMapBox">
+            <div class="map-grid"></div>
+            <div class="map-badge-lib">🗺️ MapLibre GL · OpenFreeMap</div>
+            <div class="map-toolbar">
+              <div class="map-tbtn" onclick="showToast('Zoomed in','info')" title="Zoom in">＋</div>
+              <div class="map-tbtn" onclick="showToast('Zoomed out','info')" title="Zoom out">－</div>
+              <div class="map-tbtn" id="mapRotateBtn" onclick="rotateMap(this)" title="Rotate">🧭</div>
+              <div class="map-tbtn" onclick="showToast('3D tilt toggled','info')" title="Tilt / 3D perspective">🏔️</div>
+            </div>
+            <div class="map-dot" style="top:35%;left:40%"></div>
+            <div class="map-dot" style="top:55%;left:60%"></div>
+            <div class="map-dot" style="top:45%;left:25%"></div>
+            <div class="map-dot" style="top:65%;left:50%"></div>
+            <div class="map-dot red" style="top:30%;left:65%"></div>
+            <div class="map-dot red" style="top:70%;left:35%"></div>
+            <div class="map-label">🟢 Online drivers &nbsp;🔴 Active rides</div>
+            <div class="map-style-toggle">
+              <button class="map-style-btn active" onclick="setMapStyle(this,'dark')">🌙 Dark</button>
+              <button class="map-style-btn" onclick="setMapStyle(this,'light')">☀️ Light</button>
+            </div>
+          </div>
+          <div style="margin-top:10px;font-size:12px;color:var(--muted);text-align:center">
+            Smooth marker interpolation &amp; live heading rotation via Socket.IO — MapLibre GL renders tiles from OpenFreeMap
+          </div>
+        </div>
+        <div>
+          <div class="section-header"><div class="section-title">Ride #R-1041 — Live Status</div></div>
+          <div class="chart-box" style="margin-bottom:14px;padding:16px">
+            <div class="timeline">
+              <div class="tl-item"><div class="tl-dot" style="background:var(--green)"></div><div class="tl-content"><div class="tl-title">Booking Created</div><div class="tl-time">9:58 AM</div></div></div>
+              <div class="tl-item"><div class="tl-dot" style="background:var(--green)"></div><div class="tl-content"><div class="tl-title">Driver Accepted — Roy A.</div><div class="tl-time">9:59 AM</div></div></div>
+              <div class="tl-item"><div class="tl-dot" style="background:var(--green)"></div><div class="tl-content"><div class="tl-title">Passenger Picked Up</div><div class="tl-time">10:03 AM</div></div></div>
+              <div class="tl-item"><div class="tl-dot" style="background:var(--accent)"></div><div class="tl-content"><div class="tl-title">Ride In Progress</div><div class="tl-time">ETA 6 min · heading <span class="heading-arrow" id="tlArrow" style="display:inline-block">↗</span></div></div></div>
+              <div class="tl-item"><div class="tl-dot" style="background:var(--border2)"></div><div class="tl-content"><div class="tl-title" style="color:var(--muted)">Ride Completed → Payment</div><div class="tl-time">Pending</div></div></div>
+            </div>
+          </div>
+          <div class="section-header"><div class="section-title">Active Rides</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Driver</th><th>Passenger</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td style="font-family:monospace;color:var(--muted)">#R-1041</td><td>Roy A.</td><td>Pedro C.</td><td><span class="badge badge-blue">Ongoing</span></td></tr>
+                <tr><td style="font-family:monospace;color:var(--muted)">#R-1040</td><td>Ben T.</td><td>Ana R.</td><td><span class="badge badge-blue">Ongoing</span></td></tr>
+                <tr><td style="font-family:monospace;color:var(--muted)">#R-1043</td><td>Mark P.</td><td>Gina V.</td><td><span class="badge badge-yellow">Pickup</span></td></tr>
+                <tr><td style="font-family:monospace;color:var(--muted)">#R-1044</td><td>Eric V.</td><td>Manny O.</td><td><span class="badge badge-yellow">Pickup</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="margin-top:14px">
+            <div class="section-header"><div class="section-title">Online Drivers</div></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Driver</th><th>Phone</th><th>Rating</th><th>Status</th></tr></thead>
+                <tbody id="liveDriversTable">
+                  <tr><td><div class="driver-cell"><div class="driver-avatar" style="background:rgba(249,184,76,0.15);color:var(--accent)">JD</div><div><div class="driver-name">Juan D.</div></div></div></td><td style="color:var(--muted)">+63 917 100</td><td class="rating">★ 4.9</td><td><span class="badge badge-green">Available</span></td></tr>
+                  <tr><td><div class="driver-cell"><div class="driver-avatar" style="background:rgba(79,163,232,0.15);color:var(--blue)">RA</div><div><div class="driver-name">Roy A.</div></div></div></td><td style="color:var(--muted)">+63 918 200</td><td class="rating">★ 4.8</td><td><span class="badge badge-blue">On Ride</span></td></tr>
+                  <tr><td><div class="driver-cell"><div class="driver-avatar" style="background:rgba(62,207,120,0.15);color:var(--green)">BT</div><div><div class="driver-name">Ben T.</div></div></div></td><td style="color:var(--muted)">+63 919 300</td><td class="rating">★ 4.7</td><td><span class="badge badge-blue">On Ride</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DRIVERS PAGE -->
+    <div class="page" id="page-drivers">
+      <div class="section-header">
+        <div></div>
+        <button class="btn btn-primary" onclick="openAddDriverModal()">+ Add Driver</button>
+      </div>
+      <div class="table-wrap">
+        <div class="filter-bar">
+          <button class="filter-btn active" onclick="filterDrivers('all',this)">All (28)</button>
+          <button class="filter-btn" onclick="filterDrivers('active',this)">Active</button>
+          <button class="filter-btn" onclick="filterDrivers('inactive',this)">Inactive</button>
+          <button class="filter-btn" onclick="filterDrivers('suspended',this)">Suspended</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Driver</th>
+              <th>Phone</th>
+              <th>Tricycle No.</th>
+              <th>Rating</th>
+              <th>Total Rides</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="driversTable">
+          </tbody>
+        </table>
+        <div class="pagination">
+          <span>Showing 1–8 of 28</span>
+          <button class="page-btn active">1</button>
+          <button class="page-btn">2</button>
+          <button class="page-btn">3</button>
+          <button class="page-btn">›</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PASSENGERS PAGE -->
+    <div class="page" id="page-passengers">
+      <div class="table-wrap">
+        <div class="filter-bar">
+          <button class="filter-btn active" onclick="filterDrivers('all',this)">All</button>
+          <button class="filter-btn" onclick="filterDrivers('active',this)">Active</button>
+          <button class="filter-btn" onclick="filterDrivers('banned',this)">Banned</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Passenger</th>
+              <th>Phone</th>
+              <th>Total Rides</th>
+              <th>Joined</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="passengersTable"></tbody>
+        </table>
+        <div class="pagination">
+          <span>Showing 1–8 of 142</span>
+          <button class="page-btn active">1</button>
+          <button class="page-btn">2</button>
+          <button class="page-btn">›</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIDES PAGE -->
+    <div class="page" id="page-rides">
+      <div class="table-wrap">
+        <div class="filter-bar">
+          <button class="filter-btn active" onclick="filterDrivers('all',this)">All</button>
+          <button class="filter-btn" onclick="filterDrivers('completed',this)">Completed</button>
+          <button class="filter-btn" onclick="filterDrivers('cancelled',this)">Cancelled</button>
+          <button class="filter-btn" onclick="filterDrivers('ongoing',this)">Ongoing</button>
+          <div style="margin-left:auto">
+            <input type="date" class="form-input" style="width:auto;padding:5px 10px;font-size:12px">
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Ride ID</th>
+              <th>Passenger</th>
+              <th>Driver</th>
+              <th>Pickup</th>
+              <th>Drop-off</th>
+              <th>Fare</th>
+              <th>Rating</th>
+              <th>Status</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="ridesTable"></tbody>
+        </table>
+        <div class="pagination">
+          <span>Showing 1–10 of 1,042</span>
+          <button class="page-btn active">1</button>
+          <button class="page-btn">2</button>
+          <button class="page-btn">3</button>
+          <button class="page-btn">›</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PENDING APPROVALS PAGE -->
+    <div class="page" id="page-pending">
+      <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stat-card yellow"><div class="stat-label">Pending Review</div><div class="stat-value" style="color:var(--accent)">3</div></div>
+        <div class="stat-card green"><div class="stat-label">Approved Today</div><div class="stat-value" style="color:var(--green)">5</div></div>
+        <div class="stat-card red"><div class="stat-label">Rejected Today</div><div class="stat-value" style="color:var(--red)">1</div></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Driver</th>
+              <th>Phone</th>
+              <th>Applied</th>
+              <th>Documents</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pendingTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- EARNINGS PAGE -->
+    <div class="page" id="page-earnings">
+      <div class="stats-grid">
+        <div class="stat-card yellow"><div class="stat-icon">💵</div><div class="stat-label">Today's Earnings</div><div class="stat-value" style="color:var(--accent)">₱4,320</div><div class="stat-sub">Platform fee <span>₱864</span></div></div>
+        <div class="stat-card green"><div class="stat-icon">📅</div><div class="stat-label">This Week</div><div class="stat-value" style="color:var(--green)">₱28,450</div><div class="stat-sub"><span>+8%</span> vs last week</div></div>
+        <div class="stat-card blue"><div class="stat-icon">📆</div><div class="stat-label">This Month</div><div class="stat-value" style="color:var(--blue)">₱112,300</div><div class="stat-sub"><span>+15%</span> vs last month</div></div>
+        <div class="stat-card red"><div class="stat-icon">🏦</div><div class="stat-label">Platform Revenue</div><div class="stat-value" style="color:var(--accent)">₱22,460</div><div class="stat-sub">20% commission</div></div>
+      </div>
+
+      <div class="two-col">
+        <div class="chart-box">
+          <div class="section-header">
+            <div class="section-title">Daily Earnings — This Month</div>
+            <select class="form-input" style="width:auto;padding:5px 10px;font-size:12px">
+              <option>March 2025</option>
+              <option>February 2025</option>
+            </select>
+          </div>
+          <div class="chart-bars" style="height:160px">
+            <div class="bar-group"><div class="bar" style="height:45%"></div><div class="bar-label">1</div></div>
+            <div class="bar-group"><div class="bar" style="height:60%"></div><div class="bar-label">2</div></div>
+            <div class="bar-group"><div class="bar" style="height:55%"></div><div class="bar-label">3</div></div>
+            <div class="bar-group"><div class="bar" style="height:80%"></div><div class="bar-label">4</div></div>
+            <div class="bar-group"><div class="bar" style="height:70%"></div><div class="bar-label">5</div></div>
+            <div class="bar-group"><div class="bar accent" style="height:100%"></div><div class="bar-label">6</div></div>
+            <div class="bar-group"><div class="bar" style="height:90%"></div><div class="bar-label">7</div></div>
+            <div class="bar-group"><div class="bar" style="height:65%"></div><div class="bar-label">8</div></div>
+            <div class="bar-group"><div class="bar" style="height:75%"></div><div class="bar-label">9</div></div>
+            <div class="bar-group"><div class="bar" style="height:85%"></div><div class="bar-label">10</div></div>
+          </div>
+        </div>
+
+        <div class="chart-box">
+          <div class="section-header">
+            <div class="section-title">Earnings Breakdown</div>
+          </div>
+          <svg viewBox="0 0 120 120" width="120" height="120" style="margin:0 auto;display:block">
+            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--bg3)" stroke-width="20"/>
+            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--accent)" stroke-width="20" stroke-dasharray="157 157" stroke-dashoffset="40" transform="rotate(-90 60 60)"/>
+            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--green)" stroke-width="20" stroke-dasharray="63 251" stroke-dashoffset="-117" transform="rotate(-90 60 60)"/>
+            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--blue)" stroke-width="20" stroke-dasharray="31 283" stroke-dashoffset="-180" transform="rotate(-90 60 60)"/>
+            <text x="60" y="56" text-anchor="middle" fill="var(--text)" font-size="10" font-family="Syne,sans-serif" font-weight="700">₱112K</text>
+            <text x="60" y="68" text-anchor="middle" fill="var(--muted)" font-size="7">total</text>
+          </svg>
+          <div class="donut-legend">
+            <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div><div style="flex:1">Driver earnings</div><div style="font-weight:500">₱89,840</div></div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div><div style="flex:1">Platform fee</div><div style="font-weight:500">₱22,460</div></div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div><div style="flex:1">Refunds</div><div style="font-weight:500">₱0</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px">
+        <div class="section-header">
+          <div class="section-title">Top Earners This Week</div>
+          <button class="btn btn-ghost btn-sm">Export CSV</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Rank</th><th>Driver</th><th>Rides</th><th>Gross Fare</th><th>Commission</th><th>Net Earnings</th></tr></thead>
+            <tbody>
+              <tr><td>🥇</td><td>Juan Dela Cruz</td><td>42</td><td>₱3,150</td><td>₱630</td><td style="color:var(--green);font-weight:500">₱2,520</td></tr>
+              <tr><td>🥈</td><td>Roy Aquino</td><td>38</td><td>₱2,850</td><td>₱570</td><td style="color:var(--green);font-weight:500">₱2,280</td></tr>
+              <tr><td>🥉</td><td>Ben Torres</td><td>35</td><td>₱2,625</td><td>₱525</td><td style="color:var(--green);font-weight:500">₱2,100</td></tr>
+              <tr><td>4</td><td>Mark Paglinawan</td><td>30</td><td>₱2,250</td><td>₱450</td><td style="color:var(--green);font-weight:500">₱1,800</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAYMENTS PAGE -->
+    <div class="page" id="page-payments">
+      <div class="stats-grid">
+        <div class="stat-card yellow"><div class="stat-icon">💳</div><div class="stat-label">Total Transactions</div><div class="stat-value" style="color:var(--accent)">1,286</div><div class="stat-sub">All time <span>+64 today</span></div></div>
+        <div class="stat-card green"><div class="stat-icon">✅</div><div class="stat-label">Successful Payments</div><div class="stat-value" style="color:var(--green)">1,251</div><div class="stat-sub">97.3% success rate</div></div>
+        <div class="stat-card red"><div class="stat-icon">⚠️</div><div class="stat-label">Failed Payments</div><div class="stat-value" style="color:var(--red)">35</div><div class="stat-sub">2.7% of total</div></div>
+        <div class="stat-card blue"><div class="stat-icon">⭐</div><div class="stat-label">Volume Today</div><div class="stat-value" style="color:var(--blue)">1,842 XLM</div><div class="stat-sub">Stellar Testnet</div></div>
+      </div>
+      <div class="table-wrap">
+        <div class="filter-bar">
+          <button class="filter-btn active" onclick="filterDrivers('all',this)">All</button>
+          <button class="filter-btn" onclick="filterDrivers('success',this)">Successful</button>
+          <button class="filter-btn" onclick="filterDrivers('failed',this)">Failed</button>
+          <button class="filter-btn" onclick="filterDrivers('qr',this)">QR Payments</button>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <input class="search-box" style="width:180px" placeholder="Search booking / tx hash">
+            <input type="date" class="form-input" style="width:auto;padding:5px 10px;font-size:12px">
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Booking ID</th><th>Passenger</th><th>Driver</th><th>Amount</th><th>Method</th><th>Tx Hash</th><th>Status</th><th>Date</th></tr>
+          </thead>
+          <tbody id="paymentsTable"></tbody>
+        </table>
+        <div class="pagination">
+          <span>Showing 1–8 of 1,286</span>
+          <button class="page-btn active">1</button>
+          <button class="page-btn">2</button>
+          <button class="page-btn">3</button>
+          <button class="page-btn">›</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- WALLET MANAGEMENT PAGE -->
+    <div class="page" id="page-wallets">
+      <div class="two-col" style="margin-bottom:14px">
+        <div class="wallet-card">
+          <div class="stat-label">Total Passenger Wallet Balance</div>
+          <div class="stat-value" style="color:var(--accent);font-size:26px;margin-top:6px">18,640.25 XLM</div>
+          <div class="stat-sub" style="margin-top:6px">Across 142 passenger wallets <span class="stellar-chip" style="margin-left:6px">⭐ Stellar Testnet</span></div>
+        </div>
+        <div class="wallet-card">
+          <div class="stat-label">Total Driver Wallet Balance</div>
+          <div class="stat-value" style="color:var(--purple);font-size:26px;margin-top:6px">9,215.80 XLM</div>
+          <div class="stat-sub" style="margin-top:6px">Across 28 driver wallets <span class="stellar-chip" style="margin-left:6px">⭐ Stellar Testnet</span></div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <div class="filter-bar">
+          <button class="filter-btn active" onclick="filterDrivers('all',this)">All Wallets</button>
+          <button class="filter-btn" onclick="filterDrivers('passenger',this)">Passengers</button>
+          <button class="filter-btn" onclick="filterDrivers('driver',this)">Drivers</button>
+        </div>
+        <table>
+          <thead>
+            <tr><th>User</th><th>Role</th><th>Wallet Address</th><th>Balance</th><th>Last Activity</th><th>Status</th></tr>
+          </thead>
+          <tbody id="walletsTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- BLOCKCHAIN TRANSACTIONS PAGE -->
+    <div class="page" id="page-blockchain">
+      <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stat-card blue"><div class="stat-icon">⛓️</div><div class="stat-label">Confirmed Tx (Testnet)</div><div class="stat-value" style="color:var(--blue)">1,251</div></div>
+        <div class="stat-card yellow"><div class="stat-icon">⏳</div><div class="stat-label">Pending Confirmation</div><div class="stat-value" style="color:var(--accent)">4</div></div>
+        <div class="stat-card red"><div class="stat-icon">✕</div><div class="stat-label">Failed / Reverted</div><div class="stat-value" style="color:var(--red)">35</div></div>
+      </div>
+      <div class="table-wrap">
+        <div class="filter-bar">
+          <span style="font-size:12px;color:var(--muted)">Network: <span class="stellar-chip">⭐ Stellar Testnet</span></span>
+          <div style="margin-left:auto">
+            <input class="search-box" placeholder="Search transaction hash">
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Tx Hash</th><th>From</th><th>To</th><th>Amount</th><th>Type</th><th>Status</th><th>Timestamp</th></tr>
+          </thead>
+          <tbody id="blockchainTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- FINANCIAL ANALYTICS PAGE -->
+    <div class="page" id="page-analytics">
+      <div class="stats-grid">
+        <div class="stat-card yellow"><div class="stat-icon">💵</div><div class="stat-label">Gross Fare Volume</div><div class="stat-value" style="color:var(--accent)">₱112,300</div><div class="stat-sub">This month <span>+15%</span></div></div>
+        <div class="stat-card purple" style="border-color:rgba(167,139,250,0.25)"><div class="stat-icon">⭐</div><div class="stat-label">Stellar Payments Volume</div><div class="stat-value" style="color:var(--purple)">38,420 XLM</div><div class="stat-sub">Testnet <span>+22%</span></div></div>
+        <div class="stat-card green"><div class="stat-icon">📈</div><div class="stat-label">Cashless Adoption</div><div class="stat-value" style="color:var(--green)">61%</div><div class="stat-sub">of completed rides</div></div>
+        <div class="stat-card blue"><div class="stat-icon">🏦</div><div class="stat-label">Platform Revenue</div><div class="stat-value" style="color:var(--blue)">₱22,460</div><div class="stat-sub">20% commission</div></div>
+      </div>
+      <div class="two-col">
+        <div class="chart-box">
+          <div class="section-header">
+            <div class="section-title">Cash vs Stellar Payments — 7 Days</div>
+          </div>
+          <div class="chart-bars" style="height:150px">
+            <div class="bar-group"><div class="bar" style="height:50%;background:rgba(167,139,250,0.4)"></div><div class="bar-label">Mon</div></div>
+            <div class="bar-group"><div class="bar" style="height:58%;background:rgba(167,139,250,0.4)"></div><div class="bar-label">Tue</div></div>
+            <div class="bar-group"><div class="bar" style="height:64%;background:rgba(167,139,250,0.4)"></div><div class="bar-label">Wed</div></div>
+            <div class="bar-group"><div class="bar" style="height:70%;background:rgba(167,139,250,0.4)"></div><div class="bar-label">Thu</div></div>
+            <div class="bar-group"><div class="bar accent" style="height:82%"></div><div class="bar-label">Fri</div></div>
+            <div class="bar-group"><div class="bar accent" style="height:95%"></div><div class="bar-label">Sat</div></div>
+            <div class="bar-group"><div class="bar" style="height:60%;background:rgba(167,139,250,0.4)"></div><div class="bar-label">Sun</div></div>
+          </div>
+          <div style="display:flex;gap:16px;margin-top:12px;font-size:12px">
+            <div style="display:flex;align-items:center;gap:6px"><div class="legend-dot" style="width:9px;height:9px;border-radius:50%;background:var(--accent)"></div>Cash</div>
+            <div style="display:flex;align-items:center;gap:6px"><div class="legend-dot" style="width:9px;height:9px;border-radius:50%;background:rgba(167,139,250,0.6)"></div>Stellar</div>
+          </div>
+        </div>
+        <div class="chart-box">
+          <div class="section-header"><div class="section-title">Revenue Split</div></div>
+          <svg viewBox="0 0 120 120" width="120" height="120" style="margin:0 auto;display:block">
+            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--bg3)" stroke-width="20"/>
+            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--purple)" stroke-width="20" stroke-dasharray="153 157" stroke-dashoffset="40" transform="rotate(-90 60 60)"/>
+            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--accent)" stroke-width="20" stroke-dasharray="98 251" stroke-dashoffset="-113" transform="rotate(-90 60 60)"/>
+            <text x="60" y="56" text-anchor="middle" fill="var(--text)" font-size="10" font-family="Syne,sans-serif" font-weight="700">₱112K</text>
+            <text x="60" y="68" text-anchor="middle" fill="var(--muted)" font-size="7">total</text>
+          </svg>
+          <div class="donut-legend">
+            <div class="legend-item"><div class="legend-dot" style="background:var(--purple)"></div><div style="flex:1">Stellar (Wallet) payments</div><div style="font-weight:500">61%</div></div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div><div style="flex:1">Cash payments</div><div style="font-weight:500">39%</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS PAGE -->
+    <div class="page" id="page-settings">
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('general',this)">General</div>
+        <div class="tab" onclick="switchTab('fare',this)">Fare Config</div>
+        <div class="tab" onclick="switchTab('notifs',this)">Notifications</div>
+        <div class="tab" onclick="switchTab('account',this)">Admin Account</div>
+      </div>
+
+      <div id="tab-general" style="max-width:560px">
+        <div class="table-wrap" style="padding:24px">
+          <div class="section-title" style="margin-bottom:20px">General Settings</div>
+          <div class="form-group">
+            <label class="form-label">App Name</label>
+            <input class="form-input" value="FindMeTricycle" placeholder="App name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Support Phone</label>
+            <input class="form-input" value="+63 900 000 0000" placeholder="Support contact">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Support Email</label>
+            <input class="form-input" value="support@findme.local" placeholder="Support email">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Upload Size (MB)</label>
+            <input class="form-input" value="5" type="number">
+          </div>
+          <button class="btn btn-primary" onclick="showToast('Settings saved!', 'success')">Save Changes</button>
+        </div>
+      </div>
+
+      <div id="tab-fare" style="max-width:560px;display:none">
+        <div class="table-wrap" style="padding:24px">
+          <div class="section-title" style="margin-bottom:20px">Fare Configuration</div>
+          <div class="form-group">
+            <label class="form-label">Base Fare (₱)</label>
+            <input class="form-input" value="15" type="number">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Per Kilometer Rate (₱)</label>
+            <input class="form-input" value="5" type="number">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Platform Commission (%)</label>
+            <input class="form-input" value="20" type="number">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Surge Multiplier (peak hours)</label>
+            <input class="form-input" value="1.5" type="number" step="0.1">
+          </div>
+          <button class="btn btn-primary" onclick="showToast('Fare config saved!', 'success')">Save Fare Config</button>
+        </div>
+      </div>
+
+      <div id="tab-notifs" style="max-width:560px;display:none">
+        <div class="table-wrap" style="padding:24px">
+          <div class="section-title" style="margin-bottom:20px">Notification Settings</div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)">
+              <div><div style="font-size:13px;font-weight:500">New Driver Applications</div><div style="font-size:12px;color:var(--muted)">Get notified when a new driver applies</div></div>
+              <label style="position:relative;width:44px;height:24px;cursor:pointer">
+                <input type="checkbox" checked style="opacity:0;position:absolute">
+                <div style="width:44px;height:24px;background:var(--green);border-radius:12px;transition:0.2s"></div>
+                <div style="position:absolute;top:3px;left:22px;width:18px;height:18px;background:#fff;border-radius:50%;transition:0.2s"></div>
+              </label>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)">
+              <div><div style="font-size:13px;font-weight:500">Ride Cancellations</div><div style="font-size:12px;color:var(--muted)">Alert on unusual cancellation spikes</div></div>
+              <label style="position:relative;width:44px;height:24px;cursor:pointer">
+                <input type="checkbox" checked style="opacity:0;position:absolute">
+                <div style="width:44px;height:24px;background:var(--green);border-radius:12px;transition:0.2s"></div>
+                <div style="position:absolute;top:3px;left:22px;width:18px;height:18px;background:#fff;border-radius:50%;transition:0.2s"></div>
+              </label>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0">
+              <div><div style="font-size:13px;font-weight:500">Low Rating Alerts</div><div style="font-size:12px;color:var(--muted)">Alert when driver rating drops below 4.0</div></div>
+              <label style="position:relative;width:44px;height:24px;cursor:pointer">
+                <input type="checkbox" style="opacity:0;position:absolute">
+                <div style="width:44px;height:24px;background:var(--border2);border-radius:12px;transition:0.2s"></div>
+                <div style="position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:0.2s"></div>
+              </label>
+            </div>
+          </div>
+          <button class="btn btn-primary" style="margin-top:20px" onclick="showToast('Notification settings saved!', 'success')">Save</button>
+        </div>
+      </div>
+
+      <div id="tab-account" style="max-width:560px;display:none">
+        <div class="table-wrap" style="padding:24px">
+          <div class="section-title" style="margin-bottom:20px">Admin Account</div>
+          <div class="form-group">
+            <label class="form-label">Full Name</label>
+            <input class="form-input" value="System Admin">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input class="form-input" value="admin@findme.local" type="email">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone</label>
+            <input class="form-input" value="+63 999 000 0000">
+          </div>
+          <div class="form-group">
+            <label class="form-label">New Password</label>
+            <input class="form-input" type="password" placeholder="Leave blank to keep current">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Confirm Password</label>
+            <input class="form-input" type="password" placeholder="Confirm new password">
+          </div>
+          <button class="btn btn-primary" onclick="showToast('Account updated!', 'success')">Update Account</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- DRIVER MODAL -->
+<div class="modal-overlay" id="driverModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalDriverName">Driver Details</div>
+      <button class="modal-close" onclick="closeModal('driverModal')">×</button>
+    </div>
+    <div id="modalDriverContent"></div>
+    <div class="modal-footer" id="modalDriverFooter"></div>
+  </div>
+</div>
+
+<!-- ADD DRIVER MODAL -->
+<div class="modal-overlay" id="addDriverModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Add New Driver</div>
+      <button class="modal-close" onclick="closeModal('addDriverModal')">×</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Full Name</label>
+      <input class="form-input" id="newDriverName" placeholder="Juan Dela Cruz">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Phone Number</label>
+      <input class="form-input" id="newDriverPhone" placeholder="+63 9XX XXX XXXX">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Email</label>
+      <input class="form-input" id="newDriverEmail" placeholder="driver@email.com" type="email">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tricycle Plate No.</label>
+      <input class="form-input" id="newDriverPlate" placeholder="ABC 1234">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Initial Status</label>
+      <select class="form-input">
+        <option>Pending</option>
+        <option>Active</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('addDriverModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitNewDriver()">Add Driver</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+const drivers = [
+  {id:1,name:'Juan Dela Cruz',phone:'+63 917 100 1000',plate:'ABC 1234',rating:4.9,rides:342,status:'Active',color:'rgba(249,184,76,0.15)',textColor:'var(--accent)',initials:'JD'},
+  {id:2,name:'Roy Aquino',phone:'+63 918 200 2000',plate:'DEF 5678',rating:4.8,rides:298,status:'Active',color:'rgba(79,163,232,0.15)',textColor:'var(--blue)',initials:'RA'},
+  {id:3,name:'Ben Torres',phone:'+63 919 300 3000',plate:'GHI 9012',rating:4.7,rides:265,status:'Active',color:'rgba(62,207,120,0.15)',textColor:'var(--green)',initials:'BT'},
+  {id:4,name:'Mark Paglinawan',phone:'+63 920 400 4000',plate:'JKL 3456',rating:4.6,rides:210,status:'Active',color:'rgba(167,139,250,0.15)',textColor:'var(--purple)',initials:'MP'},
+  {id:5,name:'Eric Villanueva',phone:'+63 921 500 5000',plate:'MNO 7890',rating:4.5,rides:187,status:'Inactive',color:'rgba(255,255,255,0.06)',textColor:'var(--muted)',initials:'EV'},
+  {id:6,name:'Carlos Ramos',phone:'+63 922 600 6000',plate:'PQR 1234',rating:3.9,rides:94,status:'Suspended',color:'rgba(240,92,92,0.15)',textColor:'var(--red)',initials:'CR'},
+  {id:7,name:'Allan Natividad',phone:'+63 923 700 7000',plate:'STU 5678',rating:4.4,rides:156,status:'Active',color:'rgba(249,184,76,0.15)',textColor:'var(--accent)',initials:'AN'},
+  {id:8,name:'Dante Soriano',phone:'+63 924 800 8000',plate:'VWX 9012',rating:4.3,rides:133,status:'Active',color:'rgba(79,163,232,0.15)',textColor:'var(--blue)',initials:'DS'},
+];
+
+const passengers = [
+  {id:1,name:'Maria Santos',phone:'+63 911 111 0001',rides:45,joined:'Jan 10, 2025',status:'Active'},
+  {id:2,name:'Pedro Cruz',phone:'+63 912 222 0002',rides:32,joined:'Jan 15, 2025',status:'Active'},
+  {id:3,name:'Ana Reyes',phone:'+63 913 333 0003',rides:28,joined:'Feb 1, 2025',status:'Active'},
+  {id:4,name:'Carlo Lim',phone:'+63 914 444 0004',rides:19,joined:'Feb 8, 2025',status:'Active'},
+  {id:5,name:'Joy Tan',phone:'+63 915 555 0005',rides:7,joined:'Mar 2, 2025',status:'Active'},
+  {id:6,name:'Gina Villafuerte',phone:'+63 916 666 0006',rides:2,joined:'Mar 10, 2025',status:'Banned'},
+];
+
+const rides = [
+  {id:'#R-1042',passenger:'Maria Santos',driver:'Juan D.',pickup:'Colon St.',dropoff:'SM Cebu',fare:45,rating:5,status:'Completed',date:'Mar 18'},
+  {id:'#R-1041',passenger:'Pedro Cruz',driver:'Roy A.',pickup:'IT Park',dropoff:'Capitol',fare:38,rating:null,status:'Ongoing',date:'Mar 18'},
+  {id:'#R-1040',passenger:'Ana Reyes',driver:'Ben T.',pickup:'Ayala',dropoff:'Talamban',fare:52,rating:null,status:'Ongoing',date:'Mar 18'},
+  {id:'#R-1039',passenger:'Carlo Lim',driver:'Mark P.',pickup:'Mabolo',dropoff:'Lahug',fare:29,rating:4,status:'Completed',date:'Mar 18'},
+  {id:'#R-1038',passenger:'Joy Tan',driver:'Eric V.',pickup:'N. Bacalso',dropoff:'—',fare:0,rating:null,status:'Cancelled',date:'Mar 17'},
+  {id:'#R-1037',passenger:'Gina V.',driver:'Allan N.',pickup:'Mandaue',dropoff:'Carbon',fare:61,rating:3,status:'Completed',date:'Mar 17'},
+  {id:'#R-1036',passenger:'Manny O.',driver:'Dante S.',pickup:'Punta Princesa',dropoff:'Urgello',fare:44,rating:5,status:'Completed',date:'Mar 17'},
+];
+
+const pendingDrivers = [
+  {name:'Ramon Bautista',phone:'+63 917 000 1111',applied:'Mar 17, 2025',docs:'3/4'},
+  {name:'Lito Garcia',phone:'+63 918 222 3333',applied:'Mar 16, 2025',docs:'4/4'},
+  {name:'Nina Mendoza',phone:'+63 919 444 5555',applied:'Mar 15, 2025',docs:'2/4'},
+];
+
+const payments = [
+  {booking:'#R-1042',passenger:'Maria Santos',driver:'Juan D.',amount:'45 XLM',method:'Wallet',hash:'a1F9…c02e',status:'Success',date:'Mar 18, 10:12 AM'},
+  {booking:'#R-1039',passenger:'Carlo Lim',driver:'Mark P.',amount:'29 XLM',method:'QR Scan',hash:'7bE2…91ac',status:'Success',date:'Mar 18, 9:40 AM'},
+  {booking:'#R-1037',passenger:'Gina V.',driver:'Allan N.',amount:'61 XLM',method:'Wallet',hash:'d40C…5f11',status:'Success',date:'Mar 17, 6:22 PM'},
+  {booking:'#R-1036',passenger:'Manny O.',driver:'Dante S.',amount:'44 XLM',method:'QR Scan',hash:'21Ab…8e90',status:'Success',date:'Mar 17, 4:03 PM'},
+  {booking:'#R-1031',passenger:'Joy Tan',driver:'Eric V.',amount:'38 XLM',method:'Wallet',hash:'9cD4…2b71',status:'Failed',date:'Mar 17, 1:15 PM'},
+  {booking:'#R-1028',passenger:'Pedro Cruz',driver:'Roy A.',amount:'52 XLM',method:'QR Scan',hash:'f61E…a3d9',status:'Success',date:'Mar 16, 8:50 AM'},
+];
+const walletsData = [
+  {name:'Maria Santos',role:'Passenger',address:'GABC…X7K2',balance:'842.50 XLM',lastActivity:'Today, 10:12 AM',status:'Active'},
+  {name:'Pedro Cruz',role:'Passenger',address:'GDEF…M4P9',balance:'310.00 XLM',lastActivity:'Yesterday',status:'Active'},
+  {name:'Juan Dela Cruz',role:'Driver',address:'GJKL…T1Q6',balance:'2,140.75 XLM',lastActivity:'Today, 10:12 AM',status:'Active'},
+  {name:'Roy Aquino',role:'Driver',address:'GMNO…R8W3',balance:'1,865.20 XLM',lastActivity:'Today, 9:02 AM',status:'Active'},
+  {name:'Gina Villafuerte',role:'Passenger',address:'GPQR…H5Z1',balance:'0.00 XLM',lastActivity:'Mar 10',status:'Frozen'},
+];
+const blockchainTx = [
+  {hash:'a1F9c02e…88bd',from:'GABC…X7K2',to:'GJKL…T1Q6',amount:'45 XLM',type:'Ride Payment',status:'Confirmed',time:'Mar 18, 10:12:04 AM'},
+  {hash:'7bE291ac…14ff',from:'GXYZ…P2L0',to:'GMNO…R8W3',amount:'29 XLM',type:'Ride Payment',status:'Confirmed',time:'Mar 18, 9:40:51 AM'},
+  {hash:'d40C5f11…7ac2',from:'Friendbot',to:'GPQR…H5Z1',amount:'500 XLM',type:'Testnet Recharge',status:'Confirmed',time:'Mar 17, 6:22:10 PM'},
+  {hash:'9cD42b71…0e9a',from:'GTUV…J6N4',to:'GJKL…T1Q6',amount:'38 XLM',type:'Ride Payment',status:'Failed',time:'Mar 17, 1:15:33 PM'},
+  {hash:'f61Ea3d9…c410',from:'GABC…X7K2',to:'GMNO…R8W3',amount:'52 XLM',type:'QR Payment',status:'Pending',time:'Mar 16, 8:50:02 AM'},
+];
+
+function renderPayments(data) {
+  const tb = document.getElementById('paymentsTable');
+  if (!tb) return;
+  tb.innerHTML = data.map(p => `
+    <tr>
+      <td style="font-family:monospace;color:var(--muted)">${p.booking}</td>
+      <td>${p.passenger}</td>
+      <td>${p.driver}</td>
+      <td style="font-weight:500;color:var(--accent)">${p.amount}</td>
+      <td>${p.method==='QR Scan'?'📱 QR Scan':'👛 Wallet'}</td>
+      <td><span class="tx-hash" onclick="showToast('Copied tx hash','info')">${p.hash}</span></td>
+      <td>${p.status==='Success'?'<span class="badge badge-green">Success</span>':'<span class="badge badge-red">Failed</span>'}</td>
+      <td style="color:var(--muted);font-size:12px">${p.date}</td>
+    </tr>`).join('');
+}
+function renderWallets(data) {
+  const tb = document.getElementById('walletsTable');
+  if (!tb) return;
+  tb.innerHTML = data.map(w => `
+    <tr>
+      <td><div class="driver-cell"><div class="driver-avatar" style="background:${w.role==='Driver'?'rgba(167,139,250,0.15)':'rgba(255,255,255,0.06)'};color:${w.role==='Driver'?'var(--purple)':'var(--muted)'}">${w.name.split(' ').map(n=>n[0]).join('')}</div><div class="driver-name">${w.name}</div></div></td>
+      <td><span class="badge ${w.role==='Driver'?'badge-purple':'badge-gray'}">${w.role}</span></td>
+      <td><span class="mono-addr">${w.address} <span style="cursor:pointer" onclick="showToast('Address copied','info')">⧉</span></span></td>
+      <td style="font-weight:500">${w.balance}</td>
+      <td style="color:var(--muted);font-size:12px">${w.lastActivity}</td>
+      <td>${w.status==='Active'?'<span class="badge badge-green">Active</span>':'<span class="badge badge-red">Frozen</span>'}</td>
+    </tr>`).join('');
+}
+function renderBlockchain(data) {
+  const tb = document.getElementById('blockchainTable');
+  if (!tb) return;
+  const map = {Confirmed:'badge-green',Pending:'badge-yellow',Failed:'badge-red'};
+  tb.innerHTML = data.map(t => `
+    <tr>
+      <td><span class="tx-hash" onclick="showToast('Copied tx hash','info')">${t.hash}</span></td>
+      <td class="mono-addr" style="background:none;padding:0">${t.from}</td>
+      <td class="mono-addr" style="background:none;padding:0">${t.to}</td>
+      <td style="font-weight:500;color:var(--accent)">${t.amount}</td>
+      <td style="color:var(--muted)">${t.type}</td>
+      <td><span class="badge ${map[t.status]}">${t.status}</span></td>
+      <td style="color:var(--muted);font-size:12px">${t.time}</td>
+    </tr>`).join('');
+}
+
+let mapRotation = 0;
+function rotateMap(btn) {
+  mapRotation = (mapRotation + 45) % 360;
+  const box = document.getElementById('liveMapBox');
+  if (box) box.querySelector('.map-grid').style.transform = `rotate(${mapRotation}deg) scale(1.3)`;
+  showToast('Map rotated ' + mapRotation + '°', 'info');
+}
+function setMapStyle(btn, style) {
+  btn.parentElement.querySelectorAll('.map-style-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const box = document.getElementById('liveMapBox');
+  if (box) box.style.filter = style === 'light' ? 'invert(0.92) hue-rotate(180deg)' : 'none';
+  showToast(style === 'light' ? 'Switched to Light mode' : 'Switched to Dark mode', 'info');
+}
+
+function navigate(page, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  if (el) el.classList.add('active');
+
+  const titles = {dashboard:'Overview',live:'Live Map',drivers:'Drivers',passengers:'Passengers',rides:'Ride History',pending:'Pending Approvals',earnings:'Earnings',payments:'Payments',wallets:'Wallet Management',blockchain:'Blockchain Transactions',analytics:'Financial Analytics',settings:'Settings'};
+  document.getElementById('pageTitle').textContent = titles[page] || page;
+
+  if (page === 'drivers') renderDrivers(drivers);
+  if (page === 'passengers') renderPassengers(passengers);
+  if (page === 'rides') renderRides(rides);
+  if (page === 'pending') renderPending(pendingDrivers);
+  if (page === 'payments') renderPayments(payments);
+  if (page === 'wallets') renderWallets(walletsData);
+  if (page === 'blockchain') renderBlockchain(blockchainTx);
+}
+
+function renderDrivers(data) {
+  const tb = document.getElementById('driversTable');
+  tb.innerHTML = data.map(d => `
+    <tr>
+      <td><div class="driver-cell">
+        <div class="driver-avatar" style="background:${d.color};color:${d.textColor}">${d.initials}</div>
+        <div><div class="driver-name">${d.name}</div></div>
+      </div></td>
+      <td style="color:var(--muted)">${d.phone}</td>
+      <td style="font-family:monospace;font-size:12px">${d.plate}</td>
+      <td class="rating">★ ${d.rating}</td>
+      <td>${d.rides}</td>
+      <td>${badgeForStatus(d.status)}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost btn-sm" onclick="openDriverModal('${d.name}','${d.status}')">View</button>
+          ${d.status==='Active'?`<button class="btn btn-danger btn-sm" onclick="suspendDriver('${d.name}')">Suspend</button>`:''}
+          ${d.status==='Suspended'?`<button class="btn btn-success btn-sm" onclick="reinstateDriver('${d.name}')">Reinstate</button>`:''}
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function renderPassengers(data) {
+  const tb = document.getElementById('passengersTable');
+  tb.innerHTML = data.map(p => `
+    <tr>
+      <td><div class="driver-cell">
+        <div class="driver-avatar" style="background:rgba(255,255,255,0.06);color:var(--muted)">${p.name.split(' ').map(n=>n[0]).join('')}</div>
+        <div><div class="driver-name">${p.name}</div></div>
+      </div></td>
+      <td style="color:var(--muted)">${p.phone}</td>
+      <td>${p.rides}</td>
+      <td style="color:var(--muted)">${p.joined}</td>
+      <td>${badgeForStatus(p.status)}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="showToast('${p.name} profile opened','info')">View</button></td>
+    </tr>`).join('');
+}
+
+function renderRides(data) {
+  const tb = document.getElementById('ridesTable');
+  tb.innerHTML = data.map(r => `
+    <tr>
+      <td style="font-family:monospace;color:var(--muted)">${r.id}</td>
+      <td>${r.passenger}</td>
+      <td>${r.driver}</td>
+      <td style="color:var(--muted);font-size:12px">${r.pickup}</td>
+      <td style="color:var(--muted);font-size:12px">${r.dropoff}</td>
+      <td style="font-weight:500">${r.fare?'₱'+r.fare:'—'}</td>
+      <td class="rating">${r.rating?'★ '+r.rating:'—'}</td>
+      <td>${badgeForRideStatus(r.status)}</td>
+      <td style="color:var(--muted)">${r.date}</td>
+    </tr>`).join('');
+}
+
+function renderPending(data) {
+  const tb = document.getElementById('pendingTable');
+  tb.innerHTML = data.map(d => `
+    <tr>
+      <td><div class="driver-cell">
+        <div class="driver-avatar" style="background:rgba(249,184,76,0.12);color:var(--accent)">${d.name.split(' ').map(n=>n[0]).join('')}</div>
+        <div><div class="driver-name">${d.name}</div><div class="driver-phone">${d.phone}</div></div>
+      </div></td>
+      <td style="color:var(--muted)">${d.phone}</td>
+      <td style="color:var(--muted)">${d.applied}</td>
+      <td><span class="badge ${d.docs==='4/4'?'badge-green':'badge-yellow'}">${d.docs} docs</span></td>
+      <td><div style="display:flex;gap:6px">
+        <button class="btn btn-success btn-sm" onclick="approveDriver('${d.name}')">Approve</button>
+        <button class="btn btn-danger btn-sm" onclick="rejectDriver('${d.name}')">Reject</button>
+        <button class="btn btn-ghost btn-sm" onclick="openDriverModal('${d.name}','Pending')">View</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+function badgeForStatus(s) {
+  const map = {Active:'badge-green',Inactive:'badge-gray',Suspended:'badge-red',Pending:'badge-yellow',Banned:'badge-red'};
+  return `<span class="badge ${map[s]||'badge-gray'}">${s}</span>`;
+}
+function badgeForRideStatus(s) {
+  const map = {Completed:'badge-green',Ongoing:'badge-blue',Cancelled:'badge-red',Pickup:'badge-yellow'};
+  return `<span class="badge ${map[s]||'badge-gray'}">${s}</span>`;
+}
+
+function filterDrivers(f, btn) {
+  btn.closest('.filter-bar').querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function openDriverModal(name, status) {
+  document.getElementById('modalDriverName').textContent = name;
+  const initials = name.split(' ').map(n=>n[0]).join('');
+  document.getElementById('modalDriverContent').innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+      <div class="avatar" style="width:52px;height:52px;font-size:16px">${initials}</div>
+      <div>
+        <div style="font-size:16px;font-weight:600">${name}</div>
+        <div style="color:var(--muted);font-size:13px;margin-top:3px">Driver Account</div>
+        <div style="margin-top:6px">${badgeForStatus(status)}</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
+      <div style="background:var(--bg3);padding:12px;border-radius:8px"><div style="color:var(--muted);font-size:11px;margin-bottom:4px">PHONE</div>+63 9XX XXX XXXX</div>
+      <div style="background:var(--bg3);padding:12px;border-radius:8px"><div style="color:var(--muted);font-size:11px;margin-bottom:4px">PLATE NO.</div>ABC 1234</div>
+      <div style="background:var(--bg3);padding:12px;border-radius:8px"><div style="color:var(--muted);font-size:11px;margin-bottom:4px">RATING</div><span class="rating">★ 4.8</span></div>
+      <div style="background:var(--bg3);padding:12px;border-radius:8px"><div style="color:var(--muted);font-size:11px;margin-bottom:4px">TOTAL RIDES</div>238</div>
+    </div>
+    <div style="margin-top:16px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Recent Activity</div>
+      <div class="timeline">
+        <div class="tl-item"><div class="tl-dot" style="background:var(--green)"></div><div class="tl-content"><div class="tl-title">Completed ride #R-1039</div><div class="tl-time">Today 2:14 PM</div></div></div>
+        <div class="tl-item"><div class="tl-dot" style="background:var(--blue)"></div><div class="tl-content"><div class="tl-title">Went online</div><div class="tl-time">Today 8:02 AM</div></div></div>
+        <div class="tl-item"><div class="tl-dot" style="background:var(--muted)"></div><div class="tl-content"><div class="tl-title">Logged out</div><div class="tl-time">Yesterday 9:45 PM</div></div></div>
+      </div>
+    </div>`;
+  const footer = document.getElementById('modalDriverFooter');
+  if (status === 'Pending') {
+    footer.innerHTML = `
+      <button class="btn btn-ghost" onclick="closeModal('driverModal')">Close</button>
+      <button class="btn btn-danger" onclick="rejectDriver('${name}');closeModal('driverModal')">Reject</button>
+      <button class="btn btn-success" onclick="approveDriver('${name}');closeModal('driverModal')">Approve</button>`;
+  } else {
+    footer.innerHTML = `
+      <button class="btn btn-ghost" onclick="closeModal('driverModal')">Close</button>
+      <button class="btn btn-primary" onclick="showToast('Driver updated','success');closeModal('driverModal')">Save Changes</button>`;
+  }
+  document.getElementById('driverModal').classList.add('open');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+function openAddDriverModal() {
+  document.getElementById('addDriverModal').classList.add('open');
+}
+
+function submitNewDriver() {
+  const name = document.getElementById('newDriverName').value;
+  if (!name) { showToast('Please enter a name', 'error'); return; }
+  showToast(`Driver "${name}" added successfully!`, 'success');
+  closeModal('addDriverModal');
+  document.getElementById('newDriverName').value = '';
+  document.getElementById('newDriverPhone').value = '';
+  document.getElementById('newDriverEmail').value = '';
+  document.getElementById('newDriverPlate').value = '';
+}
+
+function approveDriver(name) {
+  showToast(`✓ ${name} approved!`, 'success');
+  updateBadgeCount('pendingBadge', -1);
+}
+
+function rejectDriver(name) {
+  showToast(`${name} rejected.`, 'error');
+  updateBadgeCount('pendingBadge', -1);
+}
+
+function suspendDriver(name) {
+  showToast(`${name} has been suspended.`, 'error');
+}
+
+function reinstateDriver(name) {
+  showToast(`${name} reinstated.`, 'success');
+}
+
+function updateBadgeCount(id, delta) {
+  const el = document.getElementById(id);
+  const cur = parseInt(el.textContent) + delta;
+  el.textContent = Math.max(0, cur);
+  if (cur <= 0) el.style.display = 'none';
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['general','fare','notifs','account'].forEach(t => {
+    const el2 = document.getElementById('tab-' + t);
+    if (el2) el2.style.display = t === name ? 'block' : 'none';
+  });
+}
+
+function handleSearch(val) {
+  if (!val) return;
+}
+
+function showToast(msg, type='info') {
+  const tc = document.getElementById('toastContainer');
+  const icons = {success:'✓', error:'✕', info:'ℹ'};
+  const colors = {success:'var(--green)', error:'var(--red)', info:'var(--blue)'};
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.innerHTML = `<span style="color:${colors[type]};font-weight:600;font-size:16px">${icons[type]}</span><span>${msg}</span>`;
+  tc.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+// Close modal on overlay click
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if(e.target === m) m.classList.remove('open'); });
+});
+
+// Health check ping
+fetch('http://localhost:5000/api/health').then(r => r.json()).then(d => {
+  showToast('Backend connected ✓', 'success');
+}).catch(() => {
+  showToast('Backend offline — using mock data', 'info');
+});
+</script>
+</body>
+</html>
