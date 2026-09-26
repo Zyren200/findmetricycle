@@ -15,6 +15,7 @@ const notificationService = require("./notification.service");
 const { MIN_PASSENGERS, MAX_PASSENGERS } = require("../constants/fare");
 const { toPublicDriver } = require("../utils/public-driver");
 const geocodingService = require("./geocoding.service");
+const notificationTextService = require("./notification-text.service");
 
 // When the app couldn't name a pickup / drop-off (it sent raw coordinates),
 // look the place up afterwards so admins and ride history show a real
@@ -28,11 +29,14 @@ function fillMissingPlaceNames(booking) {
   for (const [column, , lat, lng] of jobs) {
     geocodingService
       .reverseGeocode(lat, lng)
-      .then((name) =>
-        name
-          ? db.query(`UPDATE bookings SET ${column} = ? WHERE id = ?`, [name.slice(0, 255), booking.id])
-          : null
-      )
+      .then(async (name) => {
+        if (!name) return;
+        const place = name.slice(0, 255);
+        await db.query(`UPDATE bookings SET ${column} = ? WHERE id = ?`, [place, booking.id]);
+        // Notifications already sent for this booking quoted the
+        // coordinates — give them the place name too.
+        await notificationTextService.refreshBookingNotificationText(booking.id, [{ lat, lng, name: place }]);
+      })
       .catch(() => {});
   }
 }
