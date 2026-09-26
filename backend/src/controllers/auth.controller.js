@@ -19,35 +19,6 @@ async function registerPassenger(req, res, next) {
   }
 }
 
-async function registerDriver(req, res, next) {
-  try {
-    const files = req.files || {};
-    const license = files.licenseImage?.[0];
-    const permit = files.businessPermitImage?.[0];
-
-    const result = await authService.registerDriver({
-      fullName: req.body.fullName,
-      phone: req.body.phone,
-      email: req.body.email,
-      password: req.body.password,
-      tricycleNumber: req.body.tricycleNumber,
-      licenseExpiryDate: req.body.licenseExpiryDate,
-      licenseHolderName: req.body.licenseHolderName,
-      licenseOcrText: req.body.licenseOcrText,
-      licenseImageUrl: license ? `/uploads/driver-docs/${license.filename}` : null,
-      businessPermitImageUrl: permit ? `/uploads/driver-docs/${permit.filename}` : null,
-    });
-
-    res.status(201).json({
-      success: true,
-      message: "Driver submitted for admin approval.",
-      data: result,
-    });
-  } catch (error) {
-    next(error);
-  }
-}
-
 async function registerAdmin(req, res, next) {
   try {
     const result = await authService.registerAdmin({
@@ -194,7 +165,6 @@ function me(req, res) {
 
 module.exports = {
   registerPassenger,
-  registerDriver,
   registerAdmin,
   adminExists,
   sendAdminOtp,

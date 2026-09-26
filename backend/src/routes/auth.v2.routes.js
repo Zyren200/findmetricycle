@@ -23,7 +23,16 @@ const OTP_EMAIL_WINDOW_MS = 15 * 60 * 1000;
 const OTP_EMAIL_MAX = 3;
 
 function otpPerEmailLimiter(req, res, next) {
-  const email = String(req.body?.email || "").toLowerCase().trim();
+  return limitOtpForEmail(req.body?.email, res, next);
+}
+
+// Same budget, keyed on the signed-in user's own email.
+function otpPerUserLimiter(req, res, next) {
+  return limitOtpForEmail(req.user?.email, res, next);
+}
+
+function limitOtpForEmail(rawEmail, res, next) {
+  const email = String(rawEmail || "").toLowerCase().trim();
   if (!email) return next();
 
   const now = Date.now();
@@ -307,6 +316,62 @@ router.post("/login", authLimiter, loginLimiter, validate(loginSchema), async (r
 
 // Protected endpoints (require authentication)
 
+// Rejects an application before multer writes any ID photos to disk when
+// the applicant hasn't recently confirmed their email.
+async function requireDriverApplicationOtp(req, _res, next) {
+  try {
+    await authV2Service.assertDriverApplicationOtp(req.user.email);
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /auth/v2/driver-application/otp/send
+ * Emails the signed-in user a code to confirm a driver application.
+ */
+router.post(
+  "/driver-application/otp/send",
+  authMiddleware,
+  otpIpLimiter,
+  otpPerUserLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user.email) {
+        throw new ApiError(400, "Add an email address to your account before applying as a driver.");
+      }
+      await authV2Service.sendOTP(req.user.email, authV2Service.DRIVER_APPLICATION_PURPOSE);
+      res.json({ success: true, message: "Verification code sent.", email: req.user.email });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * POST /auth/v2/driver-application/otp/verify
+ * Confirms the code; the next application submitted within an hour passes.
+ */
+router.post(
+  "/driver-application/otp/verify",
+  authMiddleware,
+  otpIpLimiter,
+  validate(z.object({ body: z.object({ code: z.string().regex(/^\d{6}$/, "Code must be 6 digits") }) })),
+  async (req, res, next) => {
+    try {
+      const result = await authV2Service.verifyOTP(
+        req.user.email,
+        req.body.code,
+        authV2Service.DRIVER_APPLICATION_PURPOSE
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 /**
  * POST /auth/v2/apply-driver
  * Apply as driver
@@ -314,6 +379,7 @@ router.post("/login", authLimiter, loginLimiter, validate(loginSchema), async (r
 router.post(
   "/apply-driver",
   authMiddleware,
+  requireDriverApplicationOtp,
   driverDocumentUpload,
   validate(applyAsDriverSchema),
   async (req, res, next) => {
@@ -417,6 +483,7 @@ router.get("/driver-application/timeline", authMiddleware, async (req, res, next
 router.post(
   "/resubmit-driver-application",
   authMiddleware,
+  requireDriverApplicationOtp,
   driverDocumentUpload,
   validate(resubmitDriverApplicationSchema),
   async (req, res, next) => {

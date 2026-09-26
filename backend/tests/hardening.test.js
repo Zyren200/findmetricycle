@@ -87,3 +87,12 @@ describe("request logging", () => {
     expect(log).not.toContain("SECRET_TOKEN_VALUE");
   });
 });
+
+describe("legacy driver sign-up", () => {
+  it("is retired in favour of the verified apply flow", async () => {
+    const request = require("supertest");
+    const app = require("../src/app");
+    const res = await request(app).post("/api/auth/driver/register").send({});
+    expect(res.statusCode).toBe(410);
+  });
+});

@@ -4,15 +4,12 @@ const crypto = require("crypto");
 const env = require("../config/env");
 const roles = require("../constants/roles");
 const userModel = require("../models/user.model");
-const driverModel = require("../models/driver.model");
-const driverApplicationModel = require("../models/driver-application.model");
 const refreshTokenModel = require("../models/refresh-token.model");
 const ApiError = require("../utils/api-error");
 const hashToken = require("../utils/token-hash");
 const parseDurationMs = require("../utils/parse-duration-ms");
 const sanitizeUser = require("../utils/sanitize-user");
 const db = require("../config/db");
-const { validateLicenseUpload } = require("./license-validation.service");
 const authV2Service = require("./auth.v2.service");
 
 const refreshDurationMs = parseDurationMs(env.jwt.refreshExpiresIn) || 30 * 24 * 60 * 60 * 1000;
@@ -104,91 +101,6 @@ async function registerPassenger(payload) {
     );
 
     return issueAuthPayload(user, { client });
-  });
-}
-
-async function registerDriver(payload) {
-  const email = payload.email ? String(payload.email).trim() : null;
-
-  if (
-    !payload.fullName ||
-    !payload.phone ||
-    !payload.password ||
-    !payload.tricycleNumber ||
-    !payload.licenseExpiryDate ||
-    !payload.licenseImageUrl ||
-    !payload.businessPermitImageUrl
-  ) {
-    throw new ApiError(
-      400,
-      "fullName, phone, password, tricycleNumber, licenseExpiryDate, licenseImage, and businessPermitImage are required."
-    );
-  }
-
-  if (payload.password.length < 8) {
-    throw new ApiError(400, "Password must be at least 8 characters.");
-  }
-
-  return db.withTransaction(async (client) => {
-    await ensureUniqueIdentity({ ...payload, email }, client);
-    const passwordHash = await bcrypt.hash(payload.password, 12);
-    const licenseValidation = validateLicenseUpload({
-      fullName: payload.fullName,
-      licenseExpiryDate: payload.licenseExpiryDate,
-      licenseHolderName: payload.licenseHolderName,
-      ocrText: payload.licenseOcrText,
-    });
-
-    const user = await userModel.createUser(
-      {
-        fullName: payload.fullName,
-        phone: payload.phone,
-        email,
-        passwordHash,
-        role: roles.DRIVER,
-        status: "pending",
-      },
-      client
-    );
-
-    const driver = await driverModel.createDriverProfile(
-      {
-        userId: user.id,
-        tricycleNumber: payload.tricycleNumber,
-        licenseImageUrl: payload.licenseImageUrl,
-        businessPermitImageUrl: payload.businessPermitImageUrl,
-        licenseExpiresAt: licenseValidation.licenseExpiresAt,
-        licenseNumber: payload.licenseNumber || licenseValidation.licenseNumber,
-        licenseHolderName: licenseValidation.extractedName || payload.licenseHolderName || null,
-        licenseOcrText: payload.licenseOcrText || null,
-      },
-      client
-    );
-
-    const application = await driverApplicationModel.createApplication(
-      {
-        userId: user.id,
-        driverId: driver.id,
-        fullName: payload.fullName,
-        email,
-        phone: payload.phone,
-        plateNumber: payload.tricycleNumber,
-        licenseImageUrl: payload.licenseImageUrl,
-        businessPermitImageUrl: payload.businessPermitImageUrl,
-        licenseNumber: payload.licenseNumber || licenseValidation.licenseNumber,
-        licenseHolderName: licenseValidation.extractedName || payload.licenseHolderName || null,
-        licenseExpiresAt: licenseValidation.licenseExpiresAt,
-        ocrStatus: payload.licenseOcrText ? "passed" : "pending",
-        ocrFailureReason: null,
-      },
-      client
-    );
-
-    return {
-      user: sanitizeUser(user),
-      driver,
-      application,
-    };
   });
 }
 
@@ -412,7 +324,6 @@ async function logoutAll({ userId }) {
 
 module.exports = {
   registerPassenger,
-  registerDriver,
   registerAdmin,
   adminExists,
   sendAdminOtp,

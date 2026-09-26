@@ -14,6 +14,47 @@ export default function ReviewStep({ formData, user, mode, onBack, onSubmitted }
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
+  // The server only accepts an application if the applicant confirmed their
+  // email within the last hour; when that has lapsed (e.g. they came back
+  // later) the code step appears here instead of losing the whole form.
+  const [needsOtp, setNeedsOtp] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [otpNotice, setOtpNotice] = useState(null);
+
+  async function sendOtp() {
+    setOtpBusy(true);
+    setError(null);
+    try {
+      await apiClient.post("/auth/v2/driver-application/otp/send");
+      setOtpNotice(`We sent a 6-digit code to ${user?.email || "your email"}.`);
+    } catch (err) {
+      setError(err?.response?.data?.message || "Could not send the verification code.");
+    } finally {
+      setOtpBusy(false);
+    }
+  }
+
+  async function verifyOtpAndSubmit(e) {
+    e?.preventDefault();
+    if (!/^d{6}$/.test(otpCode)) {
+      setError("Enter the 6-digit code from your email.");
+      return;
+    }
+    setOtpBusy(true);
+    setError(null);
+    try {
+      await apiClient.post("/auth/v2/driver-application/otp/verify", { code: otpCode });
+      setNeedsOtp(false);
+      setOtpCode("");
+      setOtpNotice(null);
+      await handleSubmit();
+    } catch (err) {
+      setError(err?.response?.data?.message || "Invalid or expired code.");
+    } finally {
+      setOtpBusy(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!confirmed) {
@@ -52,6 +93,11 @@ export default function ReviewStep({ formData, user, mode, onBack, onSubmitted }
 
       onSubmitted();
     } catch (err) {
+      if (err?.response?.data?.details?.code === "OTP_REQUIRED") {
+        setNeedsOtp(true);
+        await sendOtp();
+        return;
+      }
       setError(err?.response?.data?.message || err.message || "Submission failed. Please try again.");
     } finally {
       setSubmitting(false);
@@ -111,11 +157,41 @@ export default function ReviewStep({ formData, user, mode, onBack, onSubmitted }
         </span>
       </label>
 
+      {needsOtp ? (
+        <form onSubmit={verifyOtpAndSubmit} className="review-section">
+          <h3>Confirm it's you</h3>
+          <p style={{ fontSize: 14, color: "var(--muted)" }}>
+            {otpNotice || "For your security, confirm your email before submitting."}
+          </p>
+          <div className="field">
+            <label htmlFor="application-otp">Verification code</label>
+            <input
+              id="application-otp"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value.replace(/D/g, "").slice(0, 6))}
+              placeholder="123456"
+            />
+          </div>
+          <div className="btn-row">
+            <button type="button" className="btn btn-ghost" onClick={sendOtp} disabled={otpBusy || submitting}>
+              Resend code
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={otpBusy || submitting}>
+              {otpBusy || submitting ? "Verifying…" : "Verify & Submit"}
+            </button>
+          </div>
+        </form>
+      ) : null}
+
       <div className="btn-row">
         <button type="button" className="btn btn-ghost" onClick={onBack} disabled={submitting}>
           Back
         </button>
-        <button type="button" className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
+        <button type="button" className="btn btn-primary" onClick={handleSubmit} disabled={submitting || needsOtp}>
           {submitting ? "Submitting…" : "Submit Application"}
         </button>
       </div>

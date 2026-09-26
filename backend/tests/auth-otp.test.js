@@ -60,7 +60,7 @@ describe("passenger registration requires a verified email OTP", () => {
   });
 
   it("creates the account and consumes the OTP once verified", async () => {
-    on(/SELECT id, is_verified, verified_at FROM otp_codes/, () => [
+    on(/SELECT is_verified, verified_at FROM otp_codes/, () => [
       { id: 1, is_verified: 1, verified_at: new Date() },
     ]);
 
@@ -122,5 +122,29 @@ describe("password reset with OTP", () => {
     expect(result.success).toBe(true);
     expect(db.__calls.some((c) => /UPDATE users SET password_hash/.test(c.sql))).toBe(true);
     expect(refreshTokenModel.revokeAllByUserId).toHaveBeenCalledWith(42, expect.anything());
+  });
+});
+
+describe("driver applications require a verified email OTP", () => {
+  it("rejects an applicant who hasn't verified recently", async () => {
+    on(/FROM otp_codes/, () => []);
+
+    await expect(authV2Service.assertDriverApplicationOtp("rider@example.com")).rejects.toMatchObject({
+      statusCode: 403,
+      details: { code: "OTP_REQUIRED" },
+    });
+  });
+
+  it("only counts codes issued for driver applications", async () => {
+    on(/FROM otp_codes/, (_sql, params) => {
+      expect(params).toContain(authV2Service.DRIVER_APPLICATION_PURPOSE);
+      return [{ is_verified: 1, verified_at: new Date() }];
+    });
+
+    await expect(authV2Service.assertDriverApplicationOtp("rider@example.com")).resolves.toBeUndefined();
+  });
+
+  it("rejects an application without an email on the account", async () => {
+    await expect(authV2Service.assertDriverApplicationOtp(null)).rejects.toMatchObject({ statusCode: 400 });
   });
 });

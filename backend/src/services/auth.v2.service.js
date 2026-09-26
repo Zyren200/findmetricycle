@@ -177,23 +177,53 @@ function safeCodeEquals(expected, actual) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+// Whether `email`'s most recent code for `purpose` (null = registration)
+// was verified within `windowMs`.
+async function hasVerifiedOtp(email, purpose = null, windowMs = VERIFIED_OTP_WINDOW_MS, client = db) {
+  if (!email) return false;
+  const rows = await client.query(
+    "SELECT is_verified, verified_at FROM otp_codes WHERE email = ? AND purpose <=> ? ORDER BY id DESC LIMIT 1",
+    [email, purpose]
+  );
+  const latest = rows[0];
+  return Boolean(
+    latest &&
+      Number(latest.is_verified) === 1 &&
+      new Date(latest.verified_at).getTime() > Date.now() - windowMs
+  );
+}
+
+// Deletes every code for `email` + `purpose`, so a verification can only
+// ever be used once.
+async function consumeOtp(email, purpose = null, client = db) {
+  await client.query("DELETE FROM otp_codes WHERE email = ? AND purpose <=> ?", [email, purpose]);
+}
+
 // Throws unless `email` has a registration OTP (purpose NULL) that was
 // verified within VERIFIED_OTP_WINDOW_MS, then consumes it so the same
 // verification can't be reused for a second account or another flow.
 async function consumeVerifiedEmailOtp(email, client = db) {
-  const rows = await client.query(
-    "SELECT id, is_verified, verified_at FROM otp_codes WHERE email = ? AND purpose IS NULL ORDER BY id DESC LIMIT 1",
-    [email]
-  );
-  const latest = rows[0];
-  const isVerified =
-    latest &&
-    Number(latest.is_verified) === 1 &&
-    new Date(latest.verified_at).getTime() > Date.now() - VERIFIED_OTP_WINDOW_MS;
-  if (!isVerified) {
+  if (!(await hasVerifiedOtp(email, null, VERIFIED_OTP_WINDOW_MS, client))) {
     throw new ApiError(400, "Please verify your email with the code sent to it first.");
   }
-  await client.query("DELETE FROM otp_codes WHERE email = ? AND purpose IS NULL", [email]);
+  await consumeOtp(email, null, client);
+}
+
+// Driver applications (new or resubmitted) require the applicant to have
+// confirmed their email within the last hour — enforced on the server, so
+// it can't be skipped by calling the API directly.
+const DRIVER_APPLICATION_PURPOSE = "driver_application";
+const DRIVER_APPLICATION_OTP_WINDOW_MS = 60 * 60 * 1000;
+
+async function assertDriverApplicationOtp(email) {
+  if (!email) {
+    throw new ApiError(400, "Add an email address to your account before applying as a driver.");
+  }
+  if (!(await hasVerifiedOtp(email, DRIVER_APPLICATION_PURPOSE, DRIVER_APPLICATION_OTP_WINDOW_MS))) {
+    throw new ApiError(403, "Please verify your email with the code we send you before submitting.", {
+      code: "OTP_REQUIRED",
+    });
+  }
 }
 
 // Send OTP. `purpose` scopes the code to a specific flow (e.g.
@@ -430,6 +460,7 @@ async function applyAsDriver(
   }
 
   const userData = user[0];
+  await assertDriverApplicationOtp(userData.email);
   const ocr = applyConfirmedLicenseOverrides(buildOcrFields(licenseOcrText), confirmedLicense);
 
   const result = await db.query(
@@ -469,6 +500,7 @@ async function applyAsDriver(
   );
 
   await statusHistoryModel.logStatus(result.insertId, "pending", "Application submitted.", null);
+  await consumeOtp(userData.email, DRIVER_APPLICATION_PURPOSE);
 
   try {
     await notificationService.createNotification({
@@ -536,6 +568,7 @@ async function resubmitDriverApplication(
     throw new ApiError(403, "Only passenger accounts can apply to become a driver.");
   }
   const userData = user[0];
+  await assertDriverApplicationOtp(userData.email);
 
   // Archive old application
   await db.query(
@@ -589,6 +622,7 @@ async function resubmitDriverApplication(
   );
 
   await statusHistoryModel.logStatus(result.insertId, "pending", "Application resubmitted.", null);
+  await consumeOtp(userData.email, DRIVER_APPLICATION_PURPOSE);
 
   try {
     await notificationService.createNotification({
@@ -611,6 +645,8 @@ async function resubmitDriverApplication(
 
 module.exports = {
   PASSWORD_RESET_PURPOSE,
+  DRIVER_APPLICATION_PURPOSE,
+  assertDriverApplicationOtp,
   consumeVerifiedEmailOtp,
   sendOTP,
   verifyOTP,

@@ -1,7 +1,6 @@
 const express = require("express");
 const authController = require("../controllers/auth.controller");
 const authMiddleware = require("../middlewares/auth.middleware");
-const upload = require("../middlewares/upload.middleware");
 const validate = require("../middlewares/validate.middleware");
 const authSchema = require("../validations/auth.schema");
 const { authLimiter, loginLimiter } = require("../middlewares/rate-limit.middleware");
@@ -15,16 +14,16 @@ router.post(
   authController.registerPassenger
 );
 
-router.post(
-  "/driver/register",
-  authLimiter,
-  upload.fields([
-    { name: "licenseImage", maxCount: 1 },
-    { name: "businessPermitImage", maxCount: 1 },
-  ]),
-  validate(authSchema.registerDriverSchema),
-  authController.registerDriver
-);
+// Retired: created driver accounts without email verification. Riders now
+// register as passengers and apply through the driver application site
+// (POST /auth/v2/apply-driver), which requires an email OTP.
+router.post("/driver/register", (_req, res) => {
+  res.status(410).json({
+    success: false,
+    message:
+      "Driver sign-up has moved. Create a passenger account, then apply as a driver from the app.",
+  });
+});
 
 router.get("/admin/exists", authController.adminExists);
 router.post(
