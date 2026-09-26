@@ -1,10 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { apiClient, setAuthToken } from "../api/client";
+import {
+  apiClient,
+  setAuthToken,
+  clearStoredSession,
+  TOKEN_KEY,
+  REFRESH_TOKEN_KEY,
+  USER_KEY,
+  TOKEN_REFRESHED_EVENT,
+} from "../api/client";
 
 const AuthContext = createContext(null);
 
-const TOKEN_KEY = "fmt_admin_token";
-const USER_KEY = "fmt_admin_user";
 const REMEMBER_KEY = "fmt_admin_remember";
 
 const initialToken = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
@@ -50,6 +56,13 @@ export function AuthProvider({ children }) {
     setAuthToken(token);
   }, [token]);
 
+  // Keep context state in sync when the API client silently refreshes.
+  useEffect(() => {
+    const onRefreshed = (event) => setToken(event.detail);
+    window.addEventListener(TOKEN_REFRESHED_EVENT, onRefreshed);
+    return () => window.removeEventListener(TOKEN_REFRESHED_EVENT, onRefreshed);
+  }, []);
+
   async function login({ identifier, email, phone, password, remember = false }) {
     setLoading(true);
     setError(null);
@@ -72,17 +85,12 @@ export function AuthProvider({ children }) {
         throw new Error("Account is not an admin user.");
       }
 
-      if (remember) {
-        localStorage.setItem(TOKEN_KEY, jwt);
-        localStorage.setItem(USER_KEY, JSON.stringify(adminUser));
-        localStorage.setItem(REMEMBER_KEY, "true");
-      } else {
-        sessionStorage.setItem(TOKEN_KEY, jwt);
-        sessionStorage.setItem(USER_KEY, JSON.stringify(adminUser));
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(USER_KEY);
-        localStorage.setItem(REMEMBER_KEY, "false");
-      }
+      clearStoredSession();
+      const store = remember ? localStorage : sessionStorage;
+      store.setItem(TOKEN_KEY, jwt);
+      store.setItem(REFRESH_TOKEN_KEY, authData.refreshToken || "");
+      store.setItem(USER_KEY, JSON.stringify(adminUser));
+      localStorage.setItem(REMEMBER_KEY, remember ? "true" : "false");
       setToken(jwt);
       setUser(adminUser);
       setRememberMe(Boolean(remember));
@@ -137,7 +145,9 @@ export function AuthProvider({ children }) {
       const adminUser = authData.user;
       const jwt = authData.token;
 
+      clearStoredSession();
       sessionStorage.setItem(TOKEN_KEY, jwt);
+      sessionStorage.setItem(REFRESH_TOKEN_KEY, authData.refreshToken || "");
       sessionStorage.setItem(USER_KEY, JSON.stringify(adminUser));
       setToken(jwt);
       setUser(adminUser);
@@ -152,11 +162,17 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    // Revoke the refresh token server-side (best effort) so it can't be
+    // reused from this browser's storage after logging out.
+    const refreshToken =
+      localStorage.getItem(REFRESH_TOKEN_KEY) || sessionStorage.getItem(REFRESH_TOKEN_KEY);
+    if (refreshToken) {
+      apiClient
+        .post("/auth/logout", { refreshToken }, { skipAuthRedirect: true, skipAuthRefresh: true })
+        .catch(() => {});
+    }
+    clearStoredSession();
     localStorage.removeItem(REMEMBER_KEY);
-    sessionStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(USER_KEY);
     setToken(null);
     setUser(null);
     setRememberMe(false);

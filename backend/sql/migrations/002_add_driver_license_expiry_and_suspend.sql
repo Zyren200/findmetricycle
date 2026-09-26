@@ -20,8 +20,11 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
+-- Uses the full current value list (incl. 'archived' / 'license_expired'
+-- from 003) so re-running this file can never shrink the enum and wipe
+-- those statuses from existing rows.
 ALTER TABLE drivers
-  MODIFY approval_status ENUM('pending', 'approved', 'rejected', 'suspended') NOT NULL DEFAULT 'pending';
+  MODIFY approval_status ENUM('pending', 'approved', 'rejected', 'suspended', 'archived', 'license_expired') NOT NULL DEFAULT 'pending';
 
 SET @driver_license_index_exists = (
   SELECT COUNT(*)

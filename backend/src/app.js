@@ -8,6 +8,8 @@ const rateLimit = require("express-rate-limit");
 const env = require("./config/env");
 const apiRoutes = require("./routes");
 const errorMiddleware = require("./middlewares/error.middleware");
+const ApiError = require("./utils/api-error");
+const { isAllowedOrigin, allowAll } = require("./utils/cors-origin");
 
 // Baseline abuse protection for every /api route — existing per-route
 // limiters (auth, OTP) stay in place and are stricter than this; this is
@@ -23,28 +25,37 @@ const apiLimiter = rateLimit({
 
 const app = express();
 
-app.use(helmet());
+// helmet's default CSP blocks the admin dashboard's live map when it is
+// served from backend/public/admin: MapLibre runs its tile worker from a
+// blob: URL and loads the basemap style/tiles from CARTO.
+const MAP_HOSTS = ["https://basemaps.cartocdn.com", "https://*.basemaps.cartocdn.com"];
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        connectSrc: ["'self'", "ws:", "wss:", ...MAP_HOSTS],
+        workerSrc: ["'self'", "blob:"],
+        childSrc: ["'self'", "blob:"],
+        imgSrc: ["'self'", "data:", "blob:", ...MAP_HOSTS],
+      },
+    },
+  })
+);
 
-const allowAll = env.clientOrigins.includes("*");
 if (allowAll && env.nodeEnv === "production") {
-  // eslint-disable-next-line no-console
   console.warn(
     "WARNING: CLIENT_ORIGIN is not set — CORS is reflecting every origin with credentials enabled. " +
       "Set CLIENT_ORIGIN to your admin dashboard's real URL before running in production."
   );
 }
-const localhostOriginPattern = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i;
 app.use(
   cors({
     origin: (origin, callback) => {
-      const isConfiguredOrigin = origin && env.clientOrigins.includes(origin);
-      const isLocalDevOrigin = origin && localhostOriginPattern.test(origin);
-
-      if (allowAll || !origin || isConfiguredOrigin || isLocalDevOrigin) {
+      if (isAllowedOrigin(origin)) {
         callback(null, true);
         return;
       }
-      callback(new Error("CORS origin not allowed."));
+      callback(new ApiError(403, "CORS origin not allowed."));
     },
     credentials: true,
   })
@@ -72,7 +83,7 @@ app.use(
 
 // Serve static files (prototypes, public assets)
 app.use(
-  express.static(path.resolve(process.cwd(), "backend/public"), {
+  express.static(path.resolve(__dirname, "../public"), {
     maxAge: "1d",
   })
 );

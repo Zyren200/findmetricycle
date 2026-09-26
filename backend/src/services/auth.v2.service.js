@@ -1,13 +1,22 @@
+const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
 const db = require("../config/db");
 const nodemailer = require("nodemailer");
 const licenseValidationService = require("./license-validation.service");
 const notificationService = require("./notification.service");
 const statusHistoryModel = require("../models/application-status-history.model");
+const refreshTokenModel = require("../models/refresh-token.model");
 const ApiError = require("../utils/api-error");
+const escapeHtml = require("../utils/escape-html");
 
-// Generate a 6-digit OTP
+const PASSWORD_RESET_PURPOSE = "password_reset";
+// How long a verified registration code stays usable for the follow-up
+// register call.
+const VERIFIED_OTP_WINDOW_MS = 30 * 60 * 1000;
+
+// Generate a 6-digit OTP from a CSPRNG (Math.random is predictable).
 function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 function buildTransporter() {
@@ -47,7 +56,11 @@ async function sendOTPEmail(email, otp) {
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`✓ OTP sent to ${email}: ${otp}`);
+    if (process.env.NODE_ENV === "production") {
+      console.log(`✓ OTP sent to ${email}`);
+    } else {
+      console.log(`✓ OTP sent to ${email}: ${otp}`);
+    }
     return true;
   } catch (error) {
     console.error(`✗ Failed to send OTP to ${email}:`, error.message);
@@ -99,7 +112,7 @@ async function sendDriverApprovalEmail(email, fullName) {
       subject: "🎉 Driver Application Approved!",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #0E8C46;">🎉 Congratulations, ${fullName}!</h2>
+          <h2 style="color: #0E8C46;">🎉 Congratulations, ${escapeHtml(fullName)}!</h2>
           <p>Your driver application has been <strong>approved</strong>!</p>
           <p>You can now:</p>
           <ul style="line-height: 1.8;">
@@ -133,11 +146,11 @@ async function sendDriverRejectionEmail(email, fullName, reason) {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #D32F2F;">Application Update</h2>
-          <p>Hi ${fullName},</p>
+          <p>Hi ${escapeHtml(fullName)},</p>
           <p>Thank you for applying as a driver. Unfortunately, your application could not be approved at this time.</p>
           <p><strong>Reason:</strong></p>
           <div style="background: #fff3cd; padding: 15px; border-radius: 6px; border-left: 4px solid #FFC107;">
-            ${reason || "Please contact support for more details."}
+            ${escapeHtml(reason || "Please contact support for more details.")}
           </div>
           <p style="margin-top: 20px;">You can resubmit your application with updated documents.</p>
           <p style="color: #666; font-size: 12px;">If you have questions, please contact our support team.</p>
@@ -157,6 +170,31 @@ async function sendDriverRejectionEmail(email, fullName, reason) {
 }
 
 const MAX_OTP_ATTEMPTS = 5;
+
+function safeCodeEquals(expected, actual) {
+  const a = Buffer.from(String(expected || ""));
+  const b = Buffer.from(String(actual || ""));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Throws unless `email` has a registration OTP (purpose NULL) that was
+// verified within VERIFIED_OTP_WINDOW_MS, then consumes it so the same
+// verification can't be reused for a second account or another flow.
+async function consumeVerifiedEmailOtp(email, client = db) {
+  const rows = await client.query(
+    "SELECT id, is_verified, verified_at FROM otp_codes WHERE email = ? AND purpose IS NULL ORDER BY id DESC LIMIT 1",
+    [email]
+  );
+  const latest = rows[0];
+  const isVerified =
+    latest &&
+    Number(latest.is_verified) === 1 &&
+    new Date(latest.verified_at).getTime() > Date.now() - VERIFIED_OTP_WINDOW_MS;
+  if (!isVerified) {
+    throw new ApiError(400, "Please verify your email with the code sent to it first.");
+  }
+  await client.query("DELETE FROM otp_codes WHERE email = ? AND purpose IS NULL", [email]);
+}
 
 // Send OTP. `purpose` scopes the code to a specific flow (e.g.
 // "driver_application") so a code issued for one flow can't be replayed
@@ -197,16 +235,16 @@ async function verifyOTP(email, code, purpose = null) {
   );
 
   if (!pending) {
-    throw new Error("Invalid or expired OTP");
+    throw new ApiError(400, "Invalid or expired OTP");
   }
 
   if (pending.attempts >= MAX_OTP_ATTEMPTS) {
-    throw new Error("Too many attempts. Please request a new code.");
+    throw new ApiError(429, "Too many attempts. Please request a new code.");
   }
 
-  if (pending.code !== code) {
+  if (!safeCodeEquals(pending.code, code)) {
     await db.query("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?", [pending.id]);
-    throw new Error("Invalid or expired OTP");
+    throw new ApiError(400, "Invalid or expired OTP");
   }
 
   await db.query("UPDATE otp_codes SET is_verified = 1, verified_at = NOW() WHERE id = ?", [pending.id]);
@@ -225,83 +263,90 @@ async function requestPasswordReset(email) {
   const otp = generateOTP();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-  const existing = await db.query(
-    "SELECT id FROM otp_codes WHERE email = ? AND is_verified = 0 AND expires_at > NOW()",
-    [email]
+  // Reset codes carry their own purpose so a registration or
+  // driver-application code can never reset a password. Older pending
+  // reset codes are dropped so only the newest one is guessable.
+  await db.query("DELETE FROM otp_codes WHERE email = ? AND purpose = ? AND is_verified = 0", [
+    email,
+    PASSWORD_RESET_PURPOSE,
+  ]);
+  await db.query(
+    "INSERT INTO otp_codes (email, purpose, code, attempts, expires_at) VALUES (?, ?, ?, 0, ?)",
+    [email, PASSWORD_RESET_PURPOSE, otp, expiresAt]
   );
-
-  if (existing.length > 0) {
-    await db.query(
-      "UPDATE otp_codes SET code = ?, attempts = 0, expires_at = ? WHERE email = ?",
-      [otp, expiresAt, email]
-    );
-  } else {
-    await db.query(
-      "INSERT INTO otp_codes (email, code, attempts, expires_at) VALUES (?, ?, 0, ?)",
-      [email, otp, expiresAt]
-    );
-  }
 
   await sendPasswordResetEmail(email, otp);
   return { success: true, message: "If that email is registered, a reset code has been sent." };
 }
 
-// Verify the reset code and update the password
+// Verify the reset code and update the password. Wrong guesses count
+// against MAX_OTP_ATTEMPTS, and every existing session is signed out once
+// the password changes.
 async function resetPasswordWithOTP(email, code, newPassword) {
-  const result = await db.query(
-    "SELECT * FROM otp_codes WHERE email = ? AND code = ? AND is_verified = 0 AND expires_at > NOW()",
-    [email, code]
+  const [pending] = await db.query(
+    "SELECT * FROM otp_codes WHERE email = ? AND purpose = ? AND is_verified = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1",
+    [email, PASSWORD_RESET_PURPOSE]
   );
 
-  if (result.length === 0) {
-    await db.query(
-      "UPDATE otp_codes SET attempts = attempts + 1 WHERE email = ? AND is_verified = 0",
-      [email]
-    );
-    throw new Error("Invalid or expired code");
+  if (!pending) {
+    throw new ApiError(400, "Invalid or expired code");
   }
 
-  const users = await db.query("SELECT id FROM users WHERE email = ?", [email]);
-  if (users.length === 0) {
-    throw new Error("Account not found");
+  if (pending.attempts >= MAX_OTP_ATTEMPTS) {
+    throw new ApiError(429, "Too many attempts. Please request a new code.");
   }
 
-  const bcrypt = require("bcryptjs");
-  const passwordHash = await bcrypt.hash(newPassword, 10);
+  if (!safeCodeEquals(pending.code, code)) {
+    await db.query("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?", [pending.id]);
+    throw new ApiError(400, "Invalid or expired code");
+  }
 
-  await db.query("UPDATE users SET password_hash = ? WHERE email = ?", [passwordHash, email]);
-  await db.query("UPDATE otp_codes SET is_verified = 1, verified_at = NOW() WHERE email = ? AND code = ?", [email, code]);
+  const [user] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+  if (!user) {
+    throw new ApiError(404, "Account not found");
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+
+  await db.withTransaction(async (client) => {
+    await client.query("UPDATE users SET password_hash = ? WHERE id = ?", [passwordHash, user.id]);
+    await client.query("DELETE FROM otp_codes WHERE email = ? AND purpose = ?", [email, PASSWORD_RESET_PURPOSE]);
+    await refreshTokenModel.revokeAllByUserId(user.id, client);
+  });
 
   return { success: true, message: "Password updated successfully." };
 }
 
-// Register Passenger (after OTP verification)
-async function registerPassenger(fullName, email, phone, password, middleName = null) {
-  const existing = await db.query("SELECT id FROM users WHERE email = ?", [email]);
-  if (existing.length > 0) {
-    throw new Error("Email already registered");
-  }
+// Register Passenger — only after the email's registration OTP was verified.
+async function registerPassenger(fullName, email, phone, password) {
+  const passwordHash = await bcrypt.hash(password, 12);
 
-  const existingPhone = await db.query("SELECT id FROM users WHERE phone = ?", [phone]);
-  if (existingPhone.length > 0) {
-    throw new Error("Phone number already registered");
-  }
+  return db.withTransaction(async (client) => {
+    const existing = await client.query("SELECT id FROM users WHERE email = ?", [email]);
+    if (existing.length > 0) {
+      throw new ApiError(409, "Email already registered");
+    }
 
-  const bcrypt = require("bcryptjs");
-  const passwordHash = await bcrypt.hash(password, 10);
+    const existingPhone = await client.query("SELECT id FROM users WHERE phone = ?", [phone]);
+    if (existingPhone.length > 0) {
+      throw new ApiError(409, "Phone number already registered");
+    }
 
-  const result = await db.query(
-    `INSERT INTO users
-      (full_name, email, phone, password_hash, role, status, driver_approval_status, is_driver_account)
-     VALUES (?, ?, ?, ?, 'passenger', 'active', 'none', 0)`,
-    [fullName, email, phone, passwordHash]
-  );
+    await consumeVerifiedEmailOtp(email, client);
 
-  return {
-    success: true,
-    message: "Passenger account created. You can now login.",
-    userId: result.insertId,
-  };
+    const result = await client.query(
+      `INSERT INTO users
+        (full_name, email, phone, password_hash, role, status, driver_approval_status, is_driver_account)
+       VALUES (?, ?, ?, ?, 'passenger', 'active', 'none', 0)`,
+      [fullName, email, phone, passwordHash]
+    );
+
+    return {
+      success: true,
+      message: "Passenger account created. You can now login.",
+      userId: result.insertId,
+    };
+  });
 }
 
 // Runs on-device-OCR-extracted text through the same screening signals used
@@ -378,7 +423,7 @@ async function applyAsDriver(
 ) {
   const user = await db.query("SELECT * FROM users WHERE id = ?", [userId]);
   if (user.length === 0) {
-    throw new Error("User not found");
+    throw new ApiError(404, "User not found");
   }
   if (user[0].role !== "passenger") {
     throw new ApiError(403, "Only passenger accounts can apply to become a driver.");
@@ -485,7 +530,7 @@ async function resubmitDriverApplication(
 ) {
   const user = await db.query("SELECT * FROM users WHERE id = ?", [userId]);
   if (user.length === 0) {
-    throw new Error("User not found");
+    throw new ApiError(404, "User not found");
   }
   if (user[0].role !== "passenger") {
     throw new ApiError(403, "Only passenger accounts can apply to become a driver.");
@@ -565,6 +610,8 @@ async function resubmitDriverApplication(
 }
 
 module.exports = {
+  PASSWORD_RESET_PURPOSE,
+  consumeVerifiedEmailOtp,
   sendOTP,
   verifyOTP,
   requestPasswordReset,

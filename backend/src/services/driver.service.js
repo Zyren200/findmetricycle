@@ -45,7 +45,7 @@ async function updateOnlineStatus(userId, isOnline) {
   }
 
   await driverModel.setOnlineStatus(driver.id, Boolean(isOnline));
-  return { ...driver, is_online: Boolean(isOnline) ? 1 : 0 };
+  return { ...driver, is_online: isOnline ? 1 : 0 };
 }
 
 async function updateLocation(userId, lat, lng) {

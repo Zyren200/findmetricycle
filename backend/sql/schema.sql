@@ -12,10 +12,13 @@ CREATE TABLE IF NOT EXISTS users (
   role ENUM('passenger', 'driver', 'admin') NOT NULL,
   status ENUM('pending', 'active', 'suspended', 'rejected', 'archived') NOT NULL DEFAULT 'active',
   profile_image_url VARCHAR(255) NULL,
+  driver_approval_status ENUM('none', 'pending', 'approved', 'rejected') NOT NULL DEFAULT 'none',
+  is_driver_account TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at DATETIME NULL,
-  INDEX idx_users_role_status_deleted (role, status, deleted_at)
+  INDEX idx_users_role_status_deleted (role, status, deleted_at),
+  INDEX idx_users_driver_approval (driver_approval_status)
 );
 
 CREATE TABLE IF NOT EXISTS admins (
@@ -173,6 +176,22 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     ON DELETE CASCADE
     ON UPDATE CASCADE,
   INDEX idx_refresh_lookup (user_id, revoked_at, expires_at)
+);
+
+-- Email one-time codes. `purpose` scopes a code to one flow (NULL =
+-- registration, 'password_reset', 'change_password', 'driver_application').
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(120) NOT NULL,
+  purpose VARCHAR(40) NULL,
+  code VARCHAR(6) NOT NULL,
+  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  is_verified TINYINT(1) NOT NULL DEFAULT 0,
+  expires_at DATETIME NOT NULL,
+  verified_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_otp_email_expires (email, expires_at),
+  INDEX idx_otp_email_verified (email, is_verified)
 );
 
 -- notifications table for admin events

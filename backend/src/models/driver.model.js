@@ -190,8 +190,8 @@ async function getApprovedOnlineDriversWithLocation() {
   );
 }
 
-async function addEarningsAndRideCount(driverId, amount) {
-  await db.query(
+async function addEarningsAndRideCount(driverId, amount, client = db) {
+  await client.query(
     `
       UPDATE drivers
       SET total_rides = total_rides + 1,

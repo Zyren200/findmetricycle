@@ -5,7 +5,6 @@ async function run() {
   const [, , fullName, phone, email, password] = process.argv;
 
   if (!fullName || !phone || !password) {
-    // eslint-disable-next-line no-console
     console.log("Usage: node scripts/create-admin.js \"Full Name\" \"09XXXXXXXXX\" \"email@domain\" \"Password123\"");
     process.exit(1);
   }
@@ -22,13 +21,11 @@ async function run() {
 
   await db.query("INSERT INTO admins (user_id) VALUES (?)", [result.insertId]);
 
-  // eslint-disable-next-line no-console
   console.log(`Admin created with user_id=${result.insertId}`);
   process.exit(0);
 }
 
 run().catch((error) => {
-  // eslint-disable-next-line no-console
   console.error("Failed to create admin:", error.message);
   process.exit(1);
 });

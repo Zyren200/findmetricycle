@@ -153,17 +153,14 @@ docker compose up --build
 
 ## Migrations
 
-The backend includes an idempotent migration runner for Admin Dashboard V2 database changes.
-
-Apply migrations (from project root):
+`schema.sql` runs automatically on every server start. Files in `sql/migrations/` are applied with the migration runner, which records each file in a `schema_migrations` table so it only ever runs once:
 
 ```bash
-# using the Node runner (preferred if you have the app env set in .env)
-node backend/scripts/run-migrations.js
-
-# or use the MySQL CLI directly for one migration at a time (replace with your DB creds)
-mysql -u your_user -p your_database < backend/sql/migrations/003_admin_v2_operations_schema.sql
+cd backend
+npm run migrate
 ```
+
+On a database created from `schema.sql`, some migrations add columns that already exist — the runner detects "duplicate column / index" errors and skips those statements. Add new schema changes as a new numbered file (`013_...sql`) rather than editing old ones.
 
 The migrations are designed to be safe to rerun. Legacy cashless tables are archived with `legacy_cashless_*` names instead of being dropped, so old records are preserved while the active app stays cash-only.
 

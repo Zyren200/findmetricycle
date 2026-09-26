@@ -14,12 +14,10 @@ async function bootstrap() {
     await db.initPool();
     await db.query("SELECT 1");
     server.listen(env.port, () => {
-      // eslint-disable-next-line no-console
       console.log(`FindMeTricycle API running on http://localhost:${env.port}`);
     });
     rideOfferScheduler.start();
   } catch (error) {
-    // eslint-disable-next-line no-console
     console.error(
       "Failed to start server:",
       error.message,

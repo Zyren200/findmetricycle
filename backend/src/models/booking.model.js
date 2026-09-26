@@ -165,16 +165,19 @@ async function assignDriver(bookingId, driverId) {
   return { assigned, booking: await findById(bookingId) };
 }
 
-async function clearAssignedDriver(bookingId, declineReason = null) {
-  await db.query(
+// Only un-assigns while the offer is still pending and still held by
+// `expectedDriverId` — if the driver accepted a moment earlier (or the
+// booking already moved on to someone else) nothing changes.
+async function clearAssignedDriver(bookingId, expectedDriverId, declineReason = null) {
+  const result = await db.query(
     `
       UPDATE bookings
       SET driver_id = NULL, decline_reason = ?, offer_expires_at = NULL
-      WHERE id = ?
+      WHERE id = ? AND driver_id = ? AND status = 'pending'
     `,
-    [declineReason, bookingId]
+    [declineReason, bookingId, expectedDriverId]
   );
-  return findById(bookingId);
+  return { changed: result.affectedRows > 0, booking: await findById(bookingId) };
 }
 
 // Pending bookings whose driver never responded in time — the caller
@@ -226,16 +229,18 @@ async function verifyPickupPin(bookingId, code) {
   return { ok: true };
 }
 
-async function markAccepted(bookingId) {
-  await db.query(
+// Guarded on driver_id so a driver whose offer already expired and was
+// handed to someone else can't still accept it.
+async function markAccepted(bookingId, driverId) {
+  const result = await db.query(
     `
       UPDATE bookings
-      SET status = 'accepted', accepted_at = NOW()
-      WHERE id = ? AND status = 'pending'
+      SET status = 'accepted', accepted_at = NOW(), offer_expires_at = NULL
+      WHERE id = ? AND driver_id = ? AND status = 'pending'
     `,
-    [bookingId]
+    [bookingId, driverId]
   );
-  return findById(bookingId);
+  return { changed: result.affectedRows > 0, booking: await findById(bookingId) };
 }
 
 async function markArriving(bookingId) {
@@ -262,8 +267,11 @@ async function markOngoing(bookingId) {
   return findById(bookingId);
 }
 
-async function markCompleted(bookingId, finalFare) {
-  await db.query(
+// `client` lets completeRide run this and the earnings credit in one
+// transaction; `changed` is false when a concurrent request already
+// completed the ride, so earnings are never credited twice.
+async function markCompleted(bookingId, finalFare, client = db) {
+  const result = await client.query(
     `
       UPDATE bookings
       SET status = 'completed', completed_at = NOW(), final_fare = ?
@@ -271,7 +279,7 @@ async function markCompleted(bookingId, finalFare) {
     `,
     [finalFare, bookingId]
   );
-  return findById(bookingId);
+  return { changed: result.affectedRows > 0 };
 }
 
 async function markCancelled(bookingId, cancelledBy) {

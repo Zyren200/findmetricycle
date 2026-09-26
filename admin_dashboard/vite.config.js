@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // Relative asset URLs so the same build works at the site root (nginx /
+  // Docker) and under /admin/ when copied into backend/public by deploy-admin.
+  base: "./",
   server: {
     host: "0.0.0.0",
     port: 5173,

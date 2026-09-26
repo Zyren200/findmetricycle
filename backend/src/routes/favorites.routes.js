@@ -3,7 +3,6 @@ const validate = require("../middlewares/validate.middleware");
 const { z } = require("zod");
 const db = require("../config/db");
 const authMiddleware = require("../middlewares/auth.middleware");
-const requireRole = require("../middlewares/role.middleware");
 
 const router = express.Router();
 

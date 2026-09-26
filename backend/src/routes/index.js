@@ -23,7 +23,8 @@ router.get("/health/db", async (_req, res) => {
     await db.query("SELECT 1");
     res.json({ success: true, db: "ok" });
   } catch (err) {
-    res.status(503).json({ success: false, db: "down", error: err.message });
+    console.error("DB health check failed:", err.message);
+    res.status(503).json({ success: false, db: "down" });
   }
 });
 

@@ -9,6 +9,7 @@ const { decorateBookingRecord } = require("../utils/ride-progress");
 const { hasDriverAccess } = require("../utils/driver-access");
 const { isRateLimited } = require("../utils/socket-rate-limiter");
 const ApiError = require("../utils/api-error");
+const { isAllowedOrigin } = require("../utils/cors-origin");
 
 let io = null;
 
@@ -212,11 +213,10 @@ async function onSocketConnection(socket) {
 }
 
 function initSocket(httpServer) {
-  const allowAll = env.clientOrigins.includes("*");
   io = new Server(httpServer, {
     cors: {
       origin: (origin, callback) => {
-        if (allowAll || !origin || env.clientOrigins.includes(origin)) {
+        if (isAllowedOrigin(origin)) {
           callback(null, true);
           return;
         }

@@ -11,6 +11,21 @@ for (const key of required) {
   }
 }
 
+// Anyone who knows the JWT secret can mint an admin token, so refuse to
+// start in production with a placeholder or short secret.
+if (process.env.NODE_ENV === "production") {
+  const weakSecret = (value) =>
+    !value || value.length < 32 || /^(dev|test|change|replace|secret)/i.test(value);
+  for (const key of ["JWT_SECRET", "JWT_REFRESH_SECRET"]) {
+    if (weakSecret(process.env[key])) {
+      throw new Error(
+        `${key} must be a random value of at least 32 characters in production ` +
+          "(generate one with: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\")."
+      );
+    }
+  }
+}
+
 module.exports = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 5000),
@@ -40,6 +55,9 @@ module.exports = {
   },
 
   geofence: {
+    // Off unless GEOFENCE_ENABLED=true, so local testing from outside the
+    // service area keeps working.
+    enabled: process.env.GEOFENCE_ENABLED === "true",
     centerLat: Number(process.env.GEOFENCE_CENTER_LAT || 11.033),
     centerLng: Number(process.env.GEOFENCE_CENTER_LNG || 125.722),
     radiusKm: Number(process.env.GEOFENCE_RADIUS_KM || 50),

@@ -1,3 +1,5 @@
+import { TOKEN_KEY } from "../api/client";
+
 export function asText(value) {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();
@@ -62,7 +64,7 @@ export function resolveDriverDocumentUrl(path) {
   if (!path) return null;
   if (/^https?:\/\//i.test(path)) return path;
 
-  const token = localStorage.getItem("fmt_admin_token") || sessionStorage.getItem("fmt_admin_token") || "";
+  const token = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || "";
   const filenameMatch = path.match(/\/uploads\/driver-docs\/([^/?]+)$/);
   if (filenameMatch) {
     return `${BACKEND_ORIGIN}/api/documents/driver/${filenameMatch[1]}?token=${encodeURIComponent(token)}`;

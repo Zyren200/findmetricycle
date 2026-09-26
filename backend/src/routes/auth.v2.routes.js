@@ -1,3 +1,4 @@
+const fs = require("fs");
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const validate = require("../middlewares/validate.middleware");
@@ -9,6 +10,7 @@ const upload = require("../middlewares/upload.middleware");
 const { requireCaptcha, signCaptchaSessionToken } = require("../middlewares/captcha.middleware");
 const captchaService = require("../services/captcha.service");
 const ApiError = require("../utils/api-error");
+const { authLimiter, loginLimiter } = require("../middlewares/rate-limit.middleware");
 
 const router = express.Router();
 
@@ -38,6 +40,15 @@ function otpPerEmailLimiter(req, res, next) {
   otpEmailTargets.set(email, hits);
   next();
 }
+
+// Drop emails whose window has fully elapsed so the map doesn't grow
+// forever on a long-running server.
+setInterval(() => {
+  const cutoff = Date.now() - OTP_EMAIL_WINDOW_MS;
+  for (const [email, hits] of otpEmailTargets) {
+    if (hits.every((t) => t < cutoff)) otpEmailTargets.delete(email);
+  }
+}, OTP_EMAIL_WINDOW_MS).unref();
 
 const otpIpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -88,6 +99,32 @@ const registerPassengerSchema = z.object({
   }),
 });
 
+const loginSchema = z.object({
+  body: z.object({
+    email: z.string().trim().email().max(120).optional().or(z.literal("")),
+    phone: z.string().trim().max(20).optional().or(z.literal("")),
+    password: z.string().min(1).max(100),
+  }),
+});
+
+// Shared by apply + resubmit. The liveness result is reported by the
+// applicant's browser, so it's stored only as a screening hint for the
+// admin reviewer, never as proof on its own.
+const licenseConfirmationFields = {
+  licenseOcrText: z.string().max(5000).optional(),
+  livenessStatus: z.enum(["passed", "needs_review", "failed"]).optional(),
+  // Confirmed by the applicant on the license-review step — what they
+  // typed after checking the OCR read against the physical card.
+  confirmedFullName: z.string().trim().min(1).max(120).optional(),
+  confirmedLicenseNumber: z.string().trim().min(1).max(80).optional(),
+  confirmedBirthDate: z.string().trim().min(4).max(40).optional(),
+  confirmedExpiryDate: z.string().trim().min(4).max(40).optional(),
+};
+
+const resubmitDriverApplicationSchema = z.object({
+  body: z.object(licenseConfirmationFields),
+});
+
 const applyAsDriverSchema = z.object({
   body: z.object({
     plateNumber: z.string().min(1),
@@ -96,14 +133,7 @@ const applyAsDriverSchema = z.object({
     address: z.string().trim().max(255).optional(),
     emergencyContactName: z.string().trim().max(120).optional(),
     emergencyContactPhone: z.string().trim().max(20).optional(),
-    licenseOcrText: z.string().optional(),
-    livenessStatus: z.enum(["passed", "needs_review", "failed"]).optional(),
-    // Confirmed by the applicant on the license-review step — what they
-    // typed after checking the OCR read against the physical card.
-    confirmedFullName: z.string().trim().min(1).max(120).optional(),
-    confirmedLicenseNumber: z.string().trim().min(1).max(80).optional(),
-    confirmedBirthDate: z.string().trim().min(4).max(40).optional(),
-    confirmedExpiryDate: z.string().trim().min(4).max(40).optional(),
+    ...licenseConfirmationFields,
   }),
 });
 
@@ -112,6 +142,18 @@ const driverDocumentUpload = upload.fields([
   { name: "businessPermitImage", maxCount: 1 },
   { name: "selfieImage", maxCount: 1 },
 ]);
+
+// Multer writes the files before validation runs — if the request is then
+// rejected, delete them so failed submissions don't pile up sensitive
+// ID photos on disk.
+function removeUploadedFilesOnError(error, req, _res, next) {
+  for (const list of Object.values(req.files || {})) {
+    for (const file of list) {
+      fs.unlink(file.path, () => {});
+    }
+  }
+  next(error);
+}
 
 // Public endpoints
 
@@ -208,18 +250,17 @@ router.post("/forgot-password/reset", otpIpLimiter, validate(forgotPasswordReset
  * POST /auth/v2/register
  * Register as passenger after OTP verification
  */
-router.post("/register", validate(registerPassengerSchema), async (req, res, next) => {
+router.post("/register", authLimiter, validate(registerPassengerSchema), async (req, res, next) => {
   try {
     const { email, firstName, middleName, lastName, phone, password } = req.body;
-    const fullName = `${firstName} ${lastName}`.trim();
+    // There's no separate middle-name column, so it's kept in full_name
+    // instead of being silently dropped.
+    const fullName = [firstName, middleName, lastName]
+      .map((part) => String(part || "").trim())
+      .filter(Boolean)
+      .join(" ");
 
-    const result = await authV2Service.registerPassenger(
-      fullName,
-      email,
-      phone,
-      password,
-      middleName
-    );
+    const result = await authV2Service.registerPassenger(fullName, email, phone, password);
 
     // Auto-login after registration
     const loginResult = await authService.login({ email, password });
@@ -241,7 +282,7 @@ router.post("/register", validate(registerPassengerSchema), async (req, res, nex
  * POST /auth/v2/login
  * Login with email or phone
  */
-router.post("/login", async (req, res, next) => {
+router.post("/login", authLimiter, loginLimiter, validate(loginSchema), async (req, res, next) => {
   try {
     const { email, phone, password } = req.body;
 
@@ -307,7 +348,7 @@ router.post(
         `/uploads/driver-docs/${permit.filename}`,
         licenseOcrText,
         selfie ? `/uploads/driver-docs/${selfie.filename}` : null,
-        livenessStatus,
+        selfie ? livenessStatus : null,
         {
           fullName: confirmedFullName || null,
           licenseNumber: confirmedLicenseNumber || null,
@@ -327,7 +368,8 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+  },
+  removeUploadedFilesOnError
 );
 
 /**
@@ -376,6 +418,7 @@ router.post(
   "/resubmit-driver-application",
   authMiddleware,
   driverDocumentUpload,
+  validate(resubmitDriverApplicationSchema),
   async (req, res, next) => {
     try {
       const {
@@ -401,7 +444,7 @@ router.post(
         `/uploads/driver-docs/${permit.filename}`,
         licenseOcrText,
         selfie ? `/uploads/driver-docs/${selfie.filename}` : null,
-        livenessStatus,
+        selfie ? livenessStatus : null,
         {
           fullName: confirmedFullName || null,
           licenseNumber: confirmedLicenseNumber || null,
@@ -414,7 +457,8 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+  },
+  removeUploadedFilesOnError
 );
 
 module.exports = router;

@@ -78,8 +78,8 @@ async function ensureUniqueIdentity({ phone, email }, client = db) {
 async function registerPassenger(payload) {
   const email = payload.email ? String(payload.email).trim() : null;
 
-  if (!payload.fullName || !payload.phone || !payload.password) {
-    throw new ApiError(400, "fullName, phone, and password are required.");
+  if (!payload.fullName || !payload.phone || !payload.password || !email) {
+    throw new ApiError(400, "fullName, phone, email, and password are required.");
   }
 
   if (payload.password.length < 8) {
@@ -88,6 +88,7 @@ async function registerPassenger(payload) {
 
   return db.withTransaction(async (client) => {
     await ensureUniqueIdentity({ ...payload, email }, client);
+    await authV2Service.consumeVerifiedEmailOtp(email, client);
     const passwordHash = await bcrypt.hash(payload.password, 12);
 
     const user = await userModel.createUser(
@@ -232,7 +233,7 @@ async function verifyAdminOtp(email, code) {
   try {
     return await authV2Service.verifyOTP(trimmedEmail, code);
   } catch (error) {
-    throw new ApiError(400, error.message || "Invalid or expired OTP.");
+    throw new ApiError(error.statusCode || 400, error.message || "Invalid or expired OTP.");
   }
 }
 
@@ -249,20 +250,9 @@ async function registerAdmin(payload) {
 
   return db.withTransaction(async (client) => {
     await assertNoAdminExists(client);
-
-    const latestOtp = await client.query(
-      "SELECT is_verified, verified_at FROM otp_codes WHERE email = ? ORDER BY id DESC LIMIT 1",
-      [email]
-    );
-    const isVerified =
-      latestOtp.length > 0 &&
-      Number(latestOtp[0].is_verified) === 1 &&
-      new Date(latestOtp[0].verified_at).getTime() > Date.now() - 30 * 60 * 1000;
-    if (!isVerified) {
-      throw new ApiError(400, "Please verify your email with the code sent to it first.");
-    }
-
     await ensureUniqueIdentity({ phone: payload.phone, email }, client);
+    // Also consumes the registration OTP so it can't be reused afterwards.
+    await authV2Service.consumeVerifiedEmailOtp(email, client);
     const passwordHash = await bcrypt.hash(payload.password, 12);
 
     const user = await userModel.createUser(
@@ -306,19 +296,21 @@ async function requestAdminPasswordReset() {
 async function verifyAdminPasswordResetOtp(code) {
   const email = await getRegisteredAdminEmail();
   try {
-    await authV2Service.verifyOTP(email, code);
+    await authV2Service.verifyOTP(email, code, authV2Service.PASSWORD_RESET_PURPOSE);
     return { success: true, message: "Code verified." };
   } catch (error) {
-    throw new ApiError(400, error.message || "Invalid or expired code.");
+    throw new ApiError(error.statusCode || 400, error.message || "Invalid or expired code.");
   }
 }
 
 async function resetAdminPassword(newPassword) {
   const email = await getRegisteredAdminEmail();
 
+  // Only a verified *password reset* code counts — a registration code
+  // for the same address must not unlock this.
   const latestOtp = await db.query(
-    "SELECT is_verified, verified_at FROM otp_codes WHERE email = ? ORDER BY id DESC LIMIT 1",
-    [email]
+    "SELECT is_verified, verified_at FROM otp_codes WHERE email = ? AND purpose = ? ORDER BY id DESC LIMIT 1",
+    [email, authV2Service.PASSWORD_RESET_PURPOSE]
   );
   const isVerified =
     latestOtp.length > 0 &&
@@ -336,6 +328,7 @@ async function resetAdminPassword(newPassword) {
   const passwordHash = await bcrypt.hash(newPassword, 12);
   await userModel.updatePasswordHash(user.id, passwordHash);
   await db.query("DELETE FROM otp_codes WHERE email = ?", [email]);
+  await refreshTokenModel.revokeAllByUserId(user.id);
 
   return { success: true, message: "Password updated successfully." };
 }

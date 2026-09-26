@@ -7,7 +7,6 @@ const roles = require("../constants/roles");
 const validate = require("../middlewares/validate.middleware");
 const passengerSchema = require("../validations/passenger.schema");
 const accountSecuritySchema = require("../validations/account-security.schema");
-const { geofenceFields } = require("../middlewares/geofence.middleware");
 const upload = require("../middlewares/upload.middleware");
 
 const router = express.Router();

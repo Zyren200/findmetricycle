@@ -1,3 +1,4 @@
+const db = require("../config/db");
 const bookingStatus = require("../constants/booking-status");
 const bookingModel = require("../models/booking.model");
 const driverModel = require("../models/driver.model");
@@ -8,8 +9,13 @@ const { haversineKm } = require("../utils/haversine");
 const { calculateFare, calculateFareBreakdown } = require("../utils/fare");
 const { decorateBookingRecord } = require("../utils/ride-progress");
 const ApiError = require("../utils/api-error");
+const env = require("../config/env");
+const { isInsideGeofence } = require("../utils/geofence");
 const notificationService = require("./notification.service");
 const { MIN_PASSENGERS, MAX_PASSENGERS } = require("../constants/fare");
+
+const MAX_DISTANCE_OVERAGE_RATIO = 1.5;
+const MAX_DISTANCE_OVERAGE_KM = 1;
 
 function withRideProgress(booking) {
   return decorateBookingRecord(booking);
@@ -34,6 +40,15 @@ async function createBookingAndFindDriver(payload) {
 
   if (coords.some((value) => Number.isNaN(value))) {
     throw new ApiError(400, "Valid pickup/drop-off latitude and longitude are required.");
+  }
+
+  // Enforced here (not as route middleware) so the socket find_ride path
+  // is covered too.
+  if (env.geofence.enabled) {
+    const [pickupLat, pickupLng, dropoffLat, dropoffLng] = coords;
+    if (!isInsideGeofence(pickupLat, pickupLng) || !isInsideGeofence(dropoffLat, dropoffLng)) {
+      throw new ApiError(403, "Service is only available within Guiuan area.");
+    }
   }
 
   const active = await bookingModel.findActiveByPassenger(payload.passengerId);
@@ -191,7 +206,13 @@ async function driverRespond(payload) {
   }
 
   if (payload.action === "accept") {
-    const accepted = await bookingModel.markAccepted(payload.bookingId);
+    const { changed, booking: accepted } = await bookingModel.markAccepted(
+      payload.bookingId,
+      payload.driverId
+    );
+    if (!changed) {
+      throw new ApiError(409, "This ride request is no longer available.");
+    }
     await notifySafe({
       type: "booking_accepted",
       title: "Driver assigned",
@@ -206,10 +227,14 @@ async function driverRespond(payload) {
     };
   }
 
-  const declined = await bookingModel.clearAssignedDriver(
+  const { changed: declinedNow, booking: declined } = await bookingModel.clearAssignedDriver(
     payload.bookingId,
+    payload.driverId,
     payload.reason || "Driver declined booking."
   );
+  if (!declinedNow) {
+    throw new ApiError(409, "This ride request is no longer available.");
+  }
 
   const reassignedDriver = await matchingService.findNearestAvailableDriver(
     declined.pickup_lat,
@@ -245,6 +270,10 @@ async function arriveAtPickup(payload) {
   }
 
   const arriving = await bookingModel.markArriving(payload.bookingId);
+  // The passenger may have cancelled between the check above and the update.
+  if (arriving.status !== bookingStatus.ARRIVING) {
+    throw new ApiError(409, "This ride is no longer active.");
+  }
   await notifySafe({
     type: "driver_arrived",
     title: "Your driver has arrived",
@@ -327,6 +356,9 @@ async function startRide(payload) {
   }
 
   const started = await bookingModel.markOngoing(payload.bookingId);
+  if (started.status !== bookingStatus.ONGOING) {
+    throw new ApiError(409, "This ride is no longer active.");
+  }
   await notifySafe({
     type: "ride_started",
     title: "Trip started",
@@ -348,7 +380,13 @@ async function expireStaleOffers() {
 
   for (const booking of expired) {
     const staleDriverId = booking.driver_id;
-    const cleared = await bookingModel.clearAssignedDriver(booking.id, "Driver did not respond in time.");
+    const { changed, booking: cleared } = await bookingModel.clearAssignedDriver(
+      booking.id,
+      staleDriverId,
+      "Driver did not respond in time."
+    );
+    // The driver accepted (or declined) between the SELECT and now — leave it alone.
+    if (!changed) continue;
 
     const reassignedDriver = await matchingService.findNearestAvailableDriver(
       cleared.pickup_lat,
@@ -387,18 +425,38 @@ async function completeRide(payload) {
   }
 
   const fareSettings = await fareModel.getCurrentFareSettings();
-  const finalDistanceKm = payload.actualDistanceKm
+  const estimatedDistanceKm = Number(driverActive.distance_km);
+  let finalDistanceKm = payload.actualDistanceKm
     ? Number(payload.actualDistanceKm)
-    : Number(driverActive.distance_km);
+    : estimatedDistanceKm;
 
   if (Number.isNaN(finalDistanceKm) || finalDistanceKm < 0) {
     throw new ApiError(400, "actualDistanceKm must be a valid positive number.");
   }
 
+  // The actual distance is reported by the driver's app, so it can't be
+  // trusted blindly: allow for detours, but never more than
+  // MAX_DISTANCE_OVERAGE_RATIO of the booked route (+ a small allowance).
+  if (estimatedDistanceKm > 0) {
+    const maxDistanceKm = estimatedDistanceKm * MAX_DISTANCE_OVERAGE_RATIO + MAX_DISTANCE_OVERAGE_KM;
+    finalDistanceKm = Math.min(finalDistanceKm, maxDistanceKm);
+  }
+
   const finalFare = calculateFare(finalDistanceKm, fareSettings, driverActive.passenger_count);
 
-  const completed = await bookingModel.markCompleted(payload.bookingId, finalFare);
-  await driverModel.addEarningsAndRideCount(payload.driverId, finalFare);
+  // Completing the booking and crediting the driver happen together or not
+  // at all; a double-tapped "Complete" only credits once.
+  const changed = await db.withTransaction(async (client) => {
+    const result = await bookingModel.markCompleted(payload.bookingId, finalFare, client);
+    if (result.changed) {
+      await driverModel.addEarningsAndRideCount(payload.driverId, finalFare, client);
+    }
+    return result.changed;
+  });
+  if (!changed) {
+    throw new ApiError(409, "This ride was already completed.");
+  }
+  const completed = await bookingModel.findById(payload.bookingId);
 
   await notifySafe({
     type: "ride_completed",

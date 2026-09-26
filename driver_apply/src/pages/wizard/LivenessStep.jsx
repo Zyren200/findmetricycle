@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import * as faceapi from "face-api.js";
+
+// face-api.js (with TensorFlow) is large, so it's only fetched once the
+// applicant reaches this step; set by init() before any detection runs.
+let faceapi = null;
 
 const STEPS = ["look_straight", "blink", "turn_head"];
 const STEP_LABELS = {
@@ -43,6 +46,7 @@ export default function LivenessStep({ onComplete, onSkipToReview }) {
 
     async function init() {
       try {
+        faceapi = faceapi || (await import("face-api.js"));
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
           faceapi.nets.faceLandmark68Net.loadFromUri("/models"),

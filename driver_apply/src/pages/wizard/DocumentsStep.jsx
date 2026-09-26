@@ -1,5 +1,4 @@
 import { useRef, useState } from "react";
-import { createWorker } from "tesseract.js";
 
 const LICENSE_KEYWORDS = ["LICENSE", "DRIVER", "LTO", "PHILIPPINES"];
 const PERMIT_KEYWORDS = ["FRANCHISE", "PERMIT", "TRICYCLE", "OPERATOR", "TODA"];
@@ -81,6 +80,8 @@ async function runOcr(file) {
   let worker;
   try {
     const canvas = await preprocessForOcr(file);
+    // Loaded on demand so the OCR engine isn't part of the initial bundle.
+    const { createWorker } = await import("tesseract.js");
     worker = await withTimeout(createWorker("eng"), OCR_TIMEOUT_MS);
     const { data } = await withTimeout(worker.recognize(canvas), OCR_TIMEOUT_MS);
     return data.text || "";

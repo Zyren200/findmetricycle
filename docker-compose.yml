@@ -1,19 +1,20 @@
-version: "3.9"
-
+# Secrets come from a .env file next to this compose file (never commit
+# it). Required: MYSQL_ROOT_PASSWORD, JWT_SECRET, JWT_REFRESH_SECRET.
 services:
   mysql:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
       MYSQL_DATABASE: findme_tricycle
     ports:
-      - "3306:3306"
+      # Bound to localhost only; the database should never be reachable from outside.
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./backend/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -32,10 +33,10 @@ services:
       DB_HOST: mysql
       DB_PORT: 3306
       DB_USER: root
-      DB_PASSWORD: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       DB_NAME: findme_tricycle
-      JWT_SECRET: change_this_access_secret
-      JWT_REFRESH_SECRET: change_this_refresh_secret
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
       JWT_ACCESS_EXPIRES_IN: 15m
       JWT_REFRESH_EXPIRES_IN: 30d
       UPLOAD_DIR: uploads

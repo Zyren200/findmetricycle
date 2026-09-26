@@ -4,7 +4,7 @@ const registerPassengerSchema = z.object({
   body: z.object({
     fullName: z.string().trim().min(2).max(120),
     phone: phoneSchema,
-    email: z.string().trim().email().max(120).optional().or(z.literal("")),
+    email: z.string().trim().email().max(120),
     password: z.string().min(8).max(100),
   }),
 });

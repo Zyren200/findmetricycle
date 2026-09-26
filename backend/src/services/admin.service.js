@@ -3,7 +3,6 @@ const driverModel = require("../models/driver.model");
 const driverApplicationModel = require("../models/driver-application.model");
 const userModel = require("../models/user.model");
 const fareModel = require("../models/fare.model");
-const notificationModel = require("../models/notification.model");
 const complaintModel = require("../models/complaint.model");
 const notificationService = require("./notification.service");
 const sosService = require("./sos.service");
@@ -532,8 +531,8 @@ async function getSystemSettings() {
     } else if (row.value_type === "json") {
       try {
         value = JSON.parse(value);
-      } catch (e) {
-        value = value;
+      } catch (_e) {
+        // keep the raw string when it isn't valid JSON
       }
     }
     settings[row.setting_key] = value;

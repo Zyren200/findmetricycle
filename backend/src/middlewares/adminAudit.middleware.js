@@ -51,7 +51,6 @@ function adminAudit(req, _res, next) {
     fs.appendFile(LOG_FILE, entry, (err) => {
       // don't fail requests on logging errors
       if (err) {
-        // eslint-disable-next-line no-console
         console.warn('adminAudit log write failed:', err && err.message ? err.message : err);
       }
     });
@@ -73,7 +72,6 @@ function adminAudit(req, _res, next) {
       ]
     ).catch((err) => {
       if (process.env.NODE_ENV !== 'test') {
-        // eslint-disable-next-line no-console
         console.warn('adminAudit database write failed:', err && err.message ? err.message : err);
       }
     });

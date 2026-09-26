@@ -1,5 +1,6 @@
 const nodemailer = require("nodemailer");
 const env = require("../config/env");
+const escapeHtml = require("../utils/escape-html");
 
 function buildTransporter() {
   return nodemailer.createTransport({
@@ -36,7 +37,7 @@ async function sendDriverApprovalEmail(email, fullName) {
     subject: "🎉 Driver Application Approved!",
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #0E8C46;">Congratulations, ${fullName}!</h2>
+        <h2 style="color: #0E8C46;">Congratulations, ${escapeHtml(fullName)}!</h2>
         <p>Your driver application has been <strong>approved</strong>.</p>
         <p>You can now switch to Driver Mode in the FindMeTricycle app and start accepting rides.</p>
         <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">
@@ -53,11 +54,11 @@ async function sendDriverRejectionEmail(email, fullName, reason) {
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #D32F2F;">Application Update</h2>
-        <p>Hi ${fullName},</p>
+        <p>Hi ${escapeHtml(fullName)},</p>
         <p>Thank you for applying as a driver. Unfortunately, your application was not approved at this time.</p>
         <p><strong>Reason:</strong></p>
         <div style="background: #fff3cd; padding: 15px; border-radius: 6px; border-left: 4px solid #FFC107;">
-          ${reason || "Please contact support for more details."}
+          ${escapeHtml(reason || "Please contact support for more details.")}
         </div>
         <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">
         <p style="color: #666; font-size: 12px;">&copy; FindMeTricycle</p>
@@ -73,10 +74,10 @@ async function sendDriverCorrectionEmail(email, fullName, note) {
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #F2BE35;">Action Required</h2>
-        <p>Hi ${fullName},</p>
+        <p>Hi ${escapeHtml(fullName)},</p>
         <p>Your driver application needs an update before it can be reviewed further.</p>
         <div style="background: #fff3cd; padding: 15px; border-radius: 6px; border-left: 4px solid #FFC107;">
-          ${note || "Please review your submitted documents and resubmit."}
+          ${escapeHtml(note || "Please review your submitted documents and resubmit.")}
         </div>
         <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">
         <p style="color: #666; font-size: 12px;">&copy; FindMeTricycle</p>

@@ -1,19 +1,12 @@
 const express = require("express");
-const rateLimit = require("express-rate-limit");
 const authController = require("../controllers/auth.controller");
 const authMiddleware = require("../middlewares/auth.middleware");
 const upload = require("../middlewares/upload.middleware");
 const validate = require("../middlewares/validate.middleware");
 const authSchema = require("../validations/auth.schema");
+const { authLimiter, loginLimiter } = require("../middlewares/rate-limit.middleware");
 
 const router = express.Router();
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 50,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
 
 router.post(
   "/passenger/register",
@@ -70,7 +63,7 @@ router.post(
   authController.resetAdminPassword
 );
 
-router.post("/login", authLimiter, validate(authSchema.loginSchema), authController.login);
+router.post("/login", authLimiter, loginLimiter, validate(authSchema.loginSchema), authController.login);
 router.post("/refresh", authLimiter, validate(authSchema.refreshSchema), authController.refresh);
 router.post("/logout", authLimiter, validate(authSchema.logoutSchema), authController.logout);
 

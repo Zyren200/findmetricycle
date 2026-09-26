@@ -293,16 +293,25 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
           const coordinates = feature.geometry.coordinates.slice();
           const lastUpdate = props.lastUpdate ? formatDateTime(props.lastUpdate) : "-";
 
+          // Driver name / tricycle number are user-entered, so the popup is
+          // built with textContent — never setHTML — to rule out XSS in the
+          // admin session.
+          const content = document.createElement("div");
+          content.style.cssText = "font-size:12px;line-height:1.5;";
+          const title = document.createElement("strong");
+          title.textContent = props.label || "Driver";
+          content.append(title);
+          for (const line of [
+            `Tricycle: ${props.subLabel || "-"}`,
+            `Rating: ${props.rating || "-"}`,
+            `Last update: ${lastUpdate}`,
+          ]) {
+            content.append(document.createElement("br"), document.createTextNode(line));
+          }
+
           new maplibregl.Popup({ closeButton: true, offset: 12 })
             .setLngLat(coordinates)
-            .setHTML(
-              `<div style="font-size:12px;line-height:1.5;">` +
-                `<strong>${props.label || "Driver"}</strong><br/>` +
-                `Tricycle: ${props.subLabel || "-"}<br/>` +
-                `Rating: ${props.rating || "-"}<br/>` +
-                `Last update: ${lastUpdate}` +
-                `</div>`
-            )
+            .setDOMContent(content)
             .addTo(map);
         });
 

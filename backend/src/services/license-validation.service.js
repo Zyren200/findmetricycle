@@ -42,13 +42,13 @@ function parseDate(value) {
 // other formats.
 const LICENSE_NUMBER_PH_PATTERN = /\b([A-Z]\d{2}-\d{2}-\d{6})\b/;
 const LICENSE_NUMBER_LABEL_PATTERN =
-  /(?:license\s*(?:no|number|#)|lic(?:ense)?\s*#)\s*[:\-]?\s*([A-Z][A-Z0-9]{0,2}\d{2}-\d{2}-\d{6}|[A-Z0-9]{4,}-?[A-Z0-9]{0,12})/i;
+  /(?:license\s*(?:no|number|#)|lic(?:ense)?\s*#)\s*[:-]?\s*([A-Z][A-Z0-9]{0,2}\d{2}-\d{2}-\d{6}|[A-Z0-9]{4,}-?[A-Z0-9]{0,12})/i;
 
 // PH licenses commonly print "LASTNAME, FIRSTNAME MIDDLENAME" — all caps —
 // on its own line, distinct from the (mixed-case) "Last Name, First Name"
 // header line above it. Checking this first avoids matching the header.
 const LAST_FIRST_NAME_PATTERN = /^[A-Z][A-Z .'-]{2,},\s*[A-Z][A-Za-z .'-]{2,}$/;
-const NAME_LABEL_PATTERN = /(?:name|holder)\s*[:\-]\s*([A-Za-z ,.'-]{3,120})/i;
+const NAME_LABEL_PATTERN = /(?:name|holder)\s*[:-]\s*([A-Za-z ,.'-]{3,120})/i;
 
 function extractLicenseSignals(ocrText) {
   const text = String(ocrText || "");
@@ -72,7 +72,7 @@ function extractLicenseSignals(ocrText) {
 
 const EXPIRY_LABEL_WORDS = /expiration date|expiry date|expiry|expires|exp date/i;
 const BIRTH_LABEL_WORDS = /date of birth|birth date|birthdate|dob/i;
-const ANY_DATE_PATTERN = /\b(\d{4}[-\/]\d{1,2}[-\/]\d{1,2}|\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})\b/;
+const ANY_DATE_PATTERN = /\b(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b/;
 
 /**
  * Finds the line containing labelWords, then looks for the first

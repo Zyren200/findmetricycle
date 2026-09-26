@@ -63,10 +63,10 @@ async function confirmPasswordChange(userId, { currentPassword, newPassword, otp
   try {
     await authV2Service.verifyOTP(user.email, otp, CHANGE_PASSWORD_PURPOSE);
   } catch (err) {
-    throw new ApiError(400, err.message || "Invalid or expired code.");
+    throw new ApiError(err.statusCode || 400, err.message || "Invalid or expired code.");
   }
 
-  const passwordHash = await bcrypt.hash(newPassword, 10);
+  const passwordHash = await bcrypt.hash(newPassword, 12);
   await userModel.updatePasswordHash(userId, passwordHash);
 
   return { success: true, message: "Password updated." };
