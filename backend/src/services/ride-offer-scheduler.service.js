@@ -24,10 +24,14 @@ async function tick() {
       return; // socket layer not initialized (e.g. under test) — skip broadcasting
     }
 
-    for (const { booking, reassignedDriver, staleDriverId } of results) {
-      io.to(`passenger:${booking.passenger_id}`).emit("passenger:booking_update", {
-        booking,
-      });
+    for (const { booking, reassignedDriver, staleDriverId, nearbyDrivers, reason } of results) {
+      io.to(`passenger:${booking.passenger_id}`)
+        .to(`user:${booking.passenger_id}`)
+        .emit("passenger:booking_update", {
+          booking,
+          nearbyDrivers: nearbyDrivers || [],
+          reason: reason || null,
+        });
 
       // Tell the driver whose offer just timed out to drop the request
       // card — otherwise they'd keep seeing "New Ride Request" for a

@@ -107,6 +107,29 @@ class PassengerRideController extends ChangeNotifier {
   String? error;
   List<Map<String, dynamic>> nearbyDrivers = [];
 
+  /// Short status line for the choose-a-rider flow ("waiting for rider",
+  /// "rider declined", ...), shown in the ride panel.
+  String? rideNotice;
+
+  /// Bumped whenever the rider picker should (re)open on its own — e.g. the
+  /// chosen rider declined or didn't answer. The map page listens for it.
+  int driverPickerRequest = 0;
+
+  bool isRefreshingDrivers = false;
+  Timer? _nearbyRefreshTimer;
+
+  /// Booking exists but no rider has been picked yet.
+  bool get isChoosingDriver =>
+      activeBookingId != null &&
+      bookingStatus == "pending" &&
+      (driverInfo == null || driverInfo!["id"] == null);
+
+  /// A rider was picked and we're waiting for them to accept.
+  bool get isWaitingForDriverResponse =>
+      activeBookingId != null &&
+      bookingStatus == "pending" &&
+      driverInfo?["id"] != null;
+
   StreamSubscription? _bookingUpdateSub;
   StreamSubscription? _driverLocationSub;
   StreamSubscription? _driverArrivedSub;
@@ -503,21 +526,97 @@ class PassengerRideController extends ChangeNotifier {
             response["message"]?.toString() ?? "Failed to find ride.");
       }
 
-      final data = response["data"] as Map<String, dynamic>? ?? {};
-      final booking = data["booking"] as Map<String, dynamic>? ?? {};
+      final data = _toMap(response["data"]);
+      final booking = _toMap(data["booking"]);
       activeBookingId = int.tryParse(booking["id"]?.toString() ?? "");
       bookingStatus = booking["status"]?.toString() ?? "pending";
       bookingData = booking;
       pickupPin = data["pickupPin"]?.toString() ?? pickupPin;
-      nearbyDrivers = (data["nearbyDrivers"] as List<dynamic>? ?? [])
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
-      driverInfo = null;
-      driverPosition = null;
+      nearbyDrivers = _toDriverList(data["nearbyDrivers"]);
+
+      // An existing booking may already have a rider attached.
+      final matched = _toMap(data["matchedDriver"]);
+      driverInfo = matched["id"] != null ? matched : null;
+      driverPosition = _pointOf(driverInfo);
+
+      if (isChoosingDriver) {
+        rideNotice = nearbyDrivers.isEmpty
+            ? "Walang online na rider sa malapit ngayon. Patuloy kaming naghahanap…"
+            : "Pumili ng rider mula sa listahan.";
+        _startNearbyRefresh();
+      } else if (isWaitingForDriverResponse) {
+        rideNotice = "Hinihintay ang sagot ng rider…";
+      }
     } catch (e) {
       error = e.toString().replaceFirst("Exception: ", "");
     } finally {
       isSubmittingRide = false;
+      notifyListeners();
+    }
+  }
+
+  List<Map<String, dynamic>> _toDriverList(dynamic raw) {
+    return (raw is List ? raw : const [])
+        .map((e) => _toMap(e))
+        .where((d) => d["id"] != null)
+        .toList();
+  }
+
+  ll.LatLng? _pointOf(Map<String, dynamic>? driver) {
+    final lat = double.tryParse(driver?["current_lat"]?.toString() ?? "");
+    final lng = double.tryParse(driver?["current_lng"]?.toString() ?? "");
+    if (lat == null || lng == null) return null;
+    return ll.LatLng(lat, lng);
+  }
+
+  /// Keeps the rider list current while the passenger is choosing: riders
+  /// come online, move, or get taken by someone else.
+  void _startNearbyRefresh() {
+    _nearbyRefreshTimer?.cancel();
+    _nearbyRefreshTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => refreshNearbyDrivers(),
+    );
+  }
+
+  void _stopNearbyRefresh() {
+    _nearbyRefreshTimer?.cancel();
+    _nearbyRefreshTimer = null;
+  }
+
+  Future<void> refreshNearbyDrivers() async {
+    final bookingId = activeBookingId;
+    if (bookingId == null || !isChoosingDriver) {
+      _stopNearbyRefresh();
+      return;
+    }
+    if (isRefreshingDrivers) return;
+
+    isRefreshingDrivers = true;
+    notifyListeners();
+    try {
+      final response = await _repository.getNearbyDrivers(bookingId);
+      if (response["success"] != true || bookingId != activeBookingId) return;
+      final data = _toMap(response["data"]);
+      final booking = _toMap(data["booking"]);
+      final status = booking["status"]?.toString();
+      if (status != null && status != "pending") {
+        // Accepted/cancelled elsewhere — stop offering riders.
+        bookingStatus = status;
+        bookingData = booking;
+        nearbyDrivers = [];
+        _stopNearbyRefresh();
+        return;
+      }
+      if (!isChoosingDriver) return;
+      nearbyDrivers = _toDriverList(data["nearbyDrivers"]);
+      rideNotice = nearbyDrivers.isEmpty
+          ? "Walang online na rider sa malapit ngayon. Patuloy kaming naghahanap…"
+          : "Pumili ng rider mula sa listahan.";
+    } catch (_) {
+      // Best-effort; the next tick retries.
+    } finally {
+      isRefreshingDrivers = false;
       notifyListeners();
     }
   }
@@ -565,21 +664,23 @@ class PassengerRideController extends ChangeNotifier {
         bookingId: activeBookingId!,
         driverId: driverId,
       );
-      final data = response["data"] as Map<String, dynamic>? ?? {};
-      final booking = data["booking"] as Map<String, dynamic>? ?? {};
+      if (response["success"] != true) {
+        // Usually "rider no longer available" — refresh so they can pick again.
+        error = response["message"]?.toString() ?? "Failed to choose rider.";
+        unawaited(refreshNearbyDrivers());
+        return;
+      }
+
+      final data = _toMap(response["data"]);
+      final booking = _toMap(data["booking"]);
       bookingStatus = booking["status"]?.toString() ?? bookingStatus;
       bookingData = booking;
-      driverInfo = data["driver"] as Map<String, dynamic>? ?? {};
-
-      final driverLat = driverInfo?["current_lat"];
-      final driverLng = driverInfo?["current_lng"];
-      if (driverLat != null && driverLng != null) {
-        driverPosition = ll.LatLng(
-          double.tryParse(driverLat.toString()) ?? 0,
-          double.tryParse(driverLng.toString()) ?? 0,
-        );
-      }
+      driverInfo = _toMap(data["driver"]);
+      driverPosition = _pointOf(driverInfo);
       nearbyDrivers = [];
+      _stopNearbyRefresh();
+      rideNotice =
+          "Naipadala ang request kay ${driverName ?? "rider"}. Hinihintay ang sagot…";
     } catch (e) {
       error = e.toString().replaceFirst("Exception: ", "");
     } finally {
@@ -607,6 +708,8 @@ class PassengerRideController extends ChangeNotifier {
       driverPosition = null;
       driverInfo = null;
       nearbyDrivers = [];
+      rideNotice = null;
+      _stopNearbyRefresh();
     } catch (e) {
       error = e.toString().replaceFirst("Exception: ", "");
     } finally {
@@ -633,6 +736,8 @@ class PassengerRideController extends ChangeNotifier {
     pickupPin = null;
     driverInfo = null;
     nearbyDrivers = [];
+    rideNotice = null;
+    _stopNearbyRefresh();
     _passengerCount = 1;
     notifyListeners();
     if (pickup != null) _resolveAddress(isPickup: true, point: pickup!);
@@ -662,12 +767,44 @@ class PassengerRideController extends ChangeNotifier {
       final bookingId = int.tryParse(booking["id"]?.toString() ?? "");
       if (bookingId != activeBookingId) return;
 
-      bookingStatus = booking["status"]?.toString() ?? bookingStatus;
+      final status = booking["status"]?.toString() ?? bookingStatus;
+      final reason = payload["reason"]?.toString();
+      bookingStatus = status;
       bookingData = booking;
-      driverInfo = {
-        ...?driverInfo,
-        ...booking,
-      };
+
+      if (status == "pending" && booking["driver_id"] == null) {
+        // The rider we picked declined or let the request time out — the
+        // server hands back a fresh list so the passenger can choose again.
+        final previous = driverName;
+        driverInfo = null;
+        driverPosition = null;
+        nearbyDrivers = _toDriverList(payload["nearbyDrivers"]);
+        rideNotice = reason == "expired"
+            ? "Hindi sumagot si ${previous ?? "ang rider"}. Pumili ng ibang rider."
+            : "Hindi tinanggap ni ${previous ?? "ang rider"} ang request. Pumili ng ibang rider.";
+        driverPickerRequest++;
+        _startNearbyRefresh();
+      } else {
+        if (status == "accepted") {
+          rideNotice = "Tinanggap ni ${driverName ?? "ang rider"} ang ride mo! Papunta na siya.";
+        }
+        // Rider details from the booking row, layered over what we already
+        // know about the chosen rider. Only rider fields are copied — the
+        // booking's own "id" must not overwrite the rider's id.
+        final known = driverInfo ?? const <String, dynamic>{};
+        driverInfo = {
+          ...known,
+          "id": booking["driver_id"] ?? known["id"],
+          "full_name": booking["driver_name"] ?? known["full_name"],
+          "tricycle_number":
+              booking["tricycle_number"] ?? known["tricycle_number"],
+          "rating": booking["driver_rating"] ?? known["rating"],
+          "current_lat": booking["current_lat"] ?? known["current_lat"],
+          "current_lng": booking["current_lng"] ?? known["current_lng"],
+        };
+        nearbyDrivers = [];
+        _stopNearbyRefresh();
+      }
       notifyListeners();
     });
 
@@ -737,6 +874,7 @@ class PassengerRideController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _stopNearbyRefresh();
     _fareUpdateSub?.cancel();
     _bookingUpdateSub?.cancel();
     _driverLocationSub?.cancel();

@@ -85,6 +85,7 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
 
     _rideController?.removeListener(_handleRideControllerChanged);
     _rideController = controller;
+    _seenPickerRequest = controller.driverPickerRequest;
     _rideController?.addListener(_handleRideControllerChanged);
     _requestSync();
   }
@@ -96,8 +97,29 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
     super.dispose();
   }
 
+  int _seenPickerRequest = 0;
+  bool _pickerOpen = false;
+
   void _handleRideControllerChanged() {
     _requestSync();
+
+    // The chosen rider declined / timed out: reopen the picker so the
+    // passenger can choose someone else right away.
+    final controller = _rideController;
+    if (controller != null &&
+        controller.driverPickerRequest != _seenPickerRequest) {
+      _seenPickerRequest = controller.driverPickerRequest;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final message = controller.rideNotice;
+        if (message != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message)),
+          );
+        }
+        _showDriverPicker(controller);
+      });
+    }
   }
 
   void _handleMapCreated(AppMapController controller) {
@@ -751,8 +773,12 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
     );
   }
 
+  /// Bottom sheet listing the nearest online riders. It rebuilds from the
+  /// controller, so the list keeps refreshing (every few seconds) while
+  /// open, and shows a "still searching" state when nobody is online yet.
   Future<void> _showDriverPicker(PassengerRideController controller) async {
-    if (!mounted || controller.nearbyDrivers.isEmpty) return;
+    if (!mounted || _pickerOpen || !controller.isChoosingDriver) return;
+    _pickerOpen = true;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -763,112 +789,133 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        "Choose a driver",
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: DesignTokens.text,
-                        ),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(sheetContext),
-                      child: const Text(
-                        "Close",
-                        style: TextStyle(color: DesignTokens.accent),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  "Pinakamalapit muna ang nasa itaas.",
-                  style: TextStyle(color: DesignTokens.muted),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 320,
-                  child: ListView.separated(
-                    itemCount: controller.nearbyDrivers.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final driver = controller.nearbyDrivers[index];
-                      final id = int.tryParse(driver["id"]?.toString() ?? "");
-                      final name = asText(driver["full_name"]) ??
-                          asText(driver["fullName"]) ??
-                          "Driver";
-                      final tricycle = asText(driver["tricycle_number"]) ??
-                          asText(driver["tricycleNumber"]) ??
-                          "-";
-                      final rating = double.tryParse(
-                        driver["rating"]?.toString() ??
-                            driver["rating_avg"]?.toString() ??
-                            "",
-                      );
-                      final distance = double.tryParse(
-                          driver["distanceToPickupKm"]?.toString() ?? "");
+        return ListenableBuilder(
+          listenable: controller,
+          builder: (context, _) {
+            // Chosen elsewhere / accepted / cancelled — nothing left to pick.
+            if (!controller.isChoosingDriver) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (Navigator.of(sheetContext).canPop()) {
+                  Navigator.pop(sheetContext);
+                }
+              });
+            }
+            final drivers = controller.nearbyDrivers;
 
-                      return ListTile(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          side: const BorderSide(color: DesignTokens.border),
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            "Pumili ng rider",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: DesignTokens.text,
+                            ),
+                          ),
                         ),
-                        tileColor: DesignTokens.bg3,
-                        leading: const CircleAvatar(
-                          backgroundColor: DesignTokens.accent,
-                          child: Icon(Icons.pedal_bike_rounded,
-                              color: DesignTokens.bg),
+                        IconButton(
+                          tooltip: "I-refresh",
+                          onPressed: controller.isRefreshingDrivers
+                              ? null
+                              : controller.refreshNearbyDrivers,
+                          icon: controller.isRefreshingDrivers
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.refresh_rounded,
+                                  color: DesignTokens.accent),
                         ),
-                        title: Text(
-                          name,
-                          style: const TextStyle(color: DesignTokens.text),
+                        TextButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          child: const Text(
+                            "Isara",
+                            style: TextStyle(color: DesignTokens.accent),
+                          ),
                         ),
-                        subtitle: Text(
-                          [
-                            "Tricycle $tricycle",
-                            if (distance != null)
-                              "${distance.toStringAsFixed(2)} km away",
-                          ].join("  |  "),
-                          style: const TextStyle(color: DesignTokens.muted),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      drivers.isEmpty
+                          ? "Mga online na rider na malapit sa pickup mo."
+                          : "${drivers.length} online na rider • pinakamalapit ang nasa itaas.",
+                      style: const TextStyle(color: DesignTokens.muted),
+                    ),
+                    if (controller.error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        controller.error!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    if (drivers.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 32),
+                        child: Column(
                           children: [
-                            const Icon(Icons.star,
-                                color: Colors.amber, size: 18),
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
                             Text(
-                              (rating ?? 0).toStringAsFixed(1),
-                              style: const TextStyle(color: DesignTokens.text),
+                              "Wala pang online na rider sa malapit.\nAwtomatiko naming ia-update ang listahan.",
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: DesignTokens.muted),
                             ),
                           ],
                         ),
-                        onTap: id == null
-                            ? null
-                            : () async {
-                                Navigator.pop(sheetContext);
-                                await controller.chooseDriver(id);
-                              },
-                      );
-                    },
-                  ),
+                      )
+                    else
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: MediaQuery.of(context).size.height * 0.5,
+                        ),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: drivers.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (context, index) => _DriverOptionTile(
+                            driver: drivers[index],
+                            isNearest: index == 0,
+                            enabled: !controller.isSubmittingRide,
+                            onTap: (id) async {
+                              Navigator.pop(sheetContext);
+                              await controller.chooseDriver(id);
+                              if (!mounted) return;
+                              final message = controller.error ??
+                                  controller.rideNotice;
+                              if (message != null) {
+                                ScaffoldMessenger.of(this.context).showSnackBar(
+                                  SnackBar(content: Text(message)),
+                                );
+                              }
+                              // Rider was taken in the meantime — pick again.
+                              if (controller.isChoosingDriver) {
+                                await _showDriverPicker(controller);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
+
+    _pickerOpen = false;
   }
 
   @override
@@ -950,10 +997,15 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
               onFindRide: ctrl.isSubmittingRide
                   ? null
                   : () async {
-                      await ctrl.findRide();
+                      // While choosing, the button just reopens the picker.
+                      if (!ctrl.isChoosingDriver) await ctrl.findRide();
                       if (!mounted) return;
-                      if (ctrl.nearbyDrivers.isNotEmpty) {
+                      if (ctrl.isChoosingDriver) {
                         await _showDriverPicker(ctrl);
+                      } else if (ctrl.error != null) {
+                        ScaffoldMessenger.of(this.context).showSnackBar(
+                          SnackBar(content: Text(ctrl.error!)),
+                        );
                       }
                     },
               onReset: ctrl.isCompletingAction ? null : ctrl.resetTripSelection,
@@ -1248,7 +1300,13 @@ class _RidePanel extends StatelessWidget {
           const Text("Payment Method: 💵 Cash", style: TextStyle(fontSize: 13)),
           const SizedBox(height: 12),
           ElevatedButton(
-            onPressed: onFindRide == null
+            // Disabled while a chosen rider is deciding, or a trip is
+            // already under way.
+            onPressed: onFindRide == null ||
+                    controller.isWaitingForDriverResponse ||
+                    (controller.bookingStatus != null &&
+                        controller.bookingStatus != "pending" &&
+                        kActiveBookingStatuses.contains(controller.bookingStatus))
                 ? null
                 : () async {
                     await onFindRide!();
@@ -1259,8 +1317,55 @@ class _RidePanel extends StatelessWidget {
                     width: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text("Find Ride"),
+                : Text(
+                    controller.isChoosingDriver
+                        ? "Pumili ng Rider (${nearbyDrivers.length} online)"
+                        : controller.isWaitingForDriverResponse
+                            ? "Hinihintay ang sagot ng rider…"
+                            : "Find Ride",
+                  ),
           ),
+          if (controller.rideNotice != null &&
+              controller.activeBookingId != null &&
+              !controller.hasCompletedBooking &&
+              controller.bookingStatus != "cancelled") ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: DesignTokens.bg3,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: DesignTokens.border),
+              ),
+              child: Row(
+                children: [
+                  if (controller.isWaitingForDriverResponse ||
+                      (controller.isChoosingDriver && nearbyDrivers.isEmpty))
+                    const Padding(
+                      padding: EdgeInsets.only(right: 10),
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.only(right: 10),
+                      child: Icon(Icons.info_outline_rounded,
+                          color: DesignTokens.accent, size: 18),
+                    ),
+                  Expanded(
+                    child: Text(
+                      controller.rideNotice!,
+                      style: const TextStyle(color: DesignTokens.text),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (controller.pickupPin != null && !controller.hasCompletedBooking) ...[
             const SizedBox(height: 12),
             Container(
@@ -1359,7 +1464,7 @@ class _RidePanel extends StatelessWidget {
           if (controller.bookingStatus != null) ...[
             const SizedBox(height: 10),
             Text(
-              "Booking Status: ${controller.bookingStatus}",
+              "Booking Status: ${controller.isWaitingForDriverResponse ? "Hinihintay ang rider" : bookingStatusLabel(controller.bookingStatus)}",
               style: const TextStyle(
                   color: _pickupColor, fontWeight: FontWeight.w600),
             ),
@@ -1790,3 +1895,84 @@ String _nearbyDriverColorToHex() => "#136F3A";
 String _assignedDriverColorToHex() => "#F0B429";
 String _routeColorToHex() => "#0E8C46";
 String _driverRouteColorToHex() => "#205C37";
+
+/// One rider in the "Pumili ng rider" sheet.
+class _DriverOptionTile extends StatelessWidget {
+  const _DriverOptionTile({
+    required this.driver,
+    required this.isNearest,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> driver;
+  final bool isNearest;
+  final bool enabled;
+  final Future<void> Function(int driverId) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = int.tryParse(driver["id"]?.toString() ?? "");
+    final name = asText(driver["full_name"]) ?? "Rider";
+    final tricycle = asText(driver["tricycle_number"]) ?? "-";
+    final rating = double.tryParse(driver["rating"]?.toString() ?? "") ?? 0;
+    final rides = int.tryParse(driver["total_rides"]?.toString() ?? "") ?? 0;
+    final distance =
+        double.tryParse(driver["distanceToPickupKm"]?.toString() ?? "");
+
+    return ListTile(
+      enabled: enabled && id != null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isNearest ? DesignTokens.accent : DesignTokens.border,
+        ),
+      ),
+      tileColor: DesignTokens.bg3,
+      leading: const CircleAvatar(
+        backgroundColor: DesignTokens.accent,
+        child: Icon(Icons.pedal_bike_rounded, color: DesignTokens.bg),
+      ),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              name,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: DesignTokens.text,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          if (isNearest) ...[
+            const SizedBox(width: 6),
+            const AppBadge(label: "Pinakamalapit", style: BadgeStyle.greenStyle),
+          ],
+        ],
+      ),
+      subtitle: Text(
+        [
+          "Tricycle $tricycle",
+          if (distance != null)
+            distance < 1
+                ? "${(distance * 1000).round()} m ang layo"
+                : "${distance.toStringAsFixed(1)} km ang layo",
+          "$rides rides",
+        ].join("  •  "),
+        style: const TextStyle(color: DesignTokens.muted),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.star, color: Colors.amber, size: 18),
+          Text(
+            rating.toStringAsFixed(1),
+            style: const TextStyle(color: DesignTokens.text),
+          ),
+        ],
+      ),
+      onTap: id == null ? null : () => onTap(id),
+    );
+  }
+}

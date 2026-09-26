@@ -56,6 +56,11 @@ class PassengerRepository {
     return _apiClient.post("/passenger/bookings/$bookingId/cancel");
   }
 
+  /// Nearest online riders the passenger can still pick for this booking.
+  Future<Map<String, dynamic>> getNearbyDrivers(int bookingId) {
+    return _apiClient.get("/passenger/bookings/$bookingId/nearby-drivers");
+  }
+
   Future<Map<String, dynamic>> chooseDriver({
     required int bookingId,
     required int driverId,

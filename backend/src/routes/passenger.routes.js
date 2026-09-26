@@ -60,5 +60,10 @@ router.post(
   validate(passengerSchema.chooseDriverSchema),
   passengerController.chooseDriver
 );
+router.get(
+  "/bookings/:bookingId/nearby-drivers",
+  validate(passengerSchema.bookingIdParamSchema),
+  passengerController.getNearbyDrivers
+);
 
 module.exports = router;

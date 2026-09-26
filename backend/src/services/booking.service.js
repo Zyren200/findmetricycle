@@ -13,6 +13,43 @@ const env = require("../config/env");
 const { isInsideGeofence } = require("../utils/geofence");
 const notificationService = require("./notification.service");
 const { MIN_PASSENGERS, MAX_PASSENGERS } = require("../constants/fare");
+const { toPublicDriver } = require("../utils/public-driver");
+
+// How many of the nearest online riders the passenger gets to pick from.
+const NEARBY_DRIVER_LIMIT = 10;
+
+// Riders who already declined (or let expire) a given booking, so they
+// aren't offered to that passenger again. In-memory is enough: a pending
+// booking only lives for minutes, and entries are dropped once it's
+// accepted or cancelled.
+const declinedDriversByBooking = new Map();
+
+function rememberDeclinedDriver(bookingId, driverId) {
+  const key = Number(bookingId);
+  const set = declinedDriversByBooking.get(key) || new Set();
+  set.add(Number(driverId));
+  declinedDriversByBooking.set(key, set);
+}
+
+function forgetBooking(bookingId) {
+  declinedDriversByBooking.delete(Number(bookingId));
+}
+
+function declinedDriverIds(bookingId) {
+  return [...(declinedDriversByBooking.get(Number(bookingId)) || [])];
+}
+
+// Nearest online, idle riders for this booking's pickup, minus anyone who
+// already turned it down — shaped for the passenger's device.
+async function listChoosableDrivers(booking) {
+  const drivers = await matchingService.listNearestAvailableDrivers(
+    booking.pickup_lat,
+    booking.pickup_lng,
+    NEARBY_DRIVER_LIMIT,
+    declinedDriverIds(booking.id)
+  );
+  return drivers.map(toPublicDriver);
+}
 
 const MAX_DISTANCE_OVERAGE_RATIO = 1.5;
 const MAX_DISTANCE_OVERAGE_KM = 1;
@@ -55,11 +92,15 @@ async function createBookingAndFindDriver(payload) {
   if (active) {
     let activeDriver = null;
     if (active.driver_id) {
-      activeDriver = await driverModel.findById(active.driver_id);
+      activeDriver = toPublicDriver(await driverModel.findById(active.driver_id));
     }
+    // Still waiting for the passenger to pick a rider — hand the list back
+    // so the app can resume the choose step instead of getting stuck.
+    const waitingForChoice = active.status === bookingStatus.PENDING && !active.driver_id;
     return {
       booking: withRideProgress(active),
       matchedDriver: activeDriver,
+      nearbyDrivers: waitingForChoice ? await listChoosableDrivers(active) : [],
       message: "You already have an active booking.",
     };
   }
@@ -107,11 +148,7 @@ async function createBookingAndFindDriver(payload) {
   });
 
   if (payload.autoAssign === false) {
-    const nearbyDrivers = await matchingService.listNearestAvailableDrivers(
-      payload.pickupLat,
-      payload.pickupLng,
-      5
-    );
+    const nearbyDrivers = await listChoosableDrivers(booking);
     return {
       booking: withRideProgress(booking),
       pickupPin: booking.pickup_pin,
@@ -144,13 +181,7 @@ async function createBookingAndFindDriver(payload) {
   return {
     booking: withRideProgress(updatedBooking),
     pickupPin: booking.pickup_pin,
-    matchedDriver: assigned
-      ? {
-          ...matchedDriver,
-          distanceToPickupKm: matchedDriver.distanceToPickupKm,
-          rating: matchedDriver.rating_avg,
-        }
-      : null,
+    matchedDriver: assigned ? toPublicDriver(matchedDriver) : null,
     message: assigned
       ? "Driver request sent."
       : "No available driver found yet. Booking is waiting in queue.",
@@ -170,21 +201,63 @@ async function passengerChooseDriver(payload) {
     throw new ApiError(400, "Driver already assigned.");
   }
 
+  // Re-check against the live list: the rider may have gone offline,
+  // taken another ride, or already declined this booking since the
+  // passenger's list was fetched.
   const drivers = await matchingService.listNearestAvailableDrivers(
     booking.pickup_lat,
     booking.pickup_lng,
-    10
+    NEARBY_DRIVER_LIMIT,
+    declinedDriverIds(booking.id)
   );
   const chosen = drivers.find((d) => Number(d.id) === Number(payload.driverId));
   if (!chosen) {
-    throw new ApiError(404, "Selected driver is not available.");
+    throw new ApiError(409, "This rider is no longer available. Please choose another rider.");
   }
 
   const { assigned, booking: updated } = await bookingModel.assignDriver(booking.id, chosen.id);
   if (!assigned) {
     throw new ApiError(409, "This booking was already assigned to another driver.");
   }
-  return { booking: withRideProgress(updated), driver: chosen };
+
+  // In-app notification for the rider, so the request also shows up in
+  // their notification list if the realtime event is missed.
+  await notifySafe({
+    type: "ride_request",
+    title: "New ride request",
+    body: `A passenger chose you for a ride from ${updated.pickup_address || "their pickup point"}.`,
+    userId: chosen.user_id,
+    recipientRole: "driver",
+    metadataJson: { bookingId: updated.id },
+  });
+
+  return {
+    booking: withRideProgress(updated),
+    driver: toPublicDriver(chosen),
+    driverUserId: chosen.user_id,
+  };
+}
+
+// Refreshes the rider list while the passenger is still choosing.
+async function listNearbyDriversForBooking({ bookingId, passengerId }) {
+  const booking = await bookingModel.findById(bookingId);
+  if (!booking) throw new ApiError(404, "Booking not found.");
+  if (Number(booking.passenger_id) !== Number(passengerId)) {
+    throw new ApiError(403, "Booking does not belong to this passenger.");
+  }
+  const waitingForChoice = booking.status === bookingStatus.PENDING && !booking.driver_id;
+  return {
+    booking: withRideProgress(booking),
+    nearbyDrivers: waitingForChoice ? await listChoosableDrivers(booking) : [],
+  };
+}
+
+// The offer currently waiting on this rider, used by the driver app as a
+// fallback when the realtime "driver:booking_request" event was missed.
+async function getIncomingOfferForDriver(driverId) {
+  const booking = await bookingModel.findActiveByDriver(driverId);
+  if (!booking || booking.status !== bookingStatus.PENDING) return null;
+  return withRideProgress(booking);
 }
 
 async function driverRespond(payload) {
@@ -213,6 +286,7 @@ async function driverRespond(payload) {
     if (!changed) {
       throw new ApiError(409, "This ride request is no longer available.");
     }
+    forgetBooking(accepted.id);
     await notifySafe({
       type: "booking_accepted",
       title: "Driver assigned",
@@ -236,26 +310,23 @@ async function driverRespond(payload) {
     throw new ApiError(409, "This ride request is no longer available.");
   }
 
-  const reassignedDriver = await matchingService.findNearestAvailableDriver(
-    declined.pickup_lat,
-    declined.pickup_lng,
-    [payload.driverId]
-  );
+  // The passenger picked this rider, so the choice goes back to them (with
+  // a fresh list) rather than silently handing the ride to someone else.
+  rememberDeclinedDriver(payload.bookingId, payload.driverId);
+  await notifySafe({
+    type: "booking_declined",
+    title: "Rider unavailable",
+    body: "The rider you chose declined. Please choose another rider.",
+    userId: declined.passenger_id,
+    recipientRole: "passenger",
+    metadataJson: { bookingId: declined.id },
+  });
 
-  if (!reassignedDriver) {
-    return {
-      booking: withRideProgress(declined),
-      reassignedDriver: null,
-    };
-  }
-
-  const { assigned, booking: reassignedBooking } = await bookingModel.assignDriver(
-    payload.bookingId,
-    reassignedDriver.id
-  );
   return {
-    booking: withRideProgress(reassignedBooking),
-    reassignedDriver: assigned ? reassignedDriver : null,
+    booking: withRideProgress(declined),
+    reassignedDriver: null,
+    nearbyDrivers: await listChoosableDrivers(declined),
+    reason: "declined",
   };
 }
 
@@ -388,26 +459,14 @@ async function expireStaleOffers() {
     // The driver accepted (or declined) between the SELECT and now — leave it alone.
     if (!changed) continue;
 
-    const reassignedDriver = await matchingService.findNearestAvailableDriver(
-      cleared.pickup_lat,
-      cleared.pickup_lng,
-      [staleDriverId]
-    );
-
-    if (!reassignedDriver) {
-      results.push({ booking: withRideProgress(cleared), reassignedDriver: null, staleDriverId });
-      continue;
-    }
-
-    const { assigned, booking: reassignedBooking } = await bookingModel.assignDriver(
-      booking.id,
-      reassignedDriver.id
-    );
-
+    // Same as a decline: back to the passenger to choose another rider.
+    rememberDeclinedDriver(booking.id, staleDriverId);
     results.push({
-      booking: withRideProgress(reassignedBooking),
-      reassignedDriver: assigned ? reassignedDriver : null,
+      booking: withRideProgress(cleared),
+      reassignedDriver: null,
       staleDriverId,
+      nearbyDrivers: await listChoosableDrivers(cleared),
+      reason: "expired",
     });
   }
 
@@ -496,6 +555,7 @@ async function cancelRide(payload) {
   if (!changed) {
     throw new ApiError(400, "Booking can no longer be cancelled.");
   }
+  forgetBooking(cancelled.id);
 
   await notifySafe({
     type: "booking_cancelled",
@@ -568,6 +628,8 @@ async function rateCompletedRide(payload) {
 module.exports = {
   createBookingAndFindDriver,
   passengerChooseDriver,
+  listNearbyDriversForBooking,
+  getIncomingOfferForDriver,
   driverRespond,
   arriveAtPickup,
   startRide,

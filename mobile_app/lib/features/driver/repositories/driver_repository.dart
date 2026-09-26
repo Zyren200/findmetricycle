@@ -55,6 +55,11 @@ class DriverRepository {
     );
   }
 
+  /// The ride request currently waiting on this rider (or null data).
+  Future<Map<String, dynamic>> getIncomingBooking() {
+    return _apiClient.get("/driver/bookings/incoming");
+  }
+
   Future<Map<String, dynamic>> arriveAtPickup(int bookingId) {
     return _apiClient.post("/driver/bookings/$bookingId/arrive");
   }

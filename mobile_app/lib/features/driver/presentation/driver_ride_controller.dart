@@ -1,5 +1,6 @@
 import "dart:async";
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 import "package:flutter_map/flutter_map.dart";
 import "package:geolocator/geolocator.dart";
 import "package:image_picker/image_picker.dart";
@@ -204,7 +205,11 @@ class DriverRideController extends ChangeNotifier {
     _bookingRequestSub ??=
         _socketClient.on("driver:booking_request").listen((event) {
       final payload = _toMap(event);
-      incomingBooking = _toMap(payload["booking"]);
+      final booking = _toMap(payload["booking"]);
+      if (booking["id"] == null) return;
+      final isNew = booking["id"]?.toString() != incomingBooking?["id"]?.toString();
+      incomingBooking = booking;
+      if (isNew) HapticFeedback.heavyImpact();
       notifyListeners();
     });
 
@@ -281,21 +286,17 @@ class DriverRideController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      if (_socketClient.isConnected) {
-        final response = await _socketClient.emit(
-          "driver:set_online",
-          {"isOnline": value},
-        );
-        if (response is Map && response["success"] != true) {
-          throw Exception(
-              response["message"]?.toString() ?? "Failed to update status.");
-        }
-      } else {
-        final response = await _repository.setOnline(value);
-        if (response["success"] != true) {
-          throw Exception(
-              response["message"]?.toString() ?? "Failed to update status.");
-        }
+      // Socket first; `emit` returns null when disconnected or unanswered,
+      // in which case the HTTP endpoint does the same job.
+      final response = await _socketClient.emit(
+            "driver:set_online",
+            {"isOnline": value},
+          ) ??
+          await _repository.setOnline(value);
+      if (response is! Map || response["success"] != true) {
+        throw Exception(
+            (response is Map ? response["message"]?.toString() : null) ??
+                "Failed to update status.");
       }
 
       isOnline = value;
@@ -337,8 +338,11 @@ class DriverRideController extends ChangeNotifier {
   void _startLocationUpdates() {
     _locationTimer?.cancel();
     _pushLocation();
-    _locationTimer =
-        Timer.periodic(const Duration(seconds: 4), (_) => _pushLocation());
+    _checkIncomingBooking();
+    _locationTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      _pushLocation();
+      _checkIncomingBooking();
+    });
   }
 
   void _stopLocationUpdates() {
@@ -351,39 +355,79 @@ class DriverRideController extends ChangeNotifier {
     if (bookingId == null) return;
 
     isBusy = true;
+    error = null;
     notifyListeners();
     try {
-      if (_socketClient.isConnected) {
-        final response = await _socketClient.emit("driver:booking_response", {
-          "bookingId": bookingId,
-          "action": "accept",
-        });
-        if (response is Map && response["success"] == true) {
-          final data = response["data"] as Map<String, dynamic>? ?? {};
-          activeBooking = data["booking"] as Map<String, dynamic>?;
-          incomingBooking = null;
-        } else {
-          throw Exception(
-              response?["message"]?.toString() ?? "Failed to accept booking.");
-        }
-      } else {
-        final response = await _repository.respondBooking(
-          bookingId: bookingId,
-          action: "accept",
-        );
-        if (response["success"] != true) {
-          throw Exception(
-              response["message"]?.toString() ?? "Failed to accept booking.");
-        }
-        final data = response["data"] as Map<String, dynamic>? ?? {};
-        activeBooking = data["booking"] as Map<String, dynamic>?;
-        incomingBooking = null;
-      }
+      final response = await _respondToBooking(bookingId, "accept");
+      final data = _toMap(response["data"]);
+      activeBooking = _toMap(data["booking"]);
+      incomingBooking = null;
     } catch (e) {
       error = e.toString().replaceFirst("Exception: ", "");
+      // The offer is gone (expired, or the passenger cancelled/re-chose).
+      if (error!.contains("no longer available") ||
+          error!.contains("no longer pending")) {
+        incomingBooking = null;
+      }
     } finally {
       isBusy = false;
       notifyListeners();
+    }
+  }
+
+  /// Accept/decline over the socket, falling back to HTTP when the socket
+  /// is down or doesn't acknowledge in time.
+  Future<Map<String, dynamic>> _respondToBooking(
+    int bookingId,
+    String action,
+  ) async {
+    final payload = {
+      "bookingId": bookingId,
+      "action": action,
+      if (action == "decline") "reason": "Driver unavailable",
+    };
+    final dynamic response =
+        await _socketClient.emit("driver:booking_response", payload) ??
+            await _repository.respondBooking(
+              bookingId: bookingId,
+              action: action,
+              reason: action == "decline" ? "Driver unavailable" : null,
+            );
+    final map = _toMap(response);
+    if (map["success"] != true) {
+      throw Exception(map["message"]?.toString() ??
+          (action == "accept"
+              ? "Failed to accept booking."
+              : "Failed to decline booking."));
+    }
+    return map;
+  }
+
+  bool _isCheckingIncoming = false;
+
+  /// Fallback for a missed "driver:booking_request" socket event: asks the
+  /// server which ride request (if any) is waiting on this rider. Also
+  /// clears a request card whose offer expired or was cancelled.
+  Future<void> _checkIncomingBooking() async {
+    if (!isOnline || activeBooking != null || _isCheckingIncoming || isBusy) {
+      return;
+    }
+    _isCheckingIncoming = true;
+    try {
+      final response = await _repository.getIncomingBooking();
+      if (response["success"] != true) return;
+      final booking =
+          response["data"] == null ? null : _toMap(response["data"]);
+      final currentId = incomingBooking?["id"]?.toString();
+      final nextId = booking?["id"]?.toString();
+      if (currentId != nextId) {
+        incomingBooking = booking;
+        notifyListeners();
+      }
+    } catch (_) {
+      // Best-effort; the next tick tries again.
+    } finally {
+      _isCheckingIncoming = false;
     }
   }
 
@@ -392,34 +436,14 @@ class DriverRideController extends ChangeNotifier {
     if (bookingId == null) return;
 
     isBusy = true;
+    error = null;
     notifyListeners();
     try {
-      if (_socketClient.isConnected) {
-        final response = await _socketClient.emit("driver:booking_response", {
-          "bookingId": bookingId,
-          "action": "decline",
-          "reason": "Driver unavailable",
-        });
-        if (response is Map && response["success"] == true) {
-          incomingBooking = null;
-        } else {
-          throw Exception(
-              response?["message"]?.toString() ?? "Failed to decline booking.");
-        }
-      } else {
-        final response = await _repository.respondBooking(
-          bookingId: bookingId,
-          action: "decline",
-          reason: "Driver unavailable",
-        );
-        if (response["success"] != true) {
-          throw Exception(
-              response["message"]?.toString() ?? "Failed to decline booking.");
-        }
-        incomingBooking = null;
-      }
+      await _respondToBooking(bookingId, "decline");
+      incomingBooking = null;
     } catch (e) {
       error = e.toString().replaceFirst("Exception: ", "");
+      incomingBooking = null;
     } finally {
       isBusy = false;
       notifyListeners();

@@ -73,6 +73,18 @@ async function updateLocation(req, res, next) {
   }
 }
 
+// Polled by the driver app while online, so a ride request still shows up
+// even if the realtime "driver:booking_request" event was missed.
+async function getIncomingBooking(req, res, next) {
+  try {
+    const driver = await driverService.getDriverByUserIdOrFail(req.user.id);
+    const booking = await bookingService.getIncomingOfferForDriver(driver.id);
+    res.json({ success: true, data: booking });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function respondBooking(req, res, next) {
   try {
     const driver = await driverService.getDriverByUserIdOrFail(req.user.id);
@@ -86,8 +98,12 @@ async function respondBooking(req, res, next) {
 
     getIO()
       .to(`passenger:${result.booking.passenger_id}`)
+      .to(`user:${result.booking.passenger_id}`)
       .emit("passenger:booking_update", {
         booking: result.booking,
+        // On a decline the passenger gets a fresh list to choose again.
+        nearbyDrivers: result.nearbyDrivers || [],
+        reason: result.reason || null,
       });
 
     if (result.reassignedDriver) {
@@ -360,6 +376,7 @@ module.exports = {
   setOnlineStatus,
   updateLocation,
   respondBooking,
+  getIncomingBooking,
   arriveAtPickup,
   startRide,
   markNoShow,

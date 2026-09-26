@@ -195,9 +195,13 @@ async function onSocketConnection(socket) {
         reason: payload?.reason,
       });
 
-      io.to(`passenger:${result.booking.passenger_id}`).emit("passenger:booking_update", {
-        booking: result.booking,
-      });
+      io.to(`passenger:${result.booking.passenger_id}`)
+        .to(`user:${result.booking.passenger_id}`)
+        .emit("passenger:booking_update", {
+          booking: result.booking,
+          nearbyDrivers: result.nearbyDrivers || [],
+          reason: result.reason || null,
+        });
 
       if (result.reassignedDriver) {
         io.to(`driver:${result.reassignedDriver.id}`).emit("driver:booking_request", {

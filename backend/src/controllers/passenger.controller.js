@@ -110,21 +110,36 @@ async function getBooking(req, res, next) {
 
 async function chooseDriver(req, res, next) {
   try {
-    const result = await bookingService.passengerChooseDriver({
+    const { driverUserId, ...result } = await bookingService.passengerChooseDriver({
       bookingId: Number(req.params.bookingId),
       passengerId: req.user.id,
       driverId: Number(req.body.driverId),
     });
 
-    getIO().to(`driver:${result.driver.id}`).emit("driver:booking_request", {
-      booking: result.booking,
-    });
+    // Also target the rider's user room: a socket only joins `driver:<id>`
+    // if the account already had driver access when it connected.
+    getIO()
+      .to(`driver:${result.driver.id}`)
+      .to(`user:${driverUserId}`)
+      .emit("driver:booking_request", { booking: result.booking });
 
     res.json({
       success: true,
-      message: "Driver selected.",
+      message: "Request sent to the rider. Waiting for them to accept.",
       data: result,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getNearbyDrivers(req, res, next) {
+  try {
+    const result = await bookingService.listNearbyDriversForBooking({
+      bookingId: Number(req.params.bookingId),
+      passengerId: req.user.id,
+    });
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }
@@ -234,6 +249,7 @@ module.exports = {
   rateRide,
   getBooking,
   chooseDriver,
+  getNearbyDrivers,
   getBookingHistory,
   getFare,
   getNotifications,
