@@ -86,3 +86,15 @@ export function statusTone(value) {
   }
   return "neutral";
 }
+
+const COORDINATE_ADDRESS = /^\s*(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/;
+
+// Place name for a pickup / drop-off. Coordinate-only values (older
+// bookings, or a lookup still pending) become a short "pinned" label.
+export function formatPlace(value) {
+  const text = asText(value);
+  if (!text) return "-";
+  const match = text.match(COORDINATE_ADDRESS);
+  if (!match) return text;
+  return `📍 Pinned (${Number(match[1]).toFixed(4)}, ${Number(match[2]).toFixed(4)})`;
+}

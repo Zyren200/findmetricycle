@@ -14,6 +14,28 @@ const { isInsideGeofence } = require("../utils/geofence");
 const notificationService = require("./notification.service");
 const { MIN_PASSENGERS, MAX_PASSENGERS } = require("../constants/fare");
 const { toPublicDriver } = require("../utils/public-driver");
+const geocodingService = require("./geocoding.service");
+
+// When the app couldn't name a pickup / drop-off (it sent raw coordinates),
+// look the place up afterwards so admins and ride history show a real
+// place. Runs in the background — booking never waits on it.
+function fillMissingPlaceNames(booking) {
+  if (process.env.NODE_ENV === "test") return;
+  const jobs = [
+    ["pickup_address", booking.pickup_address, booking.pickup_lat, booking.pickup_lng],
+    ["dropoff_address", booking.dropoff_address, booking.dropoff_lat, booking.dropoff_lng],
+  ].filter(([, address]) => geocodingService.isCoordinateAddress(address));
+  for (const [column, , lat, lng] of jobs) {
+    geocodingService
+      .reverseGeocode(lat, lng)
+      .then((name) =>
+        name
+          ? db.query(`UPDATE bookings SET ${column} = ? WHERE id = ?`, [name.slice(0, 255), booking.id])
+          : null
+      )
+      .catch(() => {});
+  }
+}
 
 // How many of the nearest online riders the passenger gets to pick from.
 const NEARBY_DRIVER_LIMIT = 10;
@@ -139,6 +161,8 @@ async function createBookingAndFindDriver(payload) {
     estimatedFare,
     fareBreakdown,
   });
+
+  fillMissingPlaceNames(booking);
 
   await notifySafe({
     type: "new_booking",

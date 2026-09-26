@@ -373,6 +373,8 @@ async function listRideHistory(limit = 100) {
       SELECT
         b.id,
         b.status,
+        b.pickup_address,
+        b.dropoff_address,
         b.distance_km,
         b.estimated_fare,
         b.final_fare,

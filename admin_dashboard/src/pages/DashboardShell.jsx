@@ -6,7 +6,7 @@ import LiveMapCard from "../components/LiveMapCard";
 import NotificationsPanel from "../components/NotificationsPanel";
 import SummaryCards from "../components/SummaryCards";
 import PageHero from "../components/PageHero";
-import { asText, formatDateTime, statusTone } from "../utils/admin-formatters";
+import { asText, formatDateTime, statusTone, formatPlace } from "../utils/admin-formatters";
 import ActivityLogsPage from "./ActivityLogsPage";
 import AnalyticsPage from "./AnalyticsPage";
 import BarangayManagerPage from "./BarangayManagerPage";
@@ -340,8 +340,8 @@ export default function DashboardShell() {
                 <td>#{ride.id}</td>
                 <td>{ride.passengerName || ride.passenger_name}</td>
                 <td>{ride.driverName || ride.driver_name || "-"}</td>
-                <td>{ride.pickupAddress || ride.pickup || "-"}</td>
-                <td>{ride.dropoffAddress || ride.destination || "-"}</td>
+                <td>{formatPlace(ride.pickupAddress || ride.pickup)}</td>
+                <td>{formatPlace(ride.dropoffAddress || ride.destination)}</td>
                 <td>PHP {ride.finalFare || ride.estimatedFare || ride.fare || 0}</td>
                 <td><Pill value={ride.status} /></td>
                 <td>{formatDateTime(ride.completedAt || ride.requestedAt || ride.timestamp)}</td>
@@ -549,8 +549,8 @@ export default function DashboardShell() {
                     <div className="detail-row"><span>Status</span><strong>{selectedBooking.status}</strong></div>
                     <div className="detail-row"><span>Passenger</span><strong>{selectedBooking.passengerName || "-"}</strong></div>
                     <div className="detail-row"><span>Driver</span><strong>{selectedBooking.driverName || "-"}</strong></div>
-                    <div className="detail-row"><span>Pickup</span><strong>{selectedBooking.pickupAddress || "-"}</strong></div>
-                    <div className="detail-row"><span>Drop-off</span><strong>{selectedBooking.dropoffAddress || "-"}</strong></div>
+                    <div className="detail-row"><span>Pickup</span><strong>{formatPlace(selectedBooking.pickupAddress)}</strong></div>
+                    <div className="detail-row"><span>Drop-off</span><strong>{formatPlace(selectedBooking.dropoffAddress)}</strong></div>
                     <div className="detail-row"><span>Fare</span><strong>PHP {selectedBooking.finalFare || selectedBooking.estimatedFare || 0}</strong></div>
                     <div className="detail-row"><span>Billing</span><strong>Cash only</strong></div>
                   </div>
