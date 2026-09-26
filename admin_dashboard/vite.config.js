@@ -6,6 +6,8 @@ export default defineConfig({
   // Relative asset URLs so the same build works at the site root (nginx /
   // Docker) and under /admin/ when copied into backend/public by deploy-admin.
   base: "./",
+  // MapLibre's worker is an ES module (see LiveMapCard.jsx).
+  worker: { format: "es" },
   server: {
     host: "0.0.0.0",
     port: 5173,

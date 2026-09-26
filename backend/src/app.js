@@ -60,7 +60,12 @@ app.use(
     credentials: true,
   })
 );
-app.use(morgan("dev"));
+// Document links carry the admin's access token as ?token= (an <a href>
+// can't send headers) — keep it out of the request log.
+morgan.token("safe-url", (req) =>
+  (req.originalUrl || req.url).replace(/([?&]token=)[^&]+/gi, "$1[redacted]")
+);
+app.use(morgan(":method :safe-url :status :response-time ms - :res[content-length]"));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 

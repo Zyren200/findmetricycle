@@ -69,3 +69,21 @@ describe("migration statement splitter", () => {
     ]);
   });
 });
+
+describe("request logging", () => {
+  it("never writes document access tokens to the log", async () => {
+    const request = require("supertest");
+    const app = require("../src/app");
+    const lines = [];
+    const spy = jest.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      lines.push(String(chunk));
+      return true;
+    });
+    await request(app).get("/api/documents/driver/x.jpg?token=SECRET_TOKEN_VALUE");
+    await new Promise((r) => setImmediate(r));
+    spy.mockRestore();
+    const log = lines.join("");
+    expect(log).toContain("token=[redacted]");
+    expect(log).not.toContain("SECRET_TOKEN_VALUE");
+  });
+});

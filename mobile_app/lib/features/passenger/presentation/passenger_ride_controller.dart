@@ -135,6 +135,7 @@ class PassengerRideController extends ChangeNotifier {
   StreamSubscription? _driverArrivedSub;
   StreamSubscription? _rideStartedSub;
   StreamSubscription? _rideCompletedSub;
+  StreamSubscription? _driverPingSub;
 
   double get estimatedDistanceKm {
     if (pickup == null || dropoff == null) return 0;
@@ -244,10 +245,13 @@ class PassengerRideController extends ChangeNotifier {
     error = null;
     notifyListeners();
 
+    // Socket listeners and fares don't depend on GPS — set them up first so
+    // a denied/slow location fix can't leave the passenger deaf to rider
+    // updates (accept/decline, driver location) for the whole session.
+    _bindSocketEvents();
+    await _loadFareSettings();
     try {
       await _resolveCurrentLocation();
-      _bindSocketEvents();
-      await _loadFareSettings();
     } catch (e) {
       error = e.toString();
     } finally {
@@ -822,7 +826,8 @@ class PassengerRideController extends ChangeNotifier {
       }
     });
 
-    _socketClient.on("passenger:driver_ping").listen((event) {
+    _driverPingSub ??=
+        _socketClient.on("passenger:driver_ping").listen((event) {
       final payload = _toMap(event);
       final id = int.tryParse(payload["driverId"]?.toString() ?? "");
       final lat = double.tryParse(payload["lat"]?.toString() ?? "");
@@ -881,6 +886,7 @@ class PassengerRideController extends ChangeNotifier {
     _driverArrivedSub?.cancel();
     _rideStartedSub?.cancel();
     _rideCompletedSub?.cancel();
+    _driverPingSub?.cancel();
     super.dispose();
   }
 

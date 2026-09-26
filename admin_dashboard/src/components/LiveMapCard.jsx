@@ -196,10 +196,17 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
     async function initializeMap() {
       if (!containerRef.current || mapRef.current) return;
       try {
-        const module = await import("maplibre-gl");
+        // MapLibre v6 loads its tile worker from a file next to its own
+        // module, which doesn't survive bundling — so let Vite bundle the
+        // worker separately and point MapLibre at the emitted URL.
+        const [module, { default: workerUrl }] = await Promise.all([
+          import("maplibre-gl"),
+          import("maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url"),
+        ]);
         if (cancelled || !containerRef.current || mapRef.current) return;
 
         const maplibregl = module.default || module;
+        maplibregl.setWorkerUrl(workerUrl);
         const map = new maplibregl.Map({
         container: containerRef.current,
         style: mapStyle,
