@@ -177,6 +177,35 @@ async function postMarkAllNotificationsRead(req, res, next) {
   }
 }
 
+async function revokeDriverApproval(req, res, next) {
+  try {
+    const outcome = await adminService.revokeDriverApproval(
+      Number(req.params.driverId),
+      req.user.id,
+      req.body?.note
+    );
+    if (outcome.recipientUserId) {
+      const io = getIO();
+      // Driver app drops out of driver mode and shows why.
+      io.to(`user:${outcome.recipientUserId}`).emit("driver:approval_status", {
+        status: "needs_correction",
+        message: "Your driver approval was revoked. Please resubmit your documents.",
+        note: outcome.reason,
+      });
+      io.to(`driver:${outcome.driver.id}`).emit("driver:status_changed", { status: "revoked" });
+      // Sockets cache the user's driver access from when they connected;
+      // make them reconnect (after the messages above are delivered) so
+      // the revoked access takes effect there too.
+      setTimeout(() => {
+        io.in(`user:${outcome.recipientUserId}`).disconnectSockets(true);
+      }, 1500).unref();
+    }
+    res.json({ success: true, message: "Driver approval revoked.", data: outcome });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getAllDrivers(req, res, next) {
   try {
     const drivers = await adminService.listAllDrivers();
@@ -385,6 +414,7 @@ module.exports = {
   postMarkNotificationRead,
   postMarkAllNotificationsRead,
   getAllDrivers,
+  revokeDriverApproval,
   postSuspendDriver,
   postReinstateDriver,
   getDriverLicenseExpirations,

@@ -67,6 +67,32 @@ async function approveDriver(applicationId, adminUserId, { acknowledgeDocumentWa
 
     let driver = application.driver_id ? await driverModel.findById(application.driver_id, client) : null;
 
+    // A resubmitted application (after approval was revoked) belongs to a
+    // rider who already has a driver profile — reuse it, with the new
+    // documents, instead of trying to create a second one.
+    if (!driver) {
+      driver = await driverModel.findByUserId(application.user_id, client);
+      if (driver) {
+        await client.query(
+          `UPDATE drivers
+              SET license_image_url = ?, business_permit_image_url = ?,
+                  license_expires_at = COALESCE(?, license_expires_at),
+                  license_number = COALESCE(?, license_number),
+                  license_holder_name = COALESCE(?, license_holder_name)
+            WHERE id = ?`,
+          [
+            application.license_image_url,
+            application.business_permit_image_url,
+            application.license_expires_at || null,
+            application.license_number || null,
+            application.license_holder_name || null,
+            driver.id,
+          ]
+        );
+        await client.query("UPDATE driver_applications SET driver_id = ? WHERE id = ?", [driver.id, application.id]);
+      }
+    }
+
     if (!driver) {
       driver = await driverModel.createDriverProfile(
         {
@@ -363,6 +389,62 @@ async function listAllDrivers() {
   return driverModel.listAllForAdmin();
 }
 
+// Takes an approved rider back out of service because their documents
+// aren't right: driver mode is switched off and their application goes back
+// to "needs correction" so they can resubmit proper documents (and be
+// approved again). Refused while they're on a ride.
+async function revokeDriverApproval(driverId, adminUserId, note) {
+  const reason = String(note || "").trim() ||
+    "Your submitted documents are not a valid driver's license and franchise / permit.";
+
+  const outcome = await db.withTransaction(async (client) => {
+    const driver = await driverModel.findById(driverId, client);
+    if (!driver) throw new ApiError(404, "Driver not found.");
+    if (!["approved", "suspended", "license_expired"].includes(driver.approval_status)) {
+      throw new ApiError(400, `Driver is not approved (status: ${driver.approval_status}).`);
+    }
+    const [activeRide] = await client.query(
+      `SELECT id FROM bookings WHERE driver_id = ? AND deleted_at IS NULL
+         AND status IN ('accepted', 'assigned', 'arriving', 'ongoing', 'on_ride') LIMIT 1`,
+      [driverId]
+    );
+    if (activeRide) {
+      throw new ApiError(409, `This driver is on ride #${activeRide.id}. Try again after it ends.`);
+    }
+
+    await client.query("UPDATE drivers SET approval_status = 'pending', is_online = 0 WHERE id = ?", [driverId]);
+    await client.query("UPDATE users SET driver_approval_status = 'pending' WHERE id = ?", [driver.user_id]);
+
+    const [application] = await client.query(
+      `SELECT id FROM driver_applications WHERE user_id = ? AND status <> 'archived' ORDER BY id DESC LIMIT 1`,
+      [driver.user_id]
+    );
+    let updatedApplication = null;
+    if (application) {
+      updatedApplication = await driverApplicationModel.markNeedsCorrection(application.id, adminUserId, reason, client);
+      await statusHistoryModel.logStatus(application.id, "needs_correction", `Approval revoked: ${reason}`, adminUserId, client);
+    }
+    return { driver, application: updatedApplication, recipientUserId: driver.user_id };
+  });
+
+  await notificationService.createNotification({
+    type: "driver_approval_revoked",
+    title: "Driver approval revoked",
+    body: `Please resubmit your documents: ${reason}`,
+    userId: outcome.recipientUserId,
+    // Sent to both app modes — driver mode is no longer available to them.
+    recipientRole: "everyone",
+    sentBy: adminUserId,
+    metadataJson: { driverId, status: "needs_correction", note: reason },
+  });
+  if (outcome.application?.email) {
+    mailService
+      .sendDriverCorrectionEmail(outcome.application.email, outcome.application.full_name, reason)
+      .catch(() => {});
+  }
+  return { ...outcome, reason };
+}
+
 async function suspendDriver(driverId, adminUserId) {
   const driver = await driverModel.findById(driverId);
   if (!driver) throw new ApiError(404, "Driver not found.");
@@ -635,6 +717,7 @@ module.exports = {
   getRideActivity,
   listAllDrivers,
   suspendDriver,
+  revokeDriverApproval,
   reinstateDriver,
   listDriversExpiringWithin,
   listAllPassengers,

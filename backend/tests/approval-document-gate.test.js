@@ -66,3 +66,23 @@ describe("approving a driver with flagged documents", () => {
     expect(driverModel.approveDriver).toHaveBeenCalled();
   });
 });
+
+describe("revoking a driver's approval", () => {
+  it("refuses while the driver is on a ride", async () => {
+    driverModel.findById.mockResolvedValue({ id: 5, user_id: 27, approval_status: "approved" });
+    const db = require("../src/config/db");
+    db.withTransaction.mockImplementationOnce(async (work) =>
+      work({ query: jest.fn(async (sql) => (/FROM bookings/.test(sql) ? [{ id: 12 }] : [])) })
+    );
+
+    await expect(adminService.revokeDriverApproval(5, 1, "wrong documents")).rejects.toMatchObject({
+      statusCode: 409,
+    });
+  });
+
+  it("refuses for a driver who isn't approved", async () => {
+    driverModel.findById.mockResolvedValue({ id: 5, user_id: 27, approval_status: "pending" });
+
+    await expect(adminService.revokeDriverApproval(5, 1)).rejects.toMatchObject({ statusCode: 400 });
+  });
+});

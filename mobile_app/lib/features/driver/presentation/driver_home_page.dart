@@ -13,6 +13,7 @@ import "../../../core/components/index.dart";
 import "../../shared/presentation/notifications_screen.dart";
 import "../../shared/state/notifications_controller.dart";
 import "driver_ride_controller.dart";
+import "../../shared/state/session_store.dart";
 import "driver_profile_page.dart";
 
 /// Home tab content for Driver Mode. Lives inside DriverShellPage's
@@ -47,13 +48,26 @@ class _DriverHomePageState extends State<DriverHomePage> {
     if (_rideController == ctrl) return;
     _rideController = ctrl;
     _rideController?.addListener(_applyMapData);
+    _rideController?.addListener(_checkApprovalRevoked);
   }
 
   @override
   void dispose() {
     _paymentSub?.cancel();
     _rideController?.removeListener(_applyMapData);
+    _rideController?.removeListener(_checkApprovalRevoked);
     super.dispose();
+  }
+
+  bool _handledRevocation = false;
+
+  // Admin revoked this rider's approval: re-read the account's driver
+  // access, which switches the app back to passenger mode.
+  void _checkApprovalRevoked() {
+    final status = _rideController?.approvalStatus;
+    if (_handledRevocation || (status != "needs_correction" && status != "rejected")) return;
+    _handledRevocation = true;
+    context.read<SessionStore>().refreshDriverAccess();
   }
 
   Future<void> _applyMapData() async {

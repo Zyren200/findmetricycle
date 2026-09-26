@@ -116,6 +116,26 @@ export default function DriversPage() {
     return result;
   }, [drivers, filter, searchQuery]);
 
+  // Takes a rider out of the approved list (e.g. wrong documents): driver
+  // mode off, application back to "needs correction" so they can resubmit.
+  async function handleRevoke(driver) {
+    const note = window.prompt(
+      `Revoke ${driver.name}'s driver approval?
+
+They'll lose driver mode and be asked to resubmit. Reason shown to them:`,
+      "The uploaded documents are not a valid driver's license and franchise / permit."
+    );
+    if (note === null) return;
+    try {
+      setError(null);
+      await apiClient.post(`/admin/drivers/${driver.id}/revoke`, { note });
+      closeModal();
+      await loadDrivers();
+    } catch (err) {
+      setError(err?.response?.data?.message || "Failed to revoke approval.");
+    }
+  }
+
   async function handleSuspend(driverId) {
     setActionLoadingId(driverId);
     try {
@@ -514,6 +534,9 @@ export default function DriversPage() {
               </div>
             </div>
             <div className="modal-footer">
+              <button className="btn btn-danger" type="button" onClick={() => handleRevoke(selectedDriver)}>
+                Revoke approval
+              </button>
               <button className="btn btn-ghost" type="button" onClick={closeModal}>
                 Close
               </button>

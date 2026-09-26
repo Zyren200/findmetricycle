@@ -31,6 +31,11 @@ router.post(
   adminController.approveDriver
 );
 router.post(
+  "/drivers/:driverId/revoke",
+  validate(adminSchema.driverParamSchema),
+  adminController.revokeDriverApproval
+);
+router.post(
   "/drivers/:driverId/reject",
   validate(adminSchema.rejectDriverSchema),
   adminController.rejectDriver

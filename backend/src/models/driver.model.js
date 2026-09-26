@@ -439,6 +439,7 @@ async function listAllForAdmin() {
       )
       WHERE d.deleted_at IS NULL
         AND u.deleted_at IS NULL
+        AND d.approval_status IN ('approved', 'suspended', 'license_expired')
       ORDER BY d.created_at DESC
     `
   );
