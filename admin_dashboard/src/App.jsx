@@ -5,9 +5,12 @@ import SignupPage from "./pages/SignupPage";
 import { useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 import { apiClient } from "./api/client";
+import { useModalDismiss } from "./hooks/useModalDismiss";
 
 export default function App() {
   const { isAuthenticated } = useAuth();
+  // Esc / backdrop click closes any open dialog.
+  useModalDismiss();
   const [adminExists, setAdminExists] = useState(null);
 
   useEffect(() => {

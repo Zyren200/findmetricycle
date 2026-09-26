@@ -1781,13 +1781,19 @@ select.form-input option { background: var(--bg3); }
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.7);
-  z-index: 100;
+  /* Above the map controls and sticky page chrome. */
+  z-index: 2000;
   align-items: center;
   justify-content: center;
+  padding: 16px;
+  cursor: pointer; /* the backdrop closes the dialog */
 }
 
 .modal-overlay.open { display: flex; }
 
+/* Never taller than the window: the header (×) and footer (Close) stay on
+   screen and only the body scrolls. A too-tall dialog used to push both
+   buttons off-screen with no way to scroll to them. */
 .modal {
   background: var(--bg2);
   border: 1px solid var(--border2);
@@ -1795,12 +1801,30 @@ select.form-input option { background: var(--bg3); }
   box-shadow: var(--shadow);
   width: 480px;
   max-width: 95vw;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
   padding: 24px;
+  cursor: auto;
 }
+.modal > .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.modal > .modal-header,
+.modal > .modal-footer { flex: 0 0 auto; }
+/* Dialogs without a .modal-body scroll as a whole instead. */
+.modal:not(:has(> .modal-body)) { overflow-y: auto; }
+
+/* Keep the page behind still while a dialog is open. */
+body:has(.modal-overlay.open) { overflow: hidden; }
 
 .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .modal-title { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 600; }
-.modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+.modal-close { background: none; border: none; color: var(--muted); font-size: 24px; cursor: pointer; line-height: 1; padding: 4px 8px; border-radius: 8px; }
 .modal-close:hover { color: var(--text); }
 
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }

@@ -83,6 +83,7 @@ export default function ForgotPasswordModal({ onClose }) {
           </button>
         </div>
 
+        <div className="modal-body">
         {step === "request" ? (
           <div className="login-form">
             <p className="muted" style={{ fontSize: 13, marginBottom: 4 }}>
@@ -172,6 +173,7 @@ export default function ForgotPasswordModal({ onClose }) {
             </button>
           </div>
         ) : null}
+        </div>
       </div>
     </div>
   );
