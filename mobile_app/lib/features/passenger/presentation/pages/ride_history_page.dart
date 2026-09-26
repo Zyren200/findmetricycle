@@ -5,6 +5,7 @@ import "package:provider/provider.dart";
 import "../../../../core/components/index.dart";
 import "../../../../core/network/api_client.dart";
 import "../../../../core/theme/design_tokens.dart";
+import "../../../../core/utils/ride_format.dart";
 import "../../../booking/presentation/rating_page.dart";
 import "../../../booking/repositories/booking_repository.dart";
 import "../../repositories/passenger_repository.dart";
@@ -60,7 +61,7 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
   }
 
   Future<void> _saveAsFavorite(Map<String, dynamic> ride) async {
-    final dropoffAddress = _placeLabel(ride["dropoff_address"]);
+    final dropoffAddress = placeLabel(ride["dropoff_address"]);
     final lat = double.tryParse(ride["dropoff_lat"]?.toString() ?? "");
     final lng = double.tryParse(ride["dropoff_lng"]?.toString() ?? "");
 
@@ -72,7 +73,7 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
     }
 
     final controller = TextEditingController(
-      text: dropoffAddress == _pinnedLabel ? "" : dropoffAddress,
+      text: dropoffAddress == kPinnedPlaceLabel ? "" : dropoffAddress,
     );
     final label = await showDialog<String>(
       context: context,
@@ -136,7 +137,7 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
     context.read<PassengerRideController>().setDestinationFromFavorite(
           ll.LatLng(lat, lng),
           // Coordinate-only addresses get re-geocoded on the map.
-          address: _looksLikeCoordinates(address) ? null : address,
+          address: looksLikeCoordinates(address) ? null : address,
         );
     context.read<ValueNotifier<int>>().value = 0;
   }
@@ -189,9 +190,9 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
               ),
               const SizedBox(height: DesignTokens.spacing12),
               _SummaryCard(
-                completed: _int(stats["completed"]),
-                cancelled: _int(stats["cancelled"]),
-                totalSpent: _double(stats["totalSpent"]),
+                completed: toInt(stats["completed"]),
+                cancelled: toInt(stats["cancelled"]),
+                totalSpent: toDouble(stats["totalSpent"]),
               ),
               const SizedBox(height: DesignTokens.spacing12),
               Wrap(
@@ -259,38 +260,6 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
 
 // ── helpers ─────────────────────────────────────────────────────────────
 
-int _int(dynamic v) => int.tryParse(v?.toString() ?? "") ?? 0;
-double _double(dynamic v) => double.tryParse(v?.toString() ?? "") ?? 0;
-String _peso(double v) => "₱${v.toStringAsFixed(2)}";
-
-const _pinnedLabel = "Naka-pin sa mapa";
-final _coordinatePattern = RegExp(r"^\s*-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+\s*$");
-
-bool _looksLikeCoordinates(String? text) =>
-    text != null && _coordinatePattern.hasMatch(text);
-
-/// Older bookings stored raw coordinates as the address; show those as a
-/// pinned spot instead of a string of numbers.
-String _placeLabel(dynamic raw) {
-  final text = raw?.toString().trim();
-  if (text == null || text.isEmpty || _looksLikeCoordinates(text)) return _pinnedLabel;
-  return text;
-}
-
-const _months = [
-  "Ene", "Peb", "Mar", "Abr", "May", "Hun",
-  "Hul", "Ago", "Set", "Okt", "Nob", "Dis",
-];
-
-String? _formatDateTime(dynamic raw) {
-  final date = DateTime.tryParse(raw?.toString() ?? "")?.toLocal();
-  if (date == null) return null;
-  final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
-  final minute = date.minute.toString().padLeft(2, "0");
-  final period = date.hour < 12 ? "AM" : "PM";
-  return "${_months[date.month - 1]} ${date.day}, ${date.year} • $hour:$minute $period";
-}
-
 (String, Color) _statusStyle(String status) => switch (status) {
       "completed" => ("NATAPOS", DesignTokens.green),
       "cancelled" => ("KINANSELA", DesignTokens.red),
@@ -350,7 +319,7 @@ class _SummaryCard extends StatelessWidget {
         children: [
           stat("$completed", "Natapos"),
           stat("$cancelled", "Kinansela"),
-          stat(_peso(totalSpent), "Kabuuang gastos"),
+          stat(peso(totalSpent), "Kabuuang gastos"),
         ],
       ),
     );
@@ -405,7 +374,7 @@ class _RideHistoryCard extends StatelessWidget {
     final isCancelled = status == "cancelled";
     final (statusLabel, statusColor) = _statusStyle(status);
 
-    final when = _formatDateTime(
+    final when = formatRideDateTime(
       isCompleted ? ride["completed_at"] ?? ride["requested_at"] : ride["requested_at"],
     );
     final distance = double.tryParse(ride["distance_km"]?.toString() ?? "");
@@ -454,13 +423,13 @@ class _RideHistoryCard extends StatelessWidget {
             _RoutePoint(
               icon: Icons.trip_origin_rounded,
               color: DesignTokens.green,
-              text: _placeLabel(ride["pickup_address"]),
+              text: placeLabel(ride["pickup_address"]),
             ),
             const SizedBox(height: 4),
             _RoutePoint(
               icon: Icons.location_on_rounded,
               color: DesignTokens.red,
-              text: _placeLabel(ride["dropoff_address"]),
+              text: placeLabel(ride["dropoff_address"]),
             ),
             if (riderName != null) ...[
               const SizedBox(height: 8),
@@ -495,7 +464,7 @@ class _RideHistoryCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 if (isCompleted)
                   Text(
-                    _peso(finalFare ?? estimate ?? 0),
+                    peso(finalFare ?? estimate ?? 0),
                     style: const TextStyle(
                       color: Color(0xFF0E8C46),
                       fontSize: 18,
@@ -503,14 +472,19 @@ class _RideHistoryCard extends StatelessWidget {
                     ),
                   )
                 else if (isCancelled)
-                  Text(
-                    // Nothing was charged for a cancelled ride.
-                    cancelledBy == "driver" ? "Kinansela ng rider" : "Walang bayad",
-                    style: const TextStyle(color: DesignTokens.muted, fontSize: 12),
+                  Flexible(
+                    child: Text(
+                      // Nothing was charged for a cancelled ride.
+                      cancelledBy == "driver" ? "Kinansela ng rider" : "Walang bayad",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(color: DesignTokens.muted, fontSize: 12),
+                    ),
                   )
                 else if (estimate != null)
                   Text(
-                    "Tantiya ${_peso(estimate)}",
+                    "Tantiya ${peso(estimate)}",
                     style: const TextStyle(color: DesignTokens.muted, fontSize: 12),
                   ),
               ],
@@ -589,7 +563,7 @@ class _RoutePoint extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: text == _pinnedLabel ? DesignTokens.muted : DesignTokens.text,
+              color: text == kPinnedPlaceLabel ? DesignTokens.muted : DesignTokens.text,
               fontSize: 13,
             ),
           ),

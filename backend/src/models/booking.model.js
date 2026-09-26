@@ -423,6 +423,63 @@ async function listCompletedByDriver(driverId, limit = 50) {
   );
 }
 
+// A rider's finished trips — completed plus ones that were cancelled after
+// they'd accepted (declined/expired offers clear driver_id, so they never
+// appear here). Newest first; optional status filter.
+async function listHistoryByDriver(driverId, { limit = 20, offset = 0, status = null } = {}) {
+  const statuses = status ? [status] : ["completed", "cancelled"];
+  return db.query(
+    `
+      SELECT
+        b.id,
+        b.status,
+        b.pickup_address,
+        b.dropoff_address,
+        b.distance_km,
+        b.estimated_fare,
+        b.final_fare,
+        b.passenger_count,
+        b.requested_at,
+        b.accepted_at,
+        b.started_at,
+        b.completed_at,
+        b.cancelled_at,
+        b.cancelled_by,
+        p.full_name AS passenger_name,
+        r.stars AS passenger_rating,
+        r.feedback AS passenger_feedback
+      FROM bookings b
+      JOIN users p ON p.id = b.passenger_id
+      LEFT JOIN ratings r ON r.booking_id = b.id
+      WHERE b.driver_id = ?
+        AND b.status IN (${statuses.map(() => "?").join(", ")})
+        AND b.deleted_at IS NULL
+      ORDER BY COALESCE(b.completed_at, b.cancelled_at, b.requested_at) DESC, b.id DESC
+      LIMIT ? OFFSET ?
+    `,
+    [driverId, ...statuses, limit, offset]
+  );
+}
+
+async function getDriverRideStats(driverId) {
+  const [row] = await db.query(
+    `
+      SELECT
+        COALESCE(SUM(status = 'completed'), 0) AS completed,
+        COALESCE(SUM(status = 'cancelled'), 0) AS cancelled,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN final_fare END), 0) AS total_earned
+      FROM bookings
+      WHERE driver_id = ? AND status IN ('completed', 'cancelled') AND deleted_at IS NULL
+    `,
+    [driverId]
+  );
+  return {
+    completed: Number(row.completed || 0),
+    cancelled: Number(row.cancelled || 0),
+    totalEarned: Number(Number(row.total_earned || 0).toFixed(2)),
+  };
+}
+
 async function listByPassenger(passengerId, limit = 50, offset = 0) {
   return db.query(
     `
@@ -567,6 +624,8 @@ module.exports = {
   listRideHistory,
   listCompletedByDriver,
   listByPassenger,
+  listHistoryByDriver,
+  getDriverRideStats,
   getPassengerRideStats,
   getDashboardCounts,
   getRideActivity,

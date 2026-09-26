@@ -50,6 +50,71 @@ class DriverRideController extends ChangeNotifier {
   List<Map<String, dynamic>> ratings = [];
   List<Map<String, dynamic>> completedRides = [];
 
+  // ── Ride history (Rides tab) ───────────────────────────────────────
+  static const int _historyPageSize = 20;
+  List<Map<String, dynamic>> rideHistory = [];
+
+  /// completed, cancelled, totalEarned, hasMore — across all trips.
+  Map<String, dynamic> rideHistoryStats = {};
+  bool isLoadingRideHistory = false;
+  bool isLoadingMoreRideHistory = false;
+  bool rideHistoryHasMore = false;
+  String? rideHistoryError;
+
+  /// Reloads the first page; the current list stays visible meanwhile.
+  Future<void> loadRideHistory() async {
+    if (isLoadingRideHistory) return;
+    isLoadingRideHistory = true;
+    rideHistoryError = null;
+    notifyListeners();
+    try {
+      final response = await _repository.getRideHistory(limit: _historyPageSize);
+      if (response["success"] != true) {
+        throw Exception(response["message"]?.toString());
+      }
+      rideHistory = _toList(response["data"]);
+      _applyRideHistoryMeta(response["meta"]);
+    } catch (_) {
+      rideHistoryError = "Hindi ma-load ang ride history. Subukan ulit.";
+    } finally {
+      isLoadingRideHistory = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadMoreRideHistory() async {
+    if (isLoadingMoreRideHistory || isLoadingRideHistory || !rideHistoryHasMore) return;
+    isLoadingMoreRideHistory = true;
+    notifyListeners();
+    try {
+      final response = await _repository.getRideHistory(
+        limit: _historyPageSize,
+        offset: rideHistory.length,
+      );
+      if (response["success"] == true) {
+        final seen = rideHistory.map((r) => r["id"]).toSet();
+        rideHistory = [
+          ...rideHistory,
+          ..._toList(response["data"]).where((r) => !seen.contains(r["id"])),
+        ];
+        _applyRideHistoryMeta(response["meta"]);
+      }
+    } catch (_) {
+      // Keep what's loaded; the button stays for another try.
+    } finally {
+      isLoadingMoreRideHistory = false;
+      notifyListeners();
+    }
+  }
+
+  List<Map<String, dynamic>> _toList(dynamic raw) =>
+      (raw is List ? raw : const []).map((e) => _toMap(e)).toList();
+
+  void _applyRideHistoryMeta(dynamic raw) {
+    rideHistoryStats = _toMap(raw);
+    rideHistoryHasMore = rideHistoryStats["hasMore"] == true;
+  }
+
   Timer? _locationTimer;
   StreamSubscription? _bookingRequestSub;
   StreamSubscription? _bookingExpiredSub;
@@ -565,6 +630,7 @@ class DriverRideController extends ChangeNotifier {
             response["message"]?.toString() ?? "Failed to report no-show.");
       }
       activeBooking = null;
+      unawaited(loadRideHistory());
       return true;
     } catch (e) {
       error = e.toString().replaceFirst("Exception: ", "");
@@ -590,6 +656,7 @@ class DriverRideController extends ChangeNotifier {
       activeBooking = null;
       await refreshEarnings(notify: false);
       await refreshProfile(notify: false);
+      unawaited(loadRideHistory());
     } catch (e) {
       error = e.toString().replaceFirst("Exception: ", "");
     } finally {

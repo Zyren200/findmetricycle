@@ -126,6 +126,22 @@ class DriverRepository {
     return _apiClient.patchForm("/driver/profile", data: formData);
   }
 
+  /// Completed + cancelled trips, newest first, with totals in `meta`.
+  Future<Map<String, dynamic>> getRideHistory({
+    int limit = 20,
+    int offset = 0,
+    String? status,
+  }) {
+    return _apiClient.get(
+      "/driver/bookings/history",
+      queryParameters: {
+        "limit": limit,
+        "offset": offset,
+        if (status != null) "status": status,
+      },
+    );
+  }
+
   Future<Map<String, dynamic>> getCompletedRides() {
     return _apiClient.get("/driver/bookings/completed");
   }

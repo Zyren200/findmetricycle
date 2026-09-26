@@ -38,15 +38,22 @@ class _DriverShellPageState extends State<DriverShellPage> {
     final apiClient = context.read<ApiClient>();
     final socketClient = context.read<SocketClient>();
 
-    return ChangeNotifierProvider(
-      create: (_) {
-        final controller = DriverRideController(
-          DriverRepository(apiClient),
-          socketClient,
-        );
-        controller.initialize();
-        return controller;
-      },
+    return MultiProvider(
+      providers: [
+        // Lets tabs (e.g. Rides) react when they're opened — the
+        // IndexedStack keeps them alive, so initState only runs once.
+        ChangeNotifierProvider.value(value: _navIndex),
+        ChangeNotifierProvider(
+          create: (_) {
+            final controller = DriverRideController(
+              DriverRepository(apiClient),
+              socketClient,
+            );
+            controller.initialize();
+            return controller;
+          },
+        ),
+      ],
       child: Scaffold(
         body: Container(
           color: DesignTokens.bg,

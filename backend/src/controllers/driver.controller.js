@@ -322,6 +322,31 @@ async function getCompletedHistory(req, res, next) {
   }
 }
 
+async function getRideHistory(req, res, next) {
+  try {
+    const driver = await driverService.getDriverByUserIdOrFail(req.user.id);
+    // Clamp paging input — it goes straight into LIMIT/OFFSET.
+    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 1), 100);
+    const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0);
+    const status = ["completed", "cancelled"].includes(req.query.status) ? req.query.status : null;
+
+    const [rides, stats] = await Promise.all([
+      bookingModel.listHistoryByDriver(driver.id, { limit, offset, status }),
+      bookingModel.getDriverRideStats(driver.id),
+    ]);
+    const total = status === "completed" ? stats.completed
+      : status === "cancelled" ? stats.cancelled
+      : stats.completed + stats.cancelled;
+    res.json({
+      success: true,
+      data: rides,
+      meta: { ...stats, limit, offset, hasMore: offset + rides.length < total },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getNotifications(req, res, next) {
   try {
     const limit = req.query.limit ? Number(req.query.limit) : 50;
@@ -383,6 +408,7 @@ module.exports = {
   updateLocation,
   respondBooking,
   getIncomingBooking,
+  getRideHistory,
   arriveAtPickup,
   startRide,
   markNoShow,

@@ -3,6 +3,7 @@ import "package:provider/provider.dart";
 
 import "../../../core/components/index.dart";
 import "../../../core/theme/design_tokens.dart";
+import "../../../core/utils/ride_format.dart";
 import "driver_ride_controller.dart";
 
 /// Earnings tab: today / this week / this month, a 7-day chart, lifetime
@@ -380,17 +381,15 @@ class _TripEarningTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fare = _double(ride["final_fare"] ?? ride["estimated_fare"]);
-    final pickup = ride["pickup_address"]?.toString();
-    final dropoff = ride["dropoff_address"]?.toString();
+    final pickup = placeLabel(ride["pickup_address"]);
+    final dropoff = placeLabel(ride["dropoff_address"]);
     final distance = double.tryParse(ride["distance_km"]?.toString() ?? "");
     final completed = DateTime.tryParse(ride["completed_at"]?.toString() ?? "")?.toLocal();
     final when = completed == null
         ? ""
         : "${_months[completed.month - 1]} ${completed.day}, "
             "${completed.hour.toString().padLeft(2, "0")}:${completed.minute.toString().padLeft(2, "0")}";
-    final route = [pickup, dropoff]
-        .where((p) => p != null && p.isNotEmpty)
-        .join(" → ");
+    final route = "$pickup → $dropoff";
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
