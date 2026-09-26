@@ -101,14 +101,29 @@ async function listPassengersForAdmin() {
         u.status,
         u.profile_image_url,
         u.created_at,
-        COUNT(b.id) as total_rides,
-        AVG(r.stars) as avg_rating
+        u.is_driver_account,
+        u.driver_approval_status,
+        -- Counted in a subquery: joining bookings and ratings directly
+        -- multiplied the rows, and "total rides" included cancellations.
+        COALESCE(bs.completed_rides, 0) AS completed_rides,
+        COALESCE(bs.cancelled_rides, 0) AS cancelled_rides,
+        COALESCE(bs.total_bookings, 0) AS total_bookings,
+        COALESCE(bs.total_spent, 0) AS total_spent,
+        bs.last_booking_at
       FROM users u
-      LEFT JOIN bookings b ON b.passenger_id = u.id
-      LEFT JOIN ratings r ON r.passenger_id = u.id
+      LEFT JOIN (
+        SELECT passenger_id,
+               SUM(status = 'completed') AS completed_rides,
+               SUM(status = 'cancelled') AS cancelled_rides,
+               COUNT(*) AS total_bookings,
+               SUM(CASE WHEN status = 'completed' THEN final_fare ELSE 0 END) AS total_spent,
+               MAX(requested_at) AS last_booking_at
+          FROM bookings
+         WHERE deleted_at IS NULL
+         GROUP BY passenger_id
+      ) bs ON bs.passenger_id = u.id
       WHERE u.role = 'passenger'
         AND u.deleted_at IS NULL
-      GROUP BY u.id
       ORDER BY u.created_at DESC
     `
   );

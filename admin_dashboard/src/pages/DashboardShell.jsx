@@ -6,7 +6,7 @@ import LiveMapCard from "../components/LiveMapCard";
 import NotificationsPanel from "../components/NotificationsPanel";
 import SummaryCards from "../components/SummaryCards";
 import PageHero from "../components/PageHero";
-import { asText, formatDateTime, statusTone, formatPlace } from "../utils/admin-formatters";
+import { asText, formatDateTime, formatMoney, statusTone, formatPlace } from "../utils/admin-formatters";
 import ActivityLogsPage from "./ActivityLogsPage";
 import AnalyticsPage from "./AnalyticsPage";
 import BarangayManagerPage from "./BarangayManagerPage";
@@ -93,6 +93,8 @@ export default function DashboardShell() {
   const [sosAlerts, setSosAlerts] = useState([]);
   const [complaints, setComplaints] = useState([]);
   const [passengers, setPassengers] = useState([]);
+  const [userSearch, setUserSearch] = useState("");
+  const [userStatusFilter, setUserStatusFilter] = useState("all");
   const [driverList, setDriverList] = useState([]);
   const [fare, setFare] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
@@ -247,6 +249,13 @@ export default function DashboardShell() {
   }
 
   async function suspendPassenger(id) {
+    const user = passengers.find((p) => p.id === id);
+    const confirmed = window.confirm(
+      `Suspend ${user?.full_name || "this user"}?\n\nThey will be logged out right away and can't book rides` +
+        (user?.is_driver_account ? " or drive" : "") +
+        " until you reinstate them."
+    );
+    if (!confirmed) return;
     setOperationsBusyId(`passenger-${id}`);
     try {
       await apiClient.post(`/admin/passengers/${id}/suspend`);
@@ -259,6 +268,8 @@ export default function DashboardShell() {
   }
 
   async function reinstatePassenger(id) {
+    const user = passengers.find((p) => p.id === id);
+    if (!window.confirm(`Reinstate ${user?.full_name || "this user"}? They'll be able to log in again.`)) return;
     setOperationsBusyId(`passenger-${id}`);
     try {
       await apiClient.post(`/admin/passengers/${id}/reinstate`);
@@ -331,21 +342,54 @@ export default function DashboardShell() {
     }
 
     if (activeSectionKey === "users") {
+      const term = userSearch.trim().toLowerCase();
+      const visibleUsers = passengers.filter((row) => {
+        if (userStatusFilter !== "all" && row.status !== userStatusFilter) return false;
+        if (!term) return true;
+        return [row.full_name, row.phone, row.email].some((v) => String(v || "").toLowerCase().includes(term));
+      });
+      const suspendedCount = passengers.filter((row) => row.status === "suspended").length;
       return (
-        <SectionCard title="Passenger Accounts">
+        <SectionCard title={`User Accounts (${passengers.length})`}>
+          <div className="toolbar-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <input
+              type="search"
+              className="input"
+              placeholder="Search name, phone or email"
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              style={{ flex: "1 1 220px", minWidth: 0 }}
+            />
+            <select className="input" value={userStatusFilter} onChange={(e) => setUserStatusFilter(e.target.value)}>
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="suspended">Suspended ({suspendedCount})</option>
+            </select>
+          </div>
           <SimpleTable
-            columns={["Passenger", "Phone", "Status", "Total Rides", "Actions"]}
-            rows={passengers}
-            emptyLabel="No passengers yet."
+            columns={["User", "Phone", "Joined", "Rides", "Spent", "Status", "Actions"]}
+            rows={visibleUsers}
+            emptyLabel={passengers.length ? "No users match this search or filter." : "No users yet."}
             renderRow={(row) => {
               const isSuspended = row.status === "suspended";
               const busy = operationsBusyId === `passenger-${row.id}`;
               return (
                 <tr key={row.id}>
-                  <td>{row.full_name}</td>
-                  <td>{row.phone}</td>
+                  <td>
+                    <b>{row.full_name}</b>
+                    {row.is_driver_account ? (
+                      <span style={{ marginLeft: 6 }}><Pill value={`driver · ${row.driver_approval_status}`} /></span>
+                    ) : null}
+                    <div><small>{row.email || "-"}</small></div>
+                  </td>
+                  <td>{row.phone || "-"}</td>
+                  <td>{formatDateTime(row.created_at)}</td>
+                  <td title={`${row.total_bookings ?? 0} bookings in total`}>
+                    {row.completed_rides ?? 0} completed
+                    {Number(row.cancelled_rides) > 0 ? <div><small>{row.cancelled_rides} cancelled</small></div> : null}
+                  </td>
+                  <td>{formatMoney(row.total_spent || 0)}</td>
                   <td><Pill value={row.status} /></td>
-                  <td>{row.total_rides ?? 0}</td>
                   <td>
                     {isSuspended ? (
                       <button

@@ -228,6 +228,9 @@ async function postSuspendPassenger(req, res, next) {
   try {
     const passengerId = Number(req.params.passengerId);
     const passenger = await adminService.suspendPassenger(passengerId);
+    // Close their live connection too — sockets only check the account
+    // when they connect, and reconnecting now fails for a suspended user.
+    getIO().in(`user:${passengerId}`).disconnectSockets(true);
     res.json({ success: true, message: "Passenger suspended.", data: passenger });
   } catch (error) {
     next(error);

@@ -2,6 +2,7 @@ const bookingModel = require("../models/booking.model");
 const driverModel = require("../models/driver.model");
 const driverApplicationModel = require("../models/driver-application.model");
 const userModel = require("../models/user.model");
+const refreshTokenModel = require("../models/refresh-token.model");
 const fareModel = require("../models/fare.model");
 const complaintModel = require("../models/complaint.model");
 const notificationService = require("./notification.service");
@@ -475,7 +476,27 @@ async function listAllPassengers() {
 async function suspendPassenger(passengerId) {
   const user = await userModel.findById(passengerId);
   if (!user || user.role !== "passenger") throw new ApiError(404, "Passenger not found.");
-  return userModel.suspendUser(passengerId);
+
+  // Don't strand a ride in progress (as passenger, or as a driver on the
+  // same account).
+  const [activeRide] = await db.query(
+    `SELECT b.id FROM bookings b
+       LEFT JOIN drivers d ON d.id = b.driver_id
+      WHERE (b.passenger_id = ? OR d.user_id = ?) AND b.deleted_at IS NULL
+        AND b.status IN ('pending', 'accepted', 'assigned', 'arriving', 'ongoing', 'on_ride')
+      LIMIT 1`,
+    [passengerId, passengerId]
+  );
+  if (activeRide) {
+    throw new ApiError(409, `This user has an active ride (#${activeRide.id}). Try again after it ends.`);
+  }
+
+  const suspended = await userModel.suspendUser(passengerId);
+  // Sign them out everywhere: refresh tokens would otherwise keep renewing
+  // their session until the next API call is refused.
+  await refreshTokenModel.revokeAllByUserId(passengerId);
+  await db.query("UPDATE drivers SET is_online = 0 WHERE user_id = ?", [passengerId]);
+  return suspended;
 }
 
 async function reinstatePassenger(passengerId) {
