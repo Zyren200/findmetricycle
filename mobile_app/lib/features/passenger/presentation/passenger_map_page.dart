@@ -72,6 +72,9 @@ class _PassengerMapPageState extends State<PassengerMapPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _mapSlowTimer = Timer(const Duration(seconds: 15), () {
+      if (mounted && !_mapReady) setState(() => _mapSlow = true);
+    });
     _pulseTimer = Timer.periodic(const Duration(milliseconds: 700), (_) {
       if (!mounted) return;
       _pulsePhase = (_pulsePhase + 0.18) % 1.0;
@@ -96,6 +99,7 @@ class _PassengerMapPageState extends State<PassengerMapPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _mapSlowTimer?.cancel();
     _rideController?.removeListener(_handleRideControllerChanged);
     _pulseTimer?.cancel();
     super.dispose();
@@ -116,6 +120,54 @@ class _PassengerMapPageState extends State<PassengerMapPage>
 
   int _seenPickerRequest = 0;
   int _seenPinPrompt = 0;
+
+  /// The location message the passenger closed; it stays hidden until the
+  /// situation changes (a different message appears).
+  String? _dismissedLocationMessage;
+  bool _mapSlow = false;
+  Timer? _mapSlowTimer;
+
+  /// Compact location status for the top of the map, or null when there's
+  /// nothing to say (position known, or the passenger dismissed it).
+  Widget? _locationNotice(PassengerRideController ctrl) {
+    if (!_mapReady || ctrl.currentPosition != null) return null;
+
+    final String message;
+    String? actionLabel;
+    VoidCallback? onAction;
+    var spinner = false;
+    if (ctrl.locationPermissionDeniedForever) {
+      message = "Naka-block ang location. Payagan sa Settings.";
+      actionLabel = "Settings";
+      onAction = Geolocator.openAppSettings;
+    } else if (ctrl.isResolvingLocation) {
+      message = "Kinukuha ang lokasyon mo…";
+      spinner = true;
+    } else if (ctrl.locationServiceDisabled) {
+      message = "Naka-off ang GPS/Location.";
+      actionLabel = "I-on";
+      onAction = () async {
+        await Geolocator.openLocationSettings();
+        await ctrl.refreshCurrentLocation();
+      };
+    } else {
+      message = ctrl.locationError ?? "Hindi pa makuha ang lokasyon mo.";
+      actionLabel = "Ulitin";
+      onAction = ctrl.refreshCurrentLocation;
+    }
+
+    if (message == _dismissedLocationMessage) return null;
+    return _MapNotice(
+      message: message,
+      showSpinner: spinner,
+      icon: Icons.location_off_rounded,
+      actionLabel: actionLabel,
+      onAction: onAction,
+      onDismiss: spinner
+          ? null
+          : () => setState(() => _dismissedLocationMessage = message),
+    );
+  }
   bool _pinDialogOpen = false;
 
   /// Big, readable PIN for the passenger to show/read to the rider.
@@ -1062,6 +1114,22 @@ class _PassengerMapPageState extends State<PassengerMapPage>
                   ),
                 ],
               ),
+              // Map/location status lives up here as small notices instead
+              // of overlays: the old ones dimmed the whole page or sat on top
+              // of the ride panel and its Find Ride button.
+              if (!_mapReady) ...[
+                const SizedBox(height: 8),
+                _MapNotice(
+                  message: _mapSlow
+                      ? "Mabagal mag-load ang mapa — tingnan ang internet mo."
+                      : "Nilo-load ang mapa…",
+                  showSpinner: !_mapSlow,
+                ),
+              ],
+              if (_locationNotice(ctrl) case final notice?) ...[
+                const SizedBox(height: 8),
+                notice,
+              ],
               // Pinned over the map (not inside the draggable panel) so the
               // PIN stays visible however far the panel is collapsed.
               if (ctrl.shouldShowPickupPin) ...[
@@ -1111,129 +1179,89 @@ class _PassengerMapPageState extends State<PassengerMapPage>
             );
           },
         ),
-        if (!_mapReady)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Container(
-                color: Colors.black.withValues(alpha: 0.35),
-                alignment: Alignment.center,
-                child: const AppCard(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: DesignTokens.accent,
-                        ),
-                      ),
-                      SizedBox(width: 12),
-                      Text(
-                        "Loading OpenFreeMap...",
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: DesignTokens.text,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        if (_mapReady && currentLocation == null)
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 24,
-            // A spinner only while a lookup is actually running; otherwise
-            // always offer a way forward (settings or retry).
-            child: ctrl.locationPermissionDeniedForever
-                ? const _LocationNotice(
-                    message:
-                        "Naka-block ang location access. Payagan ito sa Settings para makita ka sa mapa.",
-                    actionLabel: "Settings",
-                    onAction: Geolocator.openAppSettings,
-                  )
-                : ctrl.isResolvingLocation
-                    ? const _LocationNotice(
-                        message: "Kinukuha ang lokasyon mo…",
-                        showSpinner: true,
-                      )
-                    : ctrl.locationServiceDisabled
-                        ? _LocationNotice(
-                            message: ctrl.locationError ??
-                                "Naka-off ang GPS/Location.",
-                            actionLabel: "I-on",
-                            onAction: () async {
-                              await Geolocator.openLocationSettings();
-                              await ctrl.refreshCurrentLocation();
-                            },
-                          )
-                        : _LocationNotice(
-                            message: ctrl.locationError ??
-                                "Hindi pa makuha ang lokasyon mo.",
-                            actionLabel: "Subukan ulit",
-                            onAction: ctrl.refreshCurrentLocation,
-                          ),
-          ),
       ],
     );
   }
 }
 
-class _LocationNotice extends StatelessWidget {
-  const _LocationNotice({
+/// Slim one-line status notice shown at the top of the map.
+class _MapNotice extends StatelessWidget {
+  const _MapNotice({
     required this.message,
+    this.icon = Icons.info_outline_rounded,
+    this.showSpinner = false,
     this.actionLabel,
     this.onAction,
-    this.showSpinner = false,
+    this.onDismiss,
   });
 
   final String message;
+  final IconData icon;
+  final bool showSpinner;
   final String? actionLabel;
   final VoidCallback? onAction;
-  final bool showSpinner;
+  final VoidCallback? onDismiss;
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      child: Row(
-        children: [
-          if (showSpinner) ...[
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: DesignTokens.accent,
+    return Material(
+      color: DesignTokens.bg2.withValues(alpha: 0.94),
+      borderRadius: BorderRadius.circular(12),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 12, right: 4),
+        child: SizedBox(
+          height: 40,
+          child: Row(
+            children: [
+              if (showSpinner)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: DesignTokens.accent,
+                  ),
+                )
+              else
+                Icon(icon, color: DesignTokens.warning, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: DesignTokens.text, fontSize: 12),
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-          ] else
-            const Icon(Icons.location_off_rounded,
-                color: DesignTokens.warning, size: 20),
-          if (!showSpinner) const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(color: DesignTokens.text, fontSize: 13),
-            ),
+              if (actionLabel != null && onAction != null)
+                TextButton(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: onAction,
+                  child: Text(
+                    actionLabel!,
+                    style: const TextStyle(
+                      color: DesignTokens.accent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              if (onDismiss != null)
+                IconButton(
+                  tooltip: "Isara",
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 16,
+                  onPressed: onDismiss,
+                  icon: const Icon(Icons.close_rounded, color: DesignTokens.muted),
+                ),
+            ],
           ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: onAction,
-              child: Text(
-                actionLabel!,
-                style: const TextStyle(color: DesignTokens.accent),
-              ),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
