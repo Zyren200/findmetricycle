@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
@@ -81,10 +82,44 @@ class AppMapController {
         symbol, ml.SymbolOptions(geometry: position, iconRotate: rotate));
   }
 
+  /// Registers a bitmap (PNG bytes) that markers can use as `iconImage`.
+  Future<void> addImage(String name, Uint8List bytes) async {
+    await _ctrl.addImage(name, bytes);
+  }
+
+  /// Markers always draw, even where they'd collide with map labels or
+  /// each other — a pickup pin must never be hidden by a street name.
+  Future<void> allowMarkerOverlap() async {
+    await _ctrl.setSymbolIconAllowOverlap(true);
+    await _ctrl.setSymbolIconIgnorePlacement(true);
+  }
+
+  /// Adds an icon marker. [anchor] is "bottom" for pins (the tip marks the
+  /// spot) and "center" for round badges.
+  Future<ml.Symbol> addMarker(ml.LatLng position, String iconImage,
+      {String anchor = "center"}) async {
+    return await _ctrl.addSymbol(ml.SymbolOptions(
+      geometry: position,
+      iconImage: iconImage,
+      iconSize: 1.0,
+      iconAnchor: anchor,
+    ));
+  }
+
+  Future<void> removeSymbols(List<ml.Symbol> symbols) async {
+    if (symbols.isEmpty) return;
+    await _ctrl.removeSymbols(symbols);
+  }
+
+  Future<void> removeSymbol(ml.Symbol symbol) async {
+    await _ctrl.removeSymbol(symbol);
+  }
+
   /// Smoothly move a symbol from its current position to [to] over [durationMs].
-  /// This uses a simple linear interpolation on a timer.
+  /// This uses a simple linear interpolation on a timer. Pass `rotate: false`
+  /// for upright icons such as pins.
   Future<void> moveSymbolSmooth(ml.Symbol symbol, ml.LatLng to,
-      {int durationMs = 800, int steps = 16}) async {
+      {int durationMs = 800, int steps = 16, bool rotate = true}) async {
     try {
       final start = symbol.options.geometry!;
       final startLat = start.latitude;
@@ -97,7 +132,8 @@ class AppMapController {
         final curLat = _lerp(startLat, endLat, t);
         final curLng = _lerp(startLng, endLng, t);
         final heading = _bearing(startLat, startLng, endLat, endLng);
-        await updateSymbol(symbol, ml.LatLng(curLat, curLng), rotate: heading);
+        await updateSymbol(symbol, ml.LatLng(curLat, curLng),
+            rotate: rotate ? heading : null);
         await Future.delayed(
             Duration(milliseconds: (durationMs / steps).round()));
       }

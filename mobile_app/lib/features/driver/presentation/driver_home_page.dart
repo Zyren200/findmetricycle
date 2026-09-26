@@ -5,6 +5,7 @@ import "package:latlong2/latlong.dart" as ll;
 import "package:maplibre_gl/maplibre_gl.dart" as ml;
 import "../../../core/config/app_config.dart";
 import "../../../core/widgets/app_map.dart";
+import "../../../core/widgets/map_marker_icons.dart";
 import "package:provider/provider.dart";
 import "../../../core/network/socket_client.dart";
 import "../../../core/theme/design_tokens.dart";
@@ -32,7 +33,11 @@ class _DriverHomePageState extends State<DriverHomePage> {
   String? _lastFitKey;
 
   final List<ml.Circle> _staticCircles = [];
+  final List<ml.Symbol> _staticSymbols = [];
+  String? _staticKey;
+  bool _iconsReady = false;
   ml.Circle? _currentLocationCircle;
+  ml.Symbol? _currentLocationSymbol;
 
   @override
   void didChangeDependencies() {
@@ -103,46 +108,48 @@ class _DriverHomePageState extends State<DriverHomePage> {
 
   Future<void> _updateStaticCircles(
       AppMapController map, DriverRideController ctrl) async {
+    final pickup = ctrl.pickupLocation;
+    final dropoff = ctrl.dropoffLocation;
+    String key(ll.LatLng? p) =>
+        p == null ? "-" : "${p.latitude.toStringAsFixed(5)},${p.longitude.toStringAsFixed(5)}";
+    final staticKey = "$_iconsReady|${key(pickup)}|${key(dropoff)}";
+    if (staticKey == _staticKey) return;
+    _staticKey = staticKey;
+
     if (_staticCircles.isNotEmpty) {
       await map.removeCircles(_staticCircles);
       _staticCircles.clear();
     }
+    if (_staticSymbols.isNotEmpty) {
+      await map.removeSymbols(List.of(_staticSymbols));
+      _staticSymbols.clear();
+    }
 
-    final pickup = ctrl.pickupLocation;
-    final dropoff = ctrl.dropoffLocation;
-    final options = <ml.CircleOptions>[];
-
-    if (pickup != null) {
-      options.add(
-        ml.CircleOptions(
-          geometry: ml.LatLng(pickup.latitude, pickup.longitude),
+    final pins = <(ll.LatLng, String, String)>[
+      if (pickup != null) (pickup, MapMarkerIcons.pickup, "#0E8C46"),
+      if (dropoff != null) (dropoff, MapMarkerIcons.dropoff, "#C94530"),
+    ];
+    for (final (point, icon, color) in pins) {
+      final target = ml.LatLng(point.latitude, point.longitude);
+      if (_iconsReady) {
+        _staticSymbols.add(await map.addMarker(target, icon, anchor: "bottom"));
+      } else {
+        _staticCircles.add(await map.addCircle(ml.CircleOptions(
+          geometry: target,
           circleRadius: 10,
-          circleColor: "#0E8C46",
+          circleColor: color,
           circleOpacity: 0.96,
           circleStrokeColor: "#FFFFFF",
           circleStrokeWidth: 2,
-        ),
-      );
-    }
-
-    if (dropoff != null) {
-      options.add(
-        ml.CircleOptions(
-          geometry: ml.LatLng(dropoff.latitude, dropoff.longitude),
-          circleRadius: 10,
-          circleColor: "#F2BE35",
-          circleOpacity: 0.96,
-          circleStrokeColor: "#FFFFFF",
-          circleStrokeWidth: 2,
-        ),
-      );
-    }
-
-    for (final option in options) {
-      final circle = await map.addCircle(option);
-      _staticCircles.add(circle);
+        )));
+      }
     }
   }
+
+  bool _moved(ml.LatLng? from, ml.LatLng to) =>
+      from == null ||
+      (from.latitude - to.latitude).abs() > 0.00001 ||
+      (from.longitude - to.longitude).abs() > 0.00001;
 
   Future<void> _updateCurrentLocationCircle(
       AppMapController map, DriverRideController ctrl) async {
@@ -152,25 +159,39 @@ class _DriverHomePageState extends State<DriverHomePage> {
         await map.removeCircle(_currentLocationCircle!);
         _currentLocationCircle = null;
       }
+      if (_currentLocationSymbol != null) {
+        await map.removeSymbol(_currentLocationSymbol!);
+        _currentLocationSymbol = null;
+      }
       return;
     }
 
     final target = ml.LatLng(position.latitude, position.longitude);
-    if (_currentLocationCircle != null) {
-      await map.moveCircleSmooth(
-          _currentLocationCircle!, target,
-          durationMs: 500, steps: 12);
-    } else {
+    final halo = _currentLocationCircle;
+    if (halo == null) {
       _currentLocationCircle = await map.addCircle(
         ml.CircleOptions(
           geometry: target,
-          circleRadius: 10,
+          circleRadius: _iconsReady ? 24 : 10,
           circleColor: "#1471C5",
-          circleOpacity: 0.98,
+          // Solid dot only when the rider icon isn't available.
+          circleOpacity: _iconsReady ? 0.15 : 0.98,
           circleStrokeColor: "#FFFFFF",
-          circleStrokeWidth: 2,
+          circleStrokeWidth: _iconsReady ? 1.5 : 2,
         ),
       );
+    } else if (_moved(halo.options.geometry, target)) {
+      await map.moveCircleSmooth(halo, target, durationMs: 500, steps: 12);
+    }
+
+    if (_iconsReady) {
+      final badge = _currentLocationSymbol;
+      if (badge == null) {
+        _currentLocationSymbol = await map.addMarker(target, MapMarkerIcons.self);
+      } else if (_moved(badge.options.geometry, target)) {
+        await map.moveSymbolSmooth(badge, target,
+            durationMs: 500, steps: 12, rotate: false);
+      }
     }
   }
 
@@ -264,7 +285,18 @@ class _DriverHomePageState extends State<DriverHomePage> {
               _mapReady = true;
               _applyMapData();
             },
-            onStyleLoaded: () {
+            onStyleLoaded: () async {
+              final map = _mapController;
+              final pixelRatio = MediaQuery.of(context).devicePixelRatio;
+              if (map != null) {
+                try {
+                  await MapMarkerIcons.register(map, pixelRatio);
+                  _iconsReady = true;
+                } catch (_) {
+                  _iconsReady = false; // plain circles instead
+                }
+              }
+              _staticKey = null;
               _mapReady = true;
               _applyMapData();
             },

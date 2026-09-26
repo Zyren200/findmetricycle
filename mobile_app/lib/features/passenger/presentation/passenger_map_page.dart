@@ -6,6 +6,7 @@ import "package:geolocator/geolocator.dart";
 import "package:latlong2/latlong.dart" as ll;
 import "package:maplibre_gl/maplibre_gl.dart" as ml;
 import "../../../core/widgets/app_map.dart";
+import "../../../core/widgets/map_marker_icons.dart";
 import "package:provider/provider.dart";
 import "../../../core/components/index.dart";
 import "../../../core/network/api_client.dart";
@@ -55,18 +56,22 @@ class _PassengerMapPageState extends State<PassengerMapPage>
   PassengerRideController? _rideController;
   AppMapController? _mapController;
 
-  Timer? _pulseTimer;
   bool _mapReady = false;
   bool _syncQueued = false;
   bool _syncInProgress = false;
   bool _syncPending = false;
   bool _hasCenteredOnUser = false;
-  double _pulsePhase = 0;
   String? _lastFitKey;
 
   final List<ml.Circle> _staticCircles = [];
-  ml.Circle? _currentLocationCircle;
-  ml.Circle? _assignedDriverCircle;
+  final List<ml.Symbol> _staticSymbols = [];
+  // Signature of what the static layer (route, pins, riders) last drew, so
+  // it's only rebuilt when something actually changed.
+  String? _staticKey;
+  bool _iconsReady = false;
+  ml.Circle? _currentLocationCircle; // soft halo under the "you" pin
+  ml.Symbol? _currentLocationSymbol;
+  ml.Symbol? _assignedDriverSymbol;
 
   @override
   void initState() {
@@ -74,11 +79,6 @@ class _PassengerMapPageState extends State<PassengerMapPage>
     WidgetsBinding.instance.addObserver(this);
     _mapSlowTimer = Timer(const Duration(seconds: 15), () {
       if (mounted && !_mapReady) setState(() => _mapSlow = true);
-    });
-    _pulseTimer = Timer.periodic(const Duration(milliseconds: 700), (_) {
-      if (!mounted) return;
-      _pulsePhase = (_pulsePhase + 0.18) % 1.0;
-      _requestSync();
     });
   }
 
@@ -101,7 +101,6 @@ class _PassengerMapPageState extends State<PassengerMapPage>
     WidgetsBinding.instance.removeObserver(this);
     _mapSlowTimer?.cancel();
     _rideController?.removeListener(_handleRideControllerChanged);
-    _pulseTimer?.cancel();
     super.dispose();
   }
 
@@ -255,9 +254,23 @@ class _PassengerMapPageState extends State<PassengerMapPage>
     _requestSync();
   }
 
-  void _handleStyleLoaded() {
+  Future<void> _handleStyleLoaded() async {
     if (!mounted) return;
 
+    final map = _mapController;
+    final pixelRatio = MediaQuery.of(context).devicePixelRatio;
+    if (map != null) {
+      try {
+        await MapMarkerIcons.register(map, pixelRatio);
+        _iconsReady = true;
+      } catch (_) {
+        // Fall back to plain circles if the icons can't be registered.
+        _iconsReady = false;
+      }
+    }
+    if (!mounted) return;
+
+    _staticKey = null;
     setState(() {
       _mapReady = true;
     });
@@ -291,18 +304,29 @@ class _PassengerMapPageState extends State<PassengerMapPage>
         _syncPending = false;
         final batch = _buildAnnotationBatch(controller);
 
-        if (_staticCircles.isNotEmpty) {
-          await map.removeCircles(_staticCircles);
-          _staticCircles.clear();
-        }
-        await map.clearLines();
+        if (batch.staticKey != _staticKey) {
+          _staticKey = batch.staticKey;
+          if (_staticCircles.isNotEmpty) {
+            await map.removeCircles(_staticCircles);
+            _staticCircles.clear();
+          }
+          if (_staticSymbols.isNotEmpty) {
+            await map.removeSymbols(List.of(_staticSymbols));
+            _staticSymbols.clear();
+          }
+          await map.clearLines();
 
-        if (batch.lines.isNotEmpty) {
-          await map.addLines(batch.lines);
-        }
-        for (final option in batch.circles) {
-          final circle = await map.addCircle(option);
-          _staticCircles.add(circle);
+          if (batch.lines.isNotEmpty) {
+            await map.addLines(batch.lines);
+          }
+          for (final option in batch.circles) {
+            _staticCircles.add(await map.addCircle(option));
+          }
+          for (final marker in batch.markers) {
+            _staticSymbols.add(
+              await map.addMarker(marker.point, marker.icon, anchor: marker.anchor),
+            );
+          }
         }
 
         await _updateDynamicCircles(controller);
@@ -393,127 +417,69 @@ class _PassengerMapPageState extends State<PassengerMapPage>
       );
     }
 
-    if (pickup != null) {
-      circles.add(
-        ml.CircleOptions(
-          geometry: pickup,
-          circleRadius: 10,
-          circleColor: _pickupColorToHex(),
-          circleOpacity: 0.96,
-          circleStrokeColor: "#FFFFFF",
-          circleStrokeWidth: 2,
-        ),
-      );
+    final markers = <_MapMarker>[];
+    // The blue "you" pin already marks the pickup when it's where you
+    // stand — only add the green pickup pin when it's somewhere else.
+    final pickupIsHere = pickup != null &&
+        currentLocation != null &&
+        haversineKm(
+              lat1: pickup.latitude,
+              lng1: pickup.longitude,
+              lat2: currentLocation.latitude,
+              lng2: currentLocation.longitude,
+            ) <
+            0.025;
+    if (pickup != null && !pickupIsHere) {
+      markers.add(_MapMarker(pickup, MapMarkerIcons.pickup, "bottom", _pickupColorToHex()));
     }
-
     if (dropoff != null) {
-      circles.add(
-        ml.CircleOptions(
-          geometry: dropoff,
-          circleRadius: 10,
-          circleColor: _dropoffColorToHex(),
-          circleOpacity: 0.96,
-          circleStrokeColor: "#FFFFFF",
-          circleStrokeWidth: 2,
-        ),
-      );
+      markers.add(_MapMarker(dropoff, MapMarkerIcons.dropoff, "bottom", _dropoffColorToHex()));
     }
-
-    if (assignedDriver != null) {
-      // dynamic assigned driver marker updated separately.
-      addFitPoint(assignedDriver);
-    }
-
-    if (currentLocation != null) {
-      // current location marker is updated separately.
-      addFitPoint(currentLocation);
-    }
-
     for (final driver in driverMarkers) {
-      if (driver.tone == "assigned") {
-        continue;
-      }
-
-      circles.add(
-        ml.CircleOptions(
-          geometry: driver.point,
-          circleRadius: driver.tone == "nearby" ? 8.5 : 7.5,
-          circleColor: driver.tone == "nearby"
-              ? _nearbyDriverColorToHex()
-              : _liveDriverColorToHex(),
-          circleOpacity: 0.92,
-          circleStrokeColor: "#FFFFFF",
-          circleStrokeWidth: 2,
-        ),
-      );
+      if (driver.tone == "assigned") continue; // drawn by _updateDynamicMarkers
+      markers.add(_MapMarker(
+        driver.point,
+        MapMarkerIcons.rider,
+        "center",
+        driver.tone == "nearby" ? _nearbyDriverColorToHex() : _liveDriverColorToHex(),
+      ));
     }
 
-    if (pickup != null) {
-      circles.add(
-        ml.CircleOptions(
-          geometry: pickup,
-          circleRadius: 10,
-          circleColor: _pickupColorToHex(),
+    if (!_iconsReady) {
+      // Icons unavailable: plain coloured circles as before.
+      for (final marker in markers) {
+        circles.add(ml.CircleOptions(
+          geometry: marker.point,
+          circleRadius: 9,
+          circleColor: marker.fallbackColor,
           circleOpacity: 0.96,
           circleStrokeColor: "#FFFFFF",
           circleStrokeWidth: 2,
-        ),
-      );
-    }
-
-    if (dropoff != null) {
-      circles.add(
-        ml.CircleOptions(
-          geometry: dropoff,
-          circleRadius: 10,
-          circleColor: _dropoffColorToHex(),
-          circleOpacity: 0.96,
-          circleStrokeColor: "#FFFFFF",
-          circleStrokeWidth: 2,
-        ),
-      );
-    }
-
-    if (assignedDriver != null) {
-      _addPulsingMarker(
-        circles,
-        assignedDriver,
-        pulseColor: _assignedDriverColorToHex(),
-        dotColor: _assignedDriverColorToHex(),
-        baseRadius: 9,
-        pulseRadius: 18 + (_pulsePhase * 6),
-        pulseOpacity: 0.16,
-        pulseWidth: 2,
-      );
-    }
-
-    for (final driver in driverMarkers) {
-      if (driver.tone == "assigned") {
-        continue;
+        ));
       }
-
-      circles.add(
-        ml.CircleOptions(
-          geometry: driver.point,
-          circleRadius: driver.tone == "nearby" ? 8.5 : 7.5,
-          circleColor: driver.tone == "nearby"
-              ? _nearbyDriverColorToHex()
-              : _liveDriverColorToHex(),
-          circleOpacity: 0.92,
-          circleStrokeColor: "#FFFFFF",
-          circleStrokeWidth: 2,
-        ),
-      );
+      markers.clear();
     }
+
+    String pointKey(ml.LatLng p) =>
+        "${p.latitude.toStringAsFixed(5)},${p.longitude.toStringAsFixed(5)}";
+    final staticKey = [
+      _iconsReady,
+      for (final line in lines)
+        "${line.geometry?.length}:${line.geometry?.isNotEmpty == true ? pointKey(line.geometry!.first) + pointKey(line.geometry!.last) : ""}",
+      for (final m in markers) "${m.icon}@${pointKey(m.point)}",
+      for (final c in circles) "c@${pointKey(c.geometry!)}",
+    ].join("|");
 
     final bounds = _buildBounds(fitPoints);
     final fitKey = _buildFitKey(controller, driverMarkers);
 
     return _AnnotationBatch(
       circles: circles,
+      markers: markers,
       lines: lines,
       bounds: bounds,
       fitKey: fitKey,
+      staticKey: staticKey,
     );
   }
 
@@ -590,6 +556,11 @@ class _PassengerMapPageState extends State<PassengerMapPage>
     return markers;
   }
 
+  bool _moved(ml.LatLng? from, ml.LatLng to) =>
+      from == null ||
+      (from.latitude - to.latitude).abs() > 0.00001 ||
+      (from.longitude - to.longitude).abs() > 0.00001;
+
   Future<void> _updateDynamicCircles(PassengerRideController controller) async {
     final map = _mapController;
     if (map == null) return;
@@ -597,64 +568,58 @@ class _PassengerMapPageState extends State<PassengerMapPage>
     final currentLocation = _toMapLibre(controller.currentPosition);
     final assignedDriver = _toMapLibre(controller.driverPosition);
 
+    // "You are here": a soft halo with the blue location pin on top.
     if (currentLocation != null) {
+      final halo = _currentLocationCircle;
+      if (halo == null) {
+        _currentLocationCircle = await map.addCircle(ml.CircleOptions(
+          geometry: currentLocation,
+          circleRadius: 16,
+          circleColor: _currentColorToHex(),
+          // Solid dot only when the pin icon isn't available.
+          circleOpacity: _iconsReady ? 0.18 : 0.9,
+          circleStrokeColor: "#FFFFFF",
+          circleStrokeWidth: 1.5,
+        ));
+      } else if (_moved(halo.options.geometry, currentLocation)) {
+        await map.moveCircleSmooth(halo, currentLocation, durationMs: 500, steps: 12);
+      }
+
+      if (_iconsReady) {
+        final pin = _currentLocationSymbol;
+        if (pin == null) {
+          _currentLocationSymbol =
+              await map.addMarker(currentLocation, MapMarkerIcons.me, anchor: "bottom");
+        } else if (_moved(pin.options.geometry, currentLocation)) {
+          await map.moveSymbolSmooth(pin, currentLocation,
+              durationMs: 500, steps: 12, rotate: false);
+        }
+      }
+    } else {
       if (_currentLocationCircle != null) {
-        await map.moveCircleSmooth(_currentLocationCircle!, currentLocation,
-            durationMs: 500, steps: 12);
-      } else {
-        _currentLocationCircle = await map.addCircle(_pulsingCircleOption(
-          currentLocation,
-          pulseColor: _currentColorToHex(),
-          dotColor: _currentColorToHex(),
-          baseRadius: 8,
-          pulseRadius: 16 + (_pulsePhase * 5),
-          pulseOpacity: 0.18,
-          pulseWidth: 2,
-        ));
+        await map.removeCircle(_currentLocationCircle!);
+        _currentLocationCircle = null;
       }
-    } else if (_currentLocationCircle != null) {
-      await map.removeCircle(_currentLocationCircle!);
-      _currentLocationCircle = null;
+      if (_currentLocationSymbol != null) {
+        await map.removeSymbol(_currentLocationSymbol!);
+        _currentLocationSymbol = null;
+      }
     }
 
-    if (assignedDriver != null) {
-      if (_assignedDriverCircle != null) {
-        await map.moveCircleSmooth(_assignedDriverCircle!, assignedDriver,
-            durationMs: 500, steps: 12);
-      } else {
-        _assignedDriverCircle = await map.addCircle(_pulsingCircleOption(
-          assignedDriver,
-          pulseColor: _assignedDriverColorToHex(),
-          dotColor: _assignedDriverColorToHex(),
-          baseRadius: 9,
-          pulseRadius: 18 + (_pulsePhase * 6),
-          pulseOpacity: 0.16,
-          pulseWidth: 2,
-        ));
+    // The rider on their way to you.
+    if (assignedDriver != null && _iconsReady) {
+      final rider = _assignedDriverSymbol;
+      if (rider == null) {
+        _assignedDriverSymbol =
+            await map.addMarker(assignedDriver, MapMarkerIcons.assignedRider);
+      } else if (_moved(rider.options.geometry, assignedDriver)) {
+        await map.moveSymbolSmooth(rider, assignedDriver,
+            durationMs: 500, steps: 12, rotate: false);
       }
-    } else if (_assignedDriverCircle != null) {
-      await map.removeCircle(_assignedDriverCircle!);
-      _assignedDriverCircle = null;
+    } else if (_assignedDriverSymbol != null) {
+      await map.removeSymbol(_assignedDriverSymbol!);
+      _assignedDriverSymbol = null;
     }
-  }
-
-  ml.CircleOptions _pulsingCircleOption(
-    ml.LatLng point, {
-    required String pulseColor,
-    required String dotColor,
-    required double baseRadius,
-    required double pulseRadius,
-    required double pulseOpacity,
-    required double pulseWidth,
-  }) {
-    return ml.CircleOptions(
-      geometry: point,
-      circleRadius: pulseRadius,
-      circleColor: pulseColor,
-      circleOpacity: pulseOpacity,
-      circleStrokeColor: "#FFFFFF",
-      circleStrokeWidth: pulseWidth,
-    );
   }
 
   ml.LatLngBounds? _buildBounds(List<ml.LatLng> points) {
@@ -707,38 +672,6 @@ class _PassengerMapPageState extends State<PassengerMapPage>
 
     buffer.write(driverIds.join(","));
     return buffer.toString();
-  }
-
-  void _addPulsingMarker(
-    List<ml.CircleOptions> circles,
-    ml.LatLng point, {
-    required String pulseColor,
-    required String dotColor,
-    required double baseRadius,
-    required double pulseRadius,
-    required double pulseOpacity,
-    required double pulseWidth,
-  }) {
-    circles.add(
-      ml.CircleOptions(
-        geometry: point,
-        circleRadius: pulseRadius,
-        circleColor: pulseColor,
-        circleOpacity: pulseOpacity,
-        circleStrokeColor: "#FFFFFF",
-        circleStrokeWidth: pulseWidth,
-      ),
-    );
-    circles.add(
-      ml.CircleOptions(
-        geometry: point,
-        circleRadius: baseRadius,
-        circleColor: dotColor,
-        circleOpacity: 0.98,
-        circleStrokeColor: "#FFFFFF",
-        circleStrokeWidth: 2,
-      ),
-    );
   }
 
   String _driverLabel(Map<String, dynamic>? driver,
@@ -2003,15 +1936,29 @@ class _RouteRow extends StatelessWidget {
 class _AnnotationBatch {
   const _AnnotationBatch({
     required this.circles,
+    required this.markers,
     required this.lines,
     required this.bounds,
     required this.fitKey,
+    required this.staticKey,
   });
 
   final List<ml.CircleOptions> circles;
+  final List<_MapMarker> markers;
   final List<ml.LineOptions> lines;
   final ml.LatLngBounds? bounds;
   final String fitKey;
+  final String staticKey;
+}
+
+/// An icon marker on the map ([icon] is a MapMarkerIcons name).
+class _MapMarker {
+  const _MapMarker(this.point, this.icon, this.anchor, this.fallbackColor);
+
+  final ml.LatLng point;
+  final String icon;
+  final String anchor;
+  final String fallbackColor;
 }
 
 class _DriverMarker {
@@ -2035,7 +1982,6 @@ String _dropoffColorToHex() => "#C94530";
 String _currentColorToHex() => "#1471C5";
 String _liveDriverColorToHex() => "#0A7BD4";
 String _nearbyDriverColorToHex() => "#136F3A";
-String _assignedDriverColorToHex() => "#F0B429";
 String _routeColorToHex() => "#0E8C46";
 String _driverRouteColorToHex() => "#205C37";
 
