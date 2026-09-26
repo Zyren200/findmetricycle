@@ -22,6 +22,17 @@ class DriverRideController extends ChangeNotifier {
   String? error;
   String? approvalMessage;
 
+  /// Status that came with [approvalMessage] ("approved", "rejected",
+  /// "needs_correction") so the banner can be titled/coloured to match —
+  /// it used to say "Pending Approval" even for an approval.
+  String? approvalStatus;
+
+  void dismissApprovalMessage() {
+    approvalMessage = null;
+    approvalStatus = null;
+    notifyListeners();
+  }
+
   // Device/network status shown as GPS / Internet / Location Sharing pills
   // on the driver home screen, and enforced before allowing Online.
   bool gpsEnabled = false;
@@ -98,22 +109,25 @@ class DriverRideController extends ChangeNotifier {
     error = null;
     notifyListeners();
 
-    try {
-      await _resolveCurrentLocation();
-      _bindSocketEvents();
-      await _refreshDeviceStatus();
-      _startStatusPolling();
-      await Future.wait([
-        refreshEarnings(notify: false),
-        refreshProfile(notify: false),
-        refreshPerformance(notify: false),
-      ]);
-    } catch (e) {
-      error = e.toString().replaceFirst("Exception: ", "");
-    } finally {
-      isInitializing = false;
-      notifyListeners();
-    }
+    // Bind socket listeners before anything that can fail (GPS), or a
+    // location error would leave the rider deaf to ride requests and
+    // approval updates for the whole session.
+    _bindSocketEvents();
+    _startStatusPolling();
+    // Profile (incl. approval status), earnings and stats come from the
+    // server and must load even when GPS fails — otherwise an approved
+    // rider was shown "Pending Approval" just because there was no fix.
+    await Future.wait([
+      refreshEarnings(notify: false),
+      refreshProfile(notify: false),
+      refreshPerformance(notify: false),
+      _refreshDeviceStatus(),
+      _resolveCurrentLocation().catchError((Object e) {
+        error = e.toString().replaceFirst("Exception: ", "");
+      }),
+    ]);
+    isInitializing = false;
+    notifyListeners();
   }
 
   void _startStatusPolling() {
@@ -268,8 +282,15 @@ class DriverRideController extends ChangeNotifier {
 
     _approvalSub ??= _socketClient.on("driver:approval_status").listen((event) {
       final payload = _toMap(event);
-      approvalMessage = payload["message"]?.toString();
+      approvalStatus = payload["status"]?.toString();
+      final detail = payload["reason"]?.toString() ?? payload["note"]?.toString();
+      approvalMessage = [
+        payload["message"]?.toString(),
+        if (detail != null && detail.isNotEmpty) detail,
+      ].whereType<String>().join(" ");
       notifyListeners();
+      // Pull the new approval state into the profile right away.
+      refreshProfile();
     });
 
     _paymentReceivedSub ??=

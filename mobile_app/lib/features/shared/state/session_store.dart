@@ -1,3 +1,4 @@
+import "dart:async";
 import "package:dio/dio.dart";
 import "package:flutter/foundation.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
@@ -132,6 +133,59 @@ class SessionStore extends ChangeNotifier {
     _isLoading = false;
     _isInitialized = true;
     notifyListeners();
+
+    // The driver-approval fields above were cached at login; an admin may
+    // have approved (or suspended) the account since. Refresh them.
+    if (_session != null) unawaited(refreshDriverAccess());
+  }
+
+  /// Re-reads the account's driver flags from the server so an approval
+  /// done by the admin shows up without logging out and back in.
+  Future<void> refreshDriverAccess() async {
+    final session = _session;
+    final storage = _storage;
+    if (session == null || _apiClient == null) return;
+    try {
+      final response = await _apiClient!.get("/auth/me");
+      if (response["success"] != true) return;
+      final me = response["data"] as Map<String, dynamic>? ?? {};
+      final isDriverAccount = me["isDriverAccount"] == true ||
+          me["is_driver_account"] == true ||
+          me["is_driver_account"] == 1;
+      final approval = (me["driverApprovalStatus"] ??
+              me["driver_approval_status"] ??
+              session.driverApprovalStatus)
+          .toString();
+      if (isDriverAccount == session.isDriverAccount &&
+          approval == session.driverApprovalStatus) {
+        return;
+      }
+
+      var activeRole = session.activeRole;
+      final eligible = session.role == "driver" ||
+          (isDriverAccount && approval == "approved");
+      if (activeRole == "driver" && !eligible) activeRole = "passenger";
+
+      _session = UserSession(
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+        userId: session.userId,
+        fullName: session.fullName,
+        phone: session.phone,
+        role: session.role,
+        activeRole: activeRole,
+        isDriverAccount: isDriverAccount,
+        driverApprovalStatus: approval,
+      );
+      if (storage != null) {
+        await storage.write(key: _isDriverAccountKey, value: isDriverAccount ? "1" : "0");
+        await storage.write(key: _driverApprovalStatusKey, value: approval);
+        await storage.write(key: _activeRoleKey, value: activeRole);
+      }
+      notifyListeners();
+    } catch (_) {
+      // Offline — keep the cached values and try again next launch.
+    }
   }
 
   Future<bool> login({

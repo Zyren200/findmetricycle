@@ -391,9 +391,19 @@ class _DriverTopCards extends StatelessWidget {
         if (controller.approvalMessage != null) ...[
           const SizedBox(height: 10),
           _BannerCard(
-            title: "Pending Approval",
+            title: switch (controller.approvalStatus) {
+              "approved" => "Approved ka na!",
+              "rejected" => "Hindi naaprubahan",
+              "needs_correction" => "Kailangang ayusin ang dokumento",
+              _ => "Driver Account",
+            },
             message: controller.approvalMessage!,
-            tone: "warning",
+            tone: switch (controller.approvalStatus) {
+              "approved" => "success",
+              "rejected" => "error",
+              _ => "warning",
+            },
+            onClose: controller.dismissApprovalMessage,
           ),
         ],
         if (controller.error != null) ...[
@@ -1000,15 +1010,21 @@ class _BannerCard extends StatelessWidget {
     required this.title,
     required this.message,
     required this.tone,
+    this.onClose,
   });
 
   final String title;
   final String message;
   final String tone;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
-    final color = tone == "error" ? DesignTokens.red : DesignTokens.driverAccent;
+    final color = switch (tone) {
+      "error" => DesignTokens.red,
+      "success" => DesignTokens.green,
+      _ => DesignTokens.driverAccent,
+    };
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1019,9 +1035,21 @@ class _BannerCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w800),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              if (onClose != null)
+                InkWell(
+                  onTap: onClose,
+                  child: const Icon(Icons.close_rounded,
+                      size: 18, color: DesignTokens.muted),
+                ),
+            ],
           ),
           const SizedBox(height: 4),
           Text(message),

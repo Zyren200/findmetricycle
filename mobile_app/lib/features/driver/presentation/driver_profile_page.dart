@@ -99,6 +99,25 @@ class _DriverProfilePageState extends State<DriverProfilePage> {
     final email = _text(profile["email"]) ?? "-";
     final tricycleNumber = _text(profile["tricycle_number"]) ?? "-";
     final approvalStatus = _text(profile["approval_status"]) ?? "unknown";
+    final (String, String)? approvalNotice = switch (approvalStatus.toLowerCase()) {
+      "pending" => (
+          "Pending Approval",
+          "Sinusuri pa ng admin ang account mo. Aabisuhan ka kapag naaprubahan na.",
+        ),
+      "suspended" => (
+          "Suspended",
+          "Naka-suspend ang driver account mo. Makipag-ugnayan sa admin.",
+        ),
+      "license_expired" => (
+          "Expired na ang lisensya",
+          "I-update ang lisensya mo para makapag-online ulit.",
+        ),
+      "rejected" => (
+          "Hindi naaprubahan",
+          "Hindi naaprubahan ang application mo. Maaari kang mag-apply ulit.",
+        ),
+      _ => null,
+    };
     final totalRides =
         _text(summary["total_rides"] ?? profile["total_rides"]) ?? "0";
     final totalEarnings =
@@ -317,7 +336,10 @@ class _DriverProfilePageState extends State<DriverProfilePage> {
                 ],
               ),
               const SizedBox(height: 10),
-              if (approvalStatus.toLowerCase() != "approved")
+              // Only for a real, loaded non-approved status — "unknown" just
+              // means the profile hasn't loaded yet, and used to show
+              // "Pending Approval" to drivers who were already approved.
+              if (approvalNotice != null)
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
@@ -329,7 +351,7 @@ class _DriverProfilePageState extends State<DriverProfilePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "Pending Approval",
+                        approvalNotice.$1,
                         style: Theme.of(context)
                             .textTheme
                             .titleMedium
@@ -337,7 +359,7 @@ class _DriverProfilePageState extends State<DriverProfilePage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        "Your account is under review. You will be notified once approved.",
+                        approvalNotice.$2,
                         style: Theme.of(context)
                             .textTheme
                             .bodySmall
@@ -346,7 +368,7 @@ class _DriverProfilePageState extends State<DriverProfilePage> {
                     ],
                   ),
                 ),
-              if (approvalStatus.toLowerCase() != "approved")
+              if (approvalNotice != null)
                 const SizedBox(height: DesignTokens.spacing16),
               if (ctrl.error != null && ctrl.driverProfile == null)
                 Container(
@@ -475,7 +497,9 @@ class _DocumentStatusRow extends StatelessWidget {
       "valid" => ("VALID", DesignTokens.green),
       "expiring_soon" => ("EXPIRING SOON", DesignTokens.warning),
       "expired" => ("EXPIRED", DesignTokens.red),
-      _ => ("PENDING REVIEW", DesignTokens.muted),
+      // No expiry date on file — not a review state; the account can be
+      // fully approved with this.
+      _ => ("WALANG EXPIRY", DesignTokens.muted),
     };
 
     return Container(
