@@ -56,26 +56,79 @@ class PassengerRideController extends ChangeNotifier {
   bool isSubmittingRide = false;
   bool isCompletingAction = false;
 
+  static const int _historyPageSize = 20;
+
   bool isLoadingHistory = false;
+  bool isLoadingMoreHistory = false;
+  bool historyHasMore = false;
   String? historyError;
   List<Map<String, dynamic>> bookingHistory = [];
 
+  /// Totals across all rides (not just the loaded page): total, completed,
+  /// cancelled, totalSpent.
+  Map<String, dynamic> historyStats = {};
+
+  /// Reloads the first page. The current list stays on screen while it
+  /// loads, so a refresh doesn't blank the page.
   Future<void> loadBookingHistory() async {
+    if (isLoadingHistory) return;
     isLoadingHistory = true;
     historyError = null;
     notifyListeners();
 
     try {
-      final response = await _repository.getBookingHistory();
-      final data = response["data"] as List?;
-      bookingHistory =
-          (data ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final response = await _repository.getBookingHistory(limit: _historyPageSize);
+      if (response["success"] != true) {
+        throw Exception(response["message"]?.toString());
+      }
+      bookingHistory = _toRideList(response["data"]);
+      _applyHistoryMeta(response["meta"]);
     } catch (e) {
-      historyError = "Failed to load ride history.";
+      historyError = "Hindi ma-load ang ride history. Subukan ulit.";
     } finally {
       isLoadingHistory = false;
       notifyListeners();
     }
+  }
+
+  Future<void> loadMoreHistory() async {
+    if (isLoadingMoreHistory || isLoadingHistory || !historyHasMore) return;
+    isLoadingMoreHistory = true;
+    notifyListeners();
+    try {
+      final response = await _repository.getBookingHistory(
+        limit: _historyPageSize,
+        offset: bookingHistory.length,
+      );
+      if (response["success"] == true) {
+        final seen = bookingHistory.map((r) => r["id"]).toSet();
+        bookingHistory = [
+          ...bookingHistory,
+          ..._toRideList(response["data"]).where((r) => !seen.contains(r["id"])),
+        ];
+        _applyHistoryMeta(response["meta"]);
+      }
+    } catch (_) {
+      // Keep what's loaded; the button stays so they can try again.
+    } finally {
+      isLoadingMoreHistory = false;
+      notifyListeners();
+    }
+  }
+
+  /// The API caps addresses at 255 characters.
+  String _fitAddress(String address) {
+    final trimmed = address.trim();
+    return trimmed.length > 250 ? trimmed.substring(0, 250) : trimmed;
+  }
+
+  List<Map<String, dynamic>> _toRideList(dynamic raw) =>
+      (raw is List ? raw : const []).map((e) => _toMap(e)).toList();
+
+  void _applyHistoryMeta(dynamic raw) {
+    final meta = _toMap(raw);
+    historyStats = meta;
+    historyHasMore = meta["hasMore"] == true;
   }
 
   ll.LatLng? currentPosition;
@@ -642,10 +695,14 @@ class PassengerRideController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final pickupLabel =
-          "${pickup!.latitude.toStringAsFixed(5)}, ${pickup!.longitude.toStringAsFixed(5)}";
-      final dropoffLabel =
-          "${dropoff!.latitude.toStringAsFixed(5)}, ${dropoff!.longitude.toStringAsFixed(5)}";
+      // The reverse-geocoded / searched place names, so ride history shows
+      // real places instead of raw coordinates (the fallback).
+      final pickupLabel = (pickupAddress?.trim().isNotEmpty ?? false)
+          ? _fitAddress(pickupAddress!)
+          : "${pickup!.latitude.toStringAsFixed(5)}, ${pickup!.longitude.toStringAsFixed(5)}";
+      final dropoffLabel = (dropoffAddress?.trim().isNotEmpty ?? false)
+          ? _fitAddress(dropoffAddress!)
+          : "${dropoff!.latitude.toStringAsFixed(5)}, ${dropoff!.longitude.toStringAsFixed(5)}";
       final response = await _repository.findRide(
         pickupAddress: pickupLabel,
         pickupLat: pickup!.latitude,

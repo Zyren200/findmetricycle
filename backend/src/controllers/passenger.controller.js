@@ -160,11 +160,17 @@ async function getNearbyDrivers(req, res, next) {
 
 async function getBookingHistory(req, res, next) {
   try {
-    const limit = req.query.limit ? Number(req.query.limit) : 50;
-    const rides = await bookingModel.listByPassenger(req.user.id, limit);
+    // Clamp paging input — it goes straight into LIMIT/OFFSET.
+    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 1), 100);
+    const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0);
+    const [rides, stats] = await Promise.all([
+      bookingModel.listByPassenger(req.user.id, limit, offset),
+      bookingModel.getPassengerRideStats(req.user.id),
+    ]);
     res.json({
       success: true,
       data: rides,
+      meta: { ...stats, limit, offset, hasMore: offset + rides.length < stats.total },
     });
   } catch (error) {
     next(error);

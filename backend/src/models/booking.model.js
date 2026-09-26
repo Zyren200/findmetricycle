@@ -423,7 +423,7 @@ async function listCompletedByDriver(driverId, limit = 50) {
   );
 }
 
-async function listByPassenger(passengerId, limit = 50) {
+async function listByPassenger(passengerId, limit = 50, offset = 0) {
   return db.query(
     `
       SELECT
@@ -442,6 +442,9 @@ async function listByPassenger(passengerId, limit = 50) {
         b.accepted_at,
         b.started_at,
         b.completed_at,
+        b.cancelled_at,
+        b.cancelled_by,
+        b.passenger_count,
         u.full_name AS driver_name,
         d.tricycle_number,
         r.stars AS rating,
@@ -453,10 +456,33 @@ async function listByPassenger(passengerId, limit = 50) {
       WHERE b.passenger_id = ?
         AND b.deleted_at IS NULL
       ORDER BY b.requested_at DESC, b.id DESC
-      LIMIT ?
+      LIMIT ? OFFSET ?
     `,
-    [passengerId, limit]
+    [passengerId, limit, offset]
   );
+}
+
+// Totals for the passenger's history header — computed over every ride,
+// not just the page currently loaded.
+async function getPassengerRideStats(passengerId) {
+  const [row] = await db.query(
+    `
+      SELECT
+        COUNT(*) AS total,
+        COALESCE(SUM(status = 'completed'), 0) AS completed,
+        COALESCE(SUM(status = 'cancelled'), 0) AS cancelled,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN final_fare END), 0) AS total_spent
+      FROM bookings
+      WHERE passenger_id = ? AND deleted_at IS NULL
+    `,
+    [passengerId]
+  );
+  return {
+    total: Number(row.total || 0),
+    completed: Number(row.completed || 0),
+    cancelled: Number(row.cancelled || 0),
+    totalSpent: Number(Number(row.total_spent || 0).toFixed(2)),
+  };
 }
 
 async function getDashboardCounts() {
@@ -541,6 +567,7 @@ module.exports = {
   listRideHistory,
   listCompletedByDriver,
   listByPassenger,
+  getPassengerRideStats,
   getDashboardCounts,
   getRideActivity,
   listDriverIdsWithActiveRide,

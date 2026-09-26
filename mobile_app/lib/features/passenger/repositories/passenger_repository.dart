@@ -40,10 +40,10 @@ class PassengerRepository {
     return _apiClient.get("/passenger/bookings/$bookingId");
   }
 
-  Future<Map<String, dynamic>> getBookingHistory({int limit = 50}) {
+  Future<Map<String, dynamic>> getBookingHistory({int limit = 20, int offset = 0}) {
     return _apiClient.get(
       "/passenger/bookings/history",
-      queryParameters: {"limit": limit},
+      queryParameters: {"limit": limit, "offset": offset},
     );
   }
 
