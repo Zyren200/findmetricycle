@@ -54,3 +54,6 @@ mobile_app/test_app/build/
 
 # Android SDK tools copied into the project (download separately)
 mobile_app/platform-tools/
+
+# tesseract.js language data cache (server-side document OCR)
+backend/.ocr-cache/

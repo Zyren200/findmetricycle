@@ -3,6 +3,7 @@ import { apiClient } from "../api/client";
 import PageHero from "../components/PageHero";
 import StatusPill from "../components/StatusPill";
 import ConfirmDialog from "../components/ConfirmDialog";
+import DocumentCheckBadge, { hasDocumentWarning } from "../components/DocumentCheckBadge";
 import { resolveDriverDocumentUrl as resolveAssetUrl } from "../utils/admin-formatters";
 
 export default function DriversPage() {
@@ -69,6 +70,8 @@ export default function DriversPage() {
           license_expires_at: driver.license_expires_at,
           license_image_url: driver.license_image_url,
           business_permit_image_url: driver.business_permit_image_url,
+          license_check_status: driver.license_check_status || null,
+          permit_check_status: driver.permit_check_status || null,
         };
       });
       setDrivers(formattedDrivers);
@@ -311,7 +314,14 @@ export default function DriversPage() {
                       </div>
                     </td>
                     <td style={{ color: "var(--muted)" }}>{driver.phone}</td>
-                    <td style={{ fontFamily: "monospace", fontSize: 12 }}>{driver.plate}</td>
+                    <td style={{ fontFamily: "monospace", fontSize: 12 }}>
+                      {driver.plate}
+                      {hasDocumentWarning(driver.license_check_status, driver.permit_check_status) ? (
+                        <span title="Documents flagged by the automatic check" style={{ color: "var(--red)", marginLeft: 6 }}>
+                          ⚠ docs
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="rating">★ {driver.rating}</td>
                     <td>{driver.rides}</td>
                     <td>
@@ -465,7 +475,22 @@ export default function DriversPage() {
                 </div>
               </div>
 
+              {hasDocumentWarning(selectedDriver.license_check_status, selectedDriver.permit_check_status) ? (
+                <div className="warning-banner" style={{ marginTop: 16 }}>
+                  The automatic document check flagged this driver's documents. Open them and confirm
+                  they're a real driver's license and franchise / permit — suspend the driver if not.
+                </div>
+              ) : null}
+
               <div className="detail-list" style={{ marginTop: 16 }}>
+                <div className="detail-row">
+                  <span>License check</span>
+                  <DocumentCheckBadge kind="license" status={selectedDriver.license_check_status} />
+                </div>
+                <div className="detail-row">
+                  <span>Permit check</span>
+                  <DocumentCheckBadge kind="permit" status={selectedDriver.permit_check_status} />
+                </div>
                 <div className="detail-row">
                   <span>Driver License</span>
                   {resolveAssetUrl(selectedDriver.license_image_url) ? (

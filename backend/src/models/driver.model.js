@@ -426,9 +426,17 @@ async function listAllForAdmin() {
         d.rating_avg,
         d.total_rides,
         d.total_earnings,
-        d.created_at
+        d.created_at,
+        -- Automatic document check of the application this driver came from.
+        da.license_check_status,
+        da.permit_check_status,
+        da.documents_checked_at
       FROM drivers d
       JOIN users u ON u.id = d.user_id
+      LEFT JOIN driver_applications da ON da.id = (
+        SELECT MAX(a2.id) FROM driver_applications a2
+        WHERE a2.user_id = d.user_id AND a2.status <> 'archived'
+      )
       WHERE d.deleted_at IS NULL
         AND u.deleted_at IS NULL
       ORDER BY d.created_at DESC

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../api/client";
+import DocumentCheckBadge from "../components/DocumentCheckBadge";
 import PageHero from "../components/PageHero";
 import PendingDriversTable from "../components/PendingDriversTable";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -34,7 +35,22 @@ export default function PendingPage() {
   async function handleApprove(driverId) {
     setActionLoadingId(driverId);
     try {
-      await apiClient.post(`/admin/drivers/${driverId}/approve`);
+      try {
+        await apiClient.post(`/admin/drivers/${driverId}/approve`);
+      } catch (err) {
+        // The server refuses to approve flagged documents unless the admin
+        // explicitly confirms they checked them by eye.
+        const details = err?.response?.data?.details;
+        if (details?.code !== "DOCUMENT_CHECK_WARNING") throw err;
+        const confirmed = window.confirm(
+          "The automatic document check flagged this application:\n\n• " +
+            details.warnings.join("\n• ") +
+            "\n\nOnly approve if you opened the photos and they really are a valid driver's license and franchise / permit.\n\nApprove anyway?"
+        );
+        if (!confirmed) return;
+        await apiClient.post(`/admin/drivers/${driverId}/approve`, { acknowledgeDocumentWarnings: true });
+      }
+      setShowModal(false);
       await loadPending();
     } catch (err) {
       setError(err?.response?.data?.message || "Approval failed.");
@@ -156,6 +172,20 @@ export default function PendingPage() {
                   <span>License Expiry</span>
                   <strong>{formatDateTime(selectedDriver.licenseExpiresAt)}</strong>
                 </div>
+                <div className="detail-row">
+                  <span>License check</span>
+                  <DocumentCheckBadge kind="license" status={selectedDriver.documentCheck?.license} />
+                </div>
+                <div className="detail-row">
+                  <span>Permit check</span>
+                  <DocumentCheckBadge kind="permit" status={selectedDriver.documentCheck?.permit} />
+                </div>
+                {selectedDriver.documentCheck?.details?.license?.otherDocument ? (
+                  <div className="detail-row">
+                    <span>License photo reads as</span>
+                    <strong>{selectedDriver.documentCheck.details.license.otherDocument}</strong>
+                  </div>
+                ) : null}
                 <div className="detail-row">
                   <span>OCR Status</span>
                   <strong>{selectedDriver.ocrStatus || "-"}</strong>

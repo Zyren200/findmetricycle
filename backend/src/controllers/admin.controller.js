@@ -48,7 +48,9 @@ async function getDriverApplicationTimeline(req, res, next) {
 
 async function approveDriver(req, res, next) {
   try {
-    const outcome = await adminService.approveDriver(Number(req.params.driverId), req.user.id);
+    const outcome = await adminService.approveDriver(Number(req.params.driverId), req.user.id, {
+      acknowledgeDocumentWarnings: req.body?.acknowledgeDocumentWarnings === true,
+    });
     if (outcome.recipientUserId) {
       getIO().to(`user:${outcome.recipientUserId}`).emit("driver:approval_status", {
         status: "approved",

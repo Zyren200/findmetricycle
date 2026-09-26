@@ -1,14 +1,24 @@
 import { useRef, useState } from "react";
+import { classifyDocument } from "../../utils/documentClassifier";
 
-const LICENSE_KEYWORDS = ["LICENSE", "DRIVER", "LTO", "PHILIPPINES"];
-const PERMIT_KEYWORDS = ["FRANCHISE", "PERMIT", "TRICYCLE", "OPERATOR", "TODA"];
 const OCR_TIMEOUT_MS = 20000;
 const OCR_MAX_DIMENSION = 1800;
 
-function classify(text, keywords) {
-  const upper = (text || "").toUpperCase();
-  const hits = keywords.filter((k) => upper.includes(k)).length;
-  return hits >= 1;
+// Same rules the server applies after submission (and shows the admin).
+const CHECK_MESSAGES = {
+  license: {
+    suspicious: "Mukhang hindi ito driver's license. Mag-upload ng malinaw na litrato ng LTO license mo.",
+    unreadable: "Hindi mabasa ang litrato. Kumuha ng malinaw at maliwanag na litrato ng buong license.",
+  },
+  permit: {
+    suspicious: "Mukhang hindi ito franchise / business permit. Mag-upload ng MTOP, franchise o permit mo.",
+    unreadable: "Hindi mabasa ang litrato. Kumuha ng malinaw at maliwanag na litrato ng buong permit.",
+  },
+};
+
+function checkWarning(ocrText, kind) {
+  const { status } = classifyDocument(ocrText, kind);
+  return { status, warning: CHECK_MESSAGES[kind][status] || null };
 }
 
 function loadImage(file) {
@@ -135,14 +145,14 @@ export default function DocumentsStep({ formData, updateFormData, onNext, onBack
     try {
       const previewUrl = URL.createObjectURL(file);
       const ocrText = await runOcr(file);
-      const looksLikeLicense = classify(ocrText, LICENSE_KEYWORDS);
+      const { status, warning } = checkWarning(ocrText, "license");
       updateFormData({
         licenseFile: file,
         licensePreviewUrl: previewUrl,
         licenseOcrText: ocrText,
-        licenseWarning: ocrText && !looksLikeLicense
-          ? "This doesn't look like a driver's license. Please double-check the photo."
-          : null,
+        licenseCheck: status,
+        licenseWarning: warning,
+        documentsConfirmed: false,
       });
     } finally {
       setLicenseUploading(false);
@@ -155,22 +165,30 @@ export default function DocumentsStep({ formData, updateFormData, onNext, onBack
     try {
       const previewUrl = URL.createObjectURL(file);
       const ocrText = await runOcr(file);
-      const looksLikePermit = classify(ocrText, PERMIT_KEYWORDS);
+      const { status, warning } = checkWarning(ocrText, "permit");
       updateFormData({
         permitFile: file,
         permitPreviewUrl: previewUrl,
-        permitWarning: ocrText && !looksLikePermit
-          ? "This doesn't look like a franchise/permit document. Please double-check the photo."
-          : null,
+        permitCheck: status,
+        permitWarning: warning,
+        documentsConfirmed: false,
       });
     } finally {
       setPermitUploading(false);
     }
   }
 
+  const flagged = Boolean(formData.licenseWarning || formData.permitWarning);
+
   function handleContinue() {
     if (!formData.licenseFile || !formData.permitFile) {
       setError("Both the driver's license and business permit photos are required.");
+      return;
+    }
+    // A photo that doesn't pass the check needs a new photo, or an explicit
+    // "yes, this is the right document" — it's then flagged for the admin.
+    if (flagged && !formData.documentsConfirmed) {
+      setError("May dokumentong hindi pumasa sa check. Palitan ang litrato, o kumpirmahin sa ibaba na tama ito.");
       return;
     }
     onNext();
@@ -205,9 +223,24 @@ export default function DocumentsStep({ formData, updateFormData, onNext, onBack
         inputId="permit-upload"
       />
 
+      {flagged ? (
+        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", margin: "4px 0 14px", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={Boolean(formData.documentsConfirmed)}
+            onChange={(e) => updateFormData({ documentsConfirmed: e.target.checked })}
+            style={{ marginTop: 3 }}
+          />
+          <span style={{ fontSize: 14, color: "var(--muted)" }}>
+            Sigurado akong tamang dokumento ang na-upload ko. Naiintindihan kong mamarkahan ito para sa masusing
+            pagsusuri ng admin, at maaaring ma-reject ang application kung mali.
+          </span>
+        </label>
+      ) : null}
+
       <p className="field-hint">
-        Accepted formats: JPG, PNG, WEBP (max 5MB each). Document checks here are just a helpful hint —
-        an admin always makes the final decision.
+        Accepted formats: JPG, PNG, WEBP (max 5MB each). The photos are checked automatically — make sure the
+        whole document is visible, in focus and well lit. An admin reviews every application.
       </p>
 
       <div className="btn-row">

@@ -21,7 +21,33 @@ async function listPendingDrivers() {
 // flow have driver_id = NULL — no `drivers` row exists until the admin
 // approves. Keying these functions by applicationId (not driverId) is
 // what makes approve/reject/request-correction actually work for them.
-async function approveDriver(applicationId, adminUserId) {
+function parseJsonSafe(value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return null;
+  }
+}
+
+// Documents the automatic check didn't clearly recognise (or hasn't
+// checked yet). Approving those needs an explicit acknowledgement.
+function documentWarnings(application) {
+  if (!application.documents_checked_at) {
+    return ["The automatic document check hasn't finished for this application."];
+  }
+  const warnings = [];
+  const label = { suspicious: "doesn't look like", unreadable: "couldn't be read as", error: "couldn't be checked as" };
+  if (application.license_check_status !== "verified") {
+    warnings.push(`The license photo ${label[application.license_check_status] || "wasn't verified as"} a driver's license.`);
+  }
+  if (application.permit_check_status !== "verified") {
+    warnings.push(`The permit photo ${label[application.permit_check_status] || "wasn't verified as"} a franchise / business permit.`);
+  }
+  return warnings;
+}
+
+async function approveDriver(applicationId, adminUserId, { acknowledgeDocumentWarnings = false } = {}) {
   const outcome = await db.withTransaction(async (client) => {
     const application = await driverApplicationModel.findById(applicationId, client);
     if (!application) {
@@ -29,6 +55,14 @@ async function approveDriver(applicationId, adminUserId) {
     }
     if (application.status !== "pending") {
       throw new ApiError(400, `Application is already ${application.status}.`);
+    }
+
+    const warnings = documentWarnings(application);
+    if (warnings.length && !acknowledgeDocumentWarnings) {
+      throw new ApiError(409, "Please review the document warnings before approving.", {
+        code: "DOCUMENT_CHECK_WARNING",
+        warnings,
+      });
     }
 
     let driver = application.driver_id ? await driverModel.findById(application.driver_id, client) : null;
@@ -207,6 +241,13 @@ async function getDriverApplication(applicationId) {
     licenseExpiresAt: application.license_expires_at || null,
     ocrStatus: application.ocr_status || null,
     ocrFailureReason: application.ocr_failure_reason || null,
+    // Server-side OCR check of the uploaded photos (document-check.service).
+    documentCheck: {
+      checkedAt: application.documents_checked_at || null,
+      license: application.license_check_status || null,
+      permit: application.permit_check_status || null,
+      details: parseJsonSafe(application.document_check_json),
+    },
     livenessStatus: application.liveness_status || null,
     rejectionReason: application.rejection_reason || null,
     correctionNote: application.correction_note || null,

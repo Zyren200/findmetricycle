@@ -4,6 +4,7 @@ const rateLimit = require("express-rate-limit");
 const validate = require("../middlewares/validate.middleware");
 const { z } = require("zod");
 const authV2Service = require("../services/auth.v2.service");
+const documentCheckService = require("../services/document-check.service");
 const authService = require("../services/auth.service");
 const authMiddleware = require("../middlewares/auth.middleware");
 const upload = require("../middlewares/upload.middleware");
@@ -430,6 +431,7 @@ router.post(
         }
       );
 
+      documentCheckService.scheduleCheck(result.applicationId);
       res.json(result);
     } catch (error) {
       next(error);
@@ -520,6 +522,7 @@ router.post(
         }
       );
 
+      documentCheckService.scheduleCheck(result.applicationId);
       res.json(result);
     } catch (error) {
       next(error);
