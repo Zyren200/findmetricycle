@@ -8,6 +8,7 @@ function sanitize(n) {
     title: n.title,
     body: n.body,
     metadata: n.metadata_json ? JSON.parse(n.metadata_json) : null,
+    recipientRole: n.recipient_role,
     isRead: Boolean(n.is_read),
     createdAt: n.created_at,
   };
@@ -56,6 +57,10 @@ async function markRead(id) {
   return sanitize(row);
 }
 
+async function countUnreadForAdmin() {
+  return notificationModel.countUnreadForAdmin();
+}
+
 async function markAllRead() {
   await notificationModel.markAllRead();
   return true;
@@ -66,4 +71,5 @@ module.exports = {
   listNotifications,
   markRead,
   markAllRead,
+  countUnreadForAdmin,
 };

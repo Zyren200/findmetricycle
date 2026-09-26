@@ -15,6 +15,10 @@ async function createNotification(
   return rows[0] || null;
 }
 
+// The admin feed: notifications addressed to admins (or everyone) — never
+// the personal ones sent to a specific passenger or driver.
+const ADMIN_SCOPE = "user_id IS NULL AND recipient_role IN ('admin', 'everyone')";
+
 async function listNotifications({ search = "", limit = 50, offset = 0 } = {}, client = db) {
   const term = `%${String(search || "").trim()}%`;
   return client.query(
@@ -22,6 +26,7 @@ async function listNotifications({ search = "", limit = 50, offset = 0 } = {}, c
       SELECT *
       FROM notifications
       WHERE deleted_at IS NULL
+        AND ${ADMIN_SCOPE}
         AND (? = '' OR title LIKE ? OR body LIKE ? OR type LIKE ?)
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
@@ -45,14 +50,31 @@ async function listForUser(userId, { limit = 50, offset = 0, role = "passenger" 
   );
 }
 
+async function countUnreadForAdmin(client = db) {
+  const [row] = await client.query(
+    `SELECT COUNT(*) AS n FROM notifications WHERE deleted_at IS NULL AND is_read = 0 AND ${ADMIN_SCOPE}`
+  );
+  return Number(row?.n || 0);
+}
+
+// Scoped to the admin feed, so an admin action can never mark a
+// passenger's or driver's own notifications as read.
 async function markRead(notificationId, client = db) {
-  await client.query("UPDATE notifications SET is_read = 1, read_at = NOW() WHERE id = ? AND deleted_at IS NULL", [notificationId]);
-  const rows = await client.query("SELECT * FROM notifications WHERE id = ? AND deleted_at IS NULL LIMIT 1", [notificationId]);
+  await client.query(
+    `UPDATE notifications SET is_read = 1, read_at = COALESCE(read_at, NOW()) WHERE id = ? AND deleted_at IS NULL AND ${ADMIN_SCOPE}`,
+    [notificationId]
+  );
+  const rows = await client.query(
+    `SELECT * FROM notifications WHERE id = ? AND deleted_at IS NULL AND ${ADMIN_SCOPE} LIMIT 1`,
+    [notificationId]
+  );
   return rows[0] || null;
 }
 
 async function markAllRead(client = db) {
-  await client.query("UPDATE notifications SET is_read = 1, read_at = COALESCE(read_at, NOW()) WHERE is_read = 0 AND deleted_at IS NULL");
+  await client.query(
+    `UPDATE notifications SET is_read = 1, read_at = COALESCE(read_at, NOW()) WHERE is_read = 0 AND deleted_at IS NULL AND ${ADMIN_SCOPE}`
+  );
   return true;
 }
 
@@ -62,4 +84,5 @@ module.exports = {
   listForUser,
   markRead,
   markAllRead,
+  countUnreadForAdmin,
 };

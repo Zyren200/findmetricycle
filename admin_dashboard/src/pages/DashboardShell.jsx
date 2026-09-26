@@ -84,6 +84,7 @@ export default function DashboardShell() {
   const [navOpen, setNavOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [summary, setSummary] = useState(mockSummary);
   const [onlineDrivers, setOnlineDrivers] = useState([]);
   const [activeRides, setActiveRides] = useState([]);
@@ -124,7 +125,9 @@ export default function DashboardShell() {
       setBookings(bookingsRes.data?.data || []);
       setSosAlerts(sosRes.data?.data || []);
       setComplaints(complaintsRes.data?.data || []);
-      setNotifications(notifRes.data?.data || []);
+      const notificationList = notifRes.data?.data || [];
+      setNotifications(notificationList);
+      setUnreadCount(notifRes.data?.meta?.unread ?? notificationList.filter((n) => !n.isRead).length);
       setDriverList(driversRes.data?.data || []);
       setPassengers(passengersRes.data?.data || []);
       setFare(fareRes.data?.data || null);
@@ -145,7 +148,58 @@ export default function DashboardShell() {
     setSosAlerts((prev) => [alert, ...prev.filter((item) => item.id !== alert.id)]);
   }, []);
 
-  useSocket({ token, onSosAlert });
+  // New admin notifications arrive live instead of on the next 15s poll.
+  const onNotification = useCallback((notification) => {
+    if (!notification?.id) return;
+    setNotifications((prev) => [notification, ...prev.filter((item) => item.id !== notification.id)]);
+    if (!notification.isRead) setUnreadCount((count) => count + 1);
+  }, []);
+
+  useSocket({ token, onSosAlert, onNotification });
+
+  // Read state is saved on the server (it used to only change in the
+  // browser, so everything came back unread after a refresh).
+  async function markNotificationRead(id) {
+    const target = notifications.find((item) => item.id === id);
+    if (!target || target.isRead) return;
+    setNotifications((items) => items.map((item) => (item.id === id ? { ...item, isRead: true } : item)));
+    setUnreadCount((count) => Math.max(0, count - 1));
+    try {
+      await apiClient.post(`/admin/notifications/${id}/read`);
+    } catch (_err) {
+      // The next refresh re-syncs from the server.
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    setNotifications((items) => items.map((item) => ({ ...item, isRead: true })));
+    setUnreadCount(0);
+    try {
+      await apiClient.post("/admin/notifications/mark_all_read");
+    } catch (_err) {
+      // The next refresh re-syncs from the server.
+    }
+  }
+
+  // Clicking a notification opens the page where it can be acted on.
+  const NOTIFICATION_SECTIONS = {
+    driver_application: "applications",
+    driver_document_resubmission: "applications",
+    driver_documents_flagged: "applications",
+    sos_alert: "sos",
+    driver_report: "complaints",
+    new_booking: "bookings",
+    booking_cancelled: "bookings",
+  };
+
+  function openNotification(notification) {
+    markNotificationRead(notification.id);
+    const section = NOTIFICATION_SECTIONS[notification.type];
+    if (section) {
+      setActiveSectionKey(section);
+      setShowNotifications(false);
+    }
+  }
 
   const pageTitle = useMemo(() => sections.find((s) => s.key === activeSectionKey)?.title || "Dashboard", [activeSectionKey]);
 
@@ -407,16 +461,33 @@ export default function DashboardShell() {
 
     if (activeSectionKey === "notifications") {
       return (
-        <SectionCard title="Notification Center">
+        <SectionCard
+          title={unreadCount ? `Notification Center (${unreadCount} unread)` : "Notification Center"}
+          action={
+            unreadCount ? (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={markAllNotificationsRead}>
+                Mark all as read
+              </button>
+            ) : null
+          }
+        >
           <SimpleTable
-            columns={["Title", "Body", "Recipient", "Status"]}
+            columns={["Title", "Message", "Date", "Status", "Actions"]}
             rows={notifications}
             renderRow={(row) => (
-              <tr key={row.id}>
+              <tr key={row.id} style={row.isRead ? { opacity: 0.7 } : { fontWeight: 600 }}>
                 <td>{row.title}</td>
                 <td>{row.body}</td>
-                <td>Everyone</td>
-                <td>{row.read ? "Read" : "Unread"}</td>
+                <td>{formatDateTime(row.createdAt)}</td>
+                <td><Pill value={row.isRead ? "read" : "unread"} /></td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {NOTIFICATION_SECTIONS[row.type] ? (
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => openNotification(row)}>Open</button>
+                  ) : null}
+                  {!row.isRead ? (
+                    <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} onClick={() => markNotificationRead(row.id)}>Mark read</button>
+                  ) : null}
+                </td>
               </tr>
             )}
           />
@@ -516,7 +587,15 @@ export default function DashboardShell() {
             <input className="search-box" type="text" placeholder="Search operations..." />
             <div className="live-pill"><div className="live-dot"></div> Live</div>
             <button className="btn btn-ghost" type="button" onClick={logout}>Logout</button>
-            <button className="notif-btn" type="button" onClick={() => setShowNotifications((s) => !s)}>🔔</button>
+            <button
+              className="notif-btn"
+              type="button"
+              aria-label={unreadCount ? `Notifications (${unreadCount} unread)` : "Notifications"}
+              onClick={() => setShowNotifications((s) => !s)}
+            >
+              🔔
+              {unreadCount > 0 ? <span className="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span> : null}
+            </button>
           </div>
         </div>
 
@@ -524,8 +603,10 @@ export default function DashboardShell() {
           <NotificationsPanel
             notifications={notifications}
             onClose={() => setShowNotifications(false)}
-            onMarkAllRead={() => setNotifications((items) => items.map((item) => ({ ...item, read: true })))}
-            onMarkRead={(id) => setNotifications((items) => items.map((item) => (item.id === id ? { ...item, read: true } : item)))}
+            unreadCount={unreadCount}
+            onMarkAllRead={markAllNotificationsRead}
+            onMarkRead={markNotificationRead}
+            onOpen={openNotification}
           />
         ) : null}
 

@@ -141,12 +141,15 @@ async function getRideActivity(req, res, next) {
 
 async function getNotifications(req, res, next) {
   try {
-    const data = await notificationService.listNotifications({
-      search: req.query.search,
-      limit: req.query.limit ? Number(req.query.limit) : 100,
-      offset: req.query.offset ? Number(req.query.offset) : 0,
-    });
-    res.json({ success: true, data });
+    const [data, unread] = await Promise.all([
+      notificationService.listNotifications({
+        search: req.query.search,
+        limit: Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 100, 1), 200),
+        offset: Math.max(Number.parseInt(req.query.offset, 10) || 0, 0),
+      }),
+      notificationService.countUnreadForAdmin(),
+    ]);
+    res.json({ success: true, data, meta: { unread } });
   } catch (error) {
     next(error);
   }
@@ -156,6 +159,9 @@ async function postMarkNotificationRead(req, res, next) {
   try {
     const id = Number(req.params.id);
     const data = await notificationService.markRead(id);
+    if (!data) {
+      return res.status(404).json({ success: false, message: "Notification not found." });
+    }
     res.json({ success: true, data });
   } catch (error) {
     next(error);

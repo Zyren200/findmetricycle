@@ -2044,3 +2044,32 @@ body:has(.modal-overlay.open) { overflow: hidden; }
     z-index: 1400;
   }
 }
+
+/* Unread count on the 🔔 button. */
+.notif-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--bg2);
+}
+.notif-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.notification-item.read { opacity: 0.72; }
+.notification-item:hover { border-color: var(--border2); }
