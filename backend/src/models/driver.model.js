@@ -216,17 +216,73 @@ async function refreshDriverRating(driverId) {
   await db.query("UPDATE drivers SET rating_avg = ? WHERE id = ?", [Number(avg.toFixed(2)), driverId]);
 }
 
+const EARNINGS_CHART_DAYS = 7;
+
+// Earnings are computed from the completed bookings themselves (the source
+// of truth) rather than the drivers.total_earnings running counter, which
+// drifts whenever a credit is missed or doubled. Periods use the database
+// clock, the same one that stamps completed_at.
 async function getEarningsSummary(driverId) {
-  const rows = await db.query(
+  const [driver] = await db.query("SELECT id, rating_avg FROM drivers WHERE id = ? LIMIT 1", [driverId]);
+  if (!driver) return null;
+
+  const [totals] = await db.query(
     `
-      SELECT id, total_rides, total_earnings, rating_avg
-      FROM drivers
-      WHERE id = ?
-      LIMIT 1
+      SELECT
+        COUNT(*) AS total_rides,
+        COALESCE(SUM(final_fare), 0) AS total_earnings,
+        COALESCE(SUM(CASE WHEN completed_at >= CURDATE() THEN 1 END), 0) AS today_rides,
+        COALESCE(SUM(CASE WHEN completed_at >= CURDATE() THEN final_fare END), 0) AS today_earnings,
+        COALESCE(SUM(CASE WHEN completed_at >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) THEN 1 END), 0) AS week_rides,
+        COALESCE(SUM(CASE WHEN completed_at >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) THEN final_fare END), 0) AS week_earnings,
+        COALESCE(SUM(CASE WHEN completed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01') THEN 1 END), 0) AS month_rides,
+        COALESCE(SUM(CASE WHEN completed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01') THEN final_fare END), 0) AS month_earnings
+      FROM bookings
+      WHERE driver_id = ? AND status = 'completed' AND deleted_at IS NULL
     `,
     [driverId]
   );
-  return rows[0] || null;
+
+  const dailyRows = await db.query(
+    `
+      SELECT DATE_FORMAT(completed_at, '%Y-%m-%d') AS day,
+             COUNT(*) AS rides,
+             COALESCE(SUM(final_fare), 0) AS earnings
+      FROM bookings
+      WHERE driver_id = ? AND status = 'completed' AND deleted_at IS NULL
+        AND completed_at >= DATE_SUB(CURDATE(), INTERVAL ${EARNINGS_CHART_DAYS - 1} DAY)
+      GROUP BY day
+    `,
+    [driverId]
+  );
+  const [{ today }] = await db.query("SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS today");
+
+  // One entry per day (oldest first), including days with no trips.
+  const byDay = new Map(dailyRows.map((r) => [r.day, r]));
+  const daily = [];
+  for (let offset = EARNINGS_CHART_DAYS - 1; offset >= 0; offset -= 1) {
+    const date = new Date(`${today}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - offset);
+    const day = date.toISOString().slice(0, 10);
+    const row = byDay.get(day);
+    daily.push({
+      date: day,
+      rides: Number(row?.rides || 0),
+      earnings: Number(Number(row?.earnings || 0).toFixed(2)),
+    });
+  }
+
+  const money = (v) => Number(Number(v || 0).toFixed(2));
+  return {
+    id: driver.id,
+    rating_avg: Number(driver.rating_avg || 0),
+    total_rides: Number(totals.total_rides || 0),
+    total_earnings: money(totals.total_earnings),
+    today: { rides: Number(totals.today_rides), earnings: money(totals.today_earnings) },
+    week: { rides: Number(totals.week_rides), earnings: money(totals.week_earnings) },
+    month: { rides: Number(totals.month_rides), earnings: money(totals.month_earnings) },
+    daily,
+  };
 }
 
 // Cancellation rate here means "of the bookings this driver was assigned
