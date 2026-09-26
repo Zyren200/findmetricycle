@@ -48,7 +48,8 @@ class PassengerMapPage extends StatefulWidget {
   State<PassengerMapPage> createState() => _PassengerMapPageState();
 }
 
-class _PassengerMapPageState extends State<PassengerMapPage> {
+class _PassengerMapPageState extends State<PassengerMapPage>
+    with WidgetsBindingObserver {
   static const ll.LatLng _fallbackCenter = ll.LatLng(14.5995, 120.9842);
 
   PassengerRideController? _rideController;
@@ -70,6 +71,7 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pulseTimer = Timer.periodic(const Duration(milliseconds: 700), (_) {
       if (!mounted) return;
       _pulsePhase = (_pulsePhase + 0.18) % 1.0;
@@ -93,9 +95,23 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _rideController?.removeListener(_handleRideControllerChanged);
     _pulseTimer?.cancel();
     super.dispose();
+  }
+
+  // Coming back from Settings (after turning on GPS or granting
+  // permission): try again right away instead of waiting for a tap.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final controller = _rideController;
+    if (state == AppLifecycleState.resumed &&
+        controller != null &&
+        controller.currentPosition == null &&
+        !controller.isResolvingLocation) {
+      controller.refreshCurrentLocation();
+    }
   }
 
   int _seenPickerRequest = 0;
@@ -1133,23 +1149,36 @@ class _PassengerMapPageState extends State<PassengerMapPage> {
             left: 16,
             right: 16,
             bottom: 24,
+            // A spinner only while a lookup is actually running; otherwise
+            // always offer a way forward (settings or retry).
             child: ctrl.locationPermissionDeniedForever
                 ? const _LocationNotice(
                     message:
-                        "Location access is off. Enable it in Settings to show where you are on the map.",
-                    actionLabel: "Open Settings",
+                        "Naka-block ang location access. Payagan ito sa Settings para makita ka sa mapa.",
+                    actionLabel: "Settings",
                     onAction: Geolocator.openAppSettings,
                   )
-                : ctrl.error != null
-                    ? _LocationNotice(
-                        message: ctrl.error!,
-                        actionLabel: "Retry",
-                        onAction: ctrl.refreshCurrentLocation,
-                      )
-                    : const _LocationNotice(
-                        message: "Getting your current location…",
+                : ctrl.isResolvingLocation
+                    ? const _LocationNotice(
+                        message: "Kinukuha ang lokasyon mo…",
                         showSpinner: true,
-                      ),
+                      )
+                    : ctrl.locationServiceDisabled
+                        ? _LocationNotice(
+                            message: ctrl.locationError ??
+                                "Naka-off ang GPS/Location.",
+                            actionLabel: "I-on",
+                            onAction: () async {
+                              await Geolocator.openLocationSettings();
+                              await ctrl.refreshCurrentLocation();
+                            },
+                          )
+                        : _LocationNotice(
+                            message: ctrl.locationError ??
+                                "Hindi pa makuha ang lokasyon mo.",
+                            actionLabel: "Subukan ulit",
+                            onAction: ctrl.refreshCurrentLocation,
+                          ),
           ),
       ],
     );

@@ -268,4 +268,22 @@ void main() {
       expect(controller.shouldShowPickupPin, isFalse);
     });
   });
+
+  group("current location", () {
+    // No GPS plugin under test, so every lookup fails — like a phone with
+    // location off or no fix indoors.
+    test("a failed lookup stops the spinner and explains why", () {
+      expect(controller.isResolvingLocation, isFalse);
+      expect(controller.currentPosition, isNull);
+      expect(controller.locationError, isNotNull);
+    });
+
+    test("ride actions clearing errors don't hide the location problem", () async {
+      await findRideWith([rider(1, "Ana", 0.3)]);
+
+      expect(controller.error, isNull);
+      expect(controller.locationError, isNotNull);
+      expect(controller.isResolvingLocation, isFalse);
+    });
+  });
 }

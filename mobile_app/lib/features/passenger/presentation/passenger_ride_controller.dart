@@ -249,16 +249,15 @@ class PassengerRideController extends ChangeNotifier {
     // a denied/slow location fix can't leave the passenger deaf to rider
     // updates (accept/decline, driver location) for the whole session.
     _bindSocketEvents();
-    await _loadFareSettings();
-    await restoreActiveBooking();
-    try {
-      await _resolveCurrentLocation();
-    } catch (e) {
-      error = e.toString();
-    } finally {
-      isInitializing = false;
-      notifyListeners();
-    }
+    // GPS runs alongside the server calls — a slow or unreachable backend
+    // must not keep the passenger staring at "Getting your location…".
+    await Future.wait([
+      refreshCurrentLocation(),
+      _loadFareSettings(),
+      restoreActiveBooking(),
+    ]);
+    isInitializing = false;
+    notifyListeners();
   }
 
   /// Bumped when the rider arrives, so the map page can pop the pickup PIN
@@ -325,21 +324,65 @@ class PassengerRideController extends ChangeNotifier {
   /// user grants permission or enables GPS without re-running the rest of
   /// the passenger session bootstrap.
   Future<void> refreshCurrentLocation() async {
-    error = null;
+    locationError = null;
     notifyListeners();
     try {
       await _resolveCurrentLocation();
     } catch (e) {
-      error = e.toString();
+      locationError = e.toString().replaceFirst("Exception: ", "");
     } finally {
+      isResolvingLocation = false;
       notifyListeners();
     }
   }
 
+  /// Why the passenger's location isn't available (GPS off, permission
+  /// denied, no fix). Kept apart from [error], which ride actions clear
+  /// freely — sharing it left the map stuck on a spinner with no retry.
+  String? locationError;
+
+  /// True when the failure is the device's location service being off, so
+  /// the UI can offer to open the location settings.
+  bool locationServiceDisabled = false;
+
+  StreamSubscription<Position>? _positionSub;
+
+  /// Keeps [currentPosition] following the passenger after the first fix,
+  /// and recovers on its own if GPS was off and gets switched on.
+  void _startPositionUpdates() {
+    if (_positionSub != null) return;
+    _positionSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+      ),
+    ).listen(
+      (pos) {
+        final hadPosition = currentPosition != null;
+        currentPosition = ll.LatLng(pos.latitude, pos.longitude);
+        locationError = null;
+        locationServiceDisabled = false;
+        if (!hadPosition) {
+          pickup ??= currentPosition;
+          if (pickup != null) _resolveAddress(isPickup: true, point: pickup!);
+        }
+        notifyListeners();
+      },
+      onError: (_) {
+        // Stream errors (e.g. GPS switched off) end the subscription; the
+        // next manual retry starts a fresh one.
+        _positionSub?.cancel();
+        _positionSub = null;
+      },
+      cancelOnError: true,
+    );
+  }
+
   Future<void> _resolveCurrentLocation() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    locationServiceDisabled = !serviceEnabled;
     if (!serviceEnabled) {
-      throw Exception("Please enable GPS to show your current location.");
+      throw Exception("Naka-off ang GPS/Location. I-on ito para makita ang lokasyon mo.");
     }
 
     var permission = await Geolocator.checkPermission();
@@ -351,7 +394,7 @@ class PassengerRideController extends ChangeNotifier {
     if (permission == LocationPermission.deniedForever ||
         permission == LocationPermission.denied) {
       throw Exception(
-          "Location permission denied. Enable it in Settings to see your location on the map.");
+          "Walang pahintulot sa lokasyon. Payagan ito para makita ang lokasyon mo sa mapa.");
     }
 
     isResolvingLocation = true;
@@ -371,19 +414,49 @@ class PassengerRideController extends ChangeNotifier {
     }
 
     try {
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 12),
-        ),
-      );
-      currentPosition = ll.LatLng(pos.latitude, pos.longitude);
-      pickup ??= currentPosition;
+      final pos = await _getFreshPosition();
+      if (pos != null) {
+        currentPosition = ll.LatLng(pos.latitude, pos.longitude);
+        pickup ??= currentPosition;
+      }
     } finally {
       isResolvingLocation = false;
       notifyListeners();
     }
+
+    // Permission is granted at this point, so keep following the passenger
+    // (and pick up a fix later if the first attempt timed out).
+    _startPositionUpdates();
+
+    if (currentPosition == null) {
+      throw Exception(
+          "Hindi pa makuha ang lokasyon mo. Siguraduhing naka-on ang GPS at subukan ulit.");
+    }
     if (pickup != null) _resolveAddress(isPickup: true, point: pickup!);
+  }
+
+  /// A precise GPS fix first; indoors that often never arrives, so fall back
+  /// to a coarser (Wi-Fi/cell) fix rather than failing outright.
+  Future<Position?> _getFreshPosition() async {
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+    } catch (_) {
+      try {
+        return await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.low,
+            timeLimit: Duration(seconds: 10),
+          ),
+        );
+      } catch (_) {
+        return null;
+      }
+    }
   }
 
   /// Reverse-geocodes a pickup/drop-off point into a short address for
@@ -943,6 +1016,7 @@ class PassengerRideController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _positionSub?.cancel();
     _stopNearbyRefresh();
     _fareUpdateSub?.cancel();
     _bookingUpdateSub?.cancel();

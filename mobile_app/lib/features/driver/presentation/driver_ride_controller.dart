@@ -197,9 +197,36 @@ class DriverRideController extends ChangeNotifier {
       throw Exception("Location permission denied.");
     }
 
-    final pos = await Geolocator.getCurrentPosition();
+    final pos = await _currentFix();
+    if (pos == null) {
+      throw Exception("Hindi makuha ang lokasyon. Siguraduhing naka-on ang GPS.");
+    }
     currentPosition = ll.LatLng(pos.latitude, pos.longitude);
   }
+
+  /// A GPS fix that can't hang forever: precise first, then a coarse
+  /// (Wi-Fi/cell) fix, then the OS's last known position.
+  Future<Position?> _currentFix() async {
+    for (final accuracy in [LocationAccuracy.high, LocationAccuracy.low]) {
+      try {
+        return await Geolocator.getCurrentPosition(
+          locationSettings: LocationSettings(
+            accuracy: accuracy,
+            timeLimit: const Duration(seconds: 8),
+          ),
+        );
+      } catch (_) {
+        // try the next, less precise option
+      }
+    }
+    try {
+      return await Geolocator.getLastKnownPosition();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _isPushingLocation = false;
 
   void _bindSocketEvents() {
     _bookingRequestSub ??=
@@ -314,8 +341,12 @@ class DriverRideController extends ChangeNotifier {
   }
 
   Future<void> _pushLocation() async {
+    // The timer fires every 4s; don't stack GPS lookups if one is slow.
+    if (_isPushingLocation) return;
+    _isPushingLocation = true;
     try {
-      final pos = await Geolocator.getCurrentPosition();
+      final pos = await _currentFix();
+      if (pos == null) return;
       currentPosition = ll.LatLng(pos.latitude, pos.longitude);
 
       if (_socketClient.isConnected) {
@@ -332,7 +363,11 @@ class DriverRideController extends ChangeNotifier {
       }
 
       notifyListeners();
-    } catch (_) {}
+    } catch (_) {
+      // Best-effort; the next tick retries.
+    } finally {
+      _isPushingLocation = false;
+    }
   }
 
   void _startLocationUpdates() {
