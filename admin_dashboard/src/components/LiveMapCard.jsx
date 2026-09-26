@@ -595,8 +595,6 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
       <div className="map-frame">
         <div className="map-overlay">
           <div className="map-status-row">
-            <StatusPill label="Carto Basemap" tone="success" />
-            <StatusPill label="MapLibre GL" tone="info" />
             <StatusPill label={mapReady ? "Live" : "Connecting"} tone={mapReady ? "success" : "warning"} />
           </div>
         </div>

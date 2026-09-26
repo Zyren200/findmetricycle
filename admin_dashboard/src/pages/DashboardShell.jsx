@@ -81,6 +81,7 @@ function SimpleTable({ columns, rows, renderRow, emptyLabel = "No records found.
 export default function DashboardShell() {
   const { user, logout, token } = useAuth();
   const [activeSectionKey, setActiveSectionKey] = useState("dashboard");
+  const [navOpen, setNavOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [summary, setSummary] = useState(mockSummary);
@@ -458,7 +459,10 @@ export default function DashboardShell() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", width: "100%" }}>
-      <aside className="sidebar">
+      {/* Phone/tablet: the sidebar slides in over the page; tapping the
+          dimmed area or a menu item closes it. */}
+      {navOpen ? <div className="sidebar-backdrop" onClick={() => setNavOpen(false)} /> : null}
+      <aside className={navOpen ? "sidebar open" : "sidebar"}>
         <div className="logo">
           <div className="logo-title">🛺 FindMeTricycle</div>
           <div className="logo-sub">Admin Operations</div>
@@ -471,7 +475,10 @@ export default function DashboardShell() {
               <button
                 key={section.key}
                 className={activeSectionKey === section.key ? "nav-item active" : "nav-item"}
-                onClick={() => setActiveSectionKey(section.key)}
+                onClick={() => {
+                  setActiveSectionKey(section.key);
+                  setNavOpen(false);
+                }}
                 type="button"
               >
                 <span className="icon">{section.icon}</span>
@@ -494,7 +501,17 @@ export default function DashboardShell() {
 
       <main className="main">
         <div className="topbar">
-          <div className="topbar-title">{pageTitle}</div>
+          <div className="topbar-title">
+            <button
+              type="button"
+              className="menu-toggle"
+              aria-label="Open menu"
+              onClick={() => setNavOpen(true)}
+            >
+              ☰
+            </button>
+            {pageTitle}
+          </div>
           <div className="topbar-actions">
             <input className="search-box" type="text" placeholder="Search operations..." />
             <div className="live-pill"><div className="live-dot"></div> Live</div>

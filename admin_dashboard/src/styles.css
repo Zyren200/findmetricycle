@@ -2015,3 +2015,32 @@ body:has(.modal-overlay.open) { overflow: hidden; }
 .notification-body { color:var(--muted); font-size:13px; margin-top:6px; overflow-wrap: anywhere; }
 .notification-actions { margin-top: 8px; }
 .notif-badge { position: absolute; top: 6px; right: 6px; background: var(--red); color: #fff; width: 20px; height: 20px; display:flex; align-items:center; justify-content:center; border-radius: 999px; font-size:12px; }
+
+/* ☰ menu for narrow screens (the sidebar is hidden off-canvas there). */
+.menu-toggle {
+  display: none;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  margin-right: 10px;
+  font-size: 18px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.sidebar-backdrop { display: none; }
+
+@media (max-width: 900px) {
+  .menu-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .sidebar { transition: transform 0.2s ease; z-index: 1500; overflow-y: auto; }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 1400;
+  }
+}
