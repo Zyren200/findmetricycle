@@ -172,7 +172,7 @@ class _DriverHomePageState extends State<DriverHomePage> {
       _currentLocationCircle = await map.addCircle(
         ml.CircleOptions(
           geometry: target,
-          circleRadius: _iconsReady ? 24 : 10,
+          circleRadius: _iconsReady ? 16 : 8,
           circleColor: "#1471C5",
           // Solid dot only when the rider icon isn't available.
           circleOpacity: _iconsReady ? 0.15 : 0.98,

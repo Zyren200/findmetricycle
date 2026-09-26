@@ -34,9 +34,9 @@ void main() {
 
       final pinImage = await _decode(pin);
       final badgeImage = await _decode(badge);
-      // 38×50 and (34+4)×(34+4) logical pixels at 3x.
-      expect([pinImage.width, pinImage.height], [114, 150]);
-      expect([badgeImage.width, badgeImage.height], [114, 114]);
+      // 26×34 and (24+4)×(24+4) logical pixels at 3x.
+      expect([pinImage.width, pinImage.height], [78, 102]);
+      expect([badgeImage.width, badgeImage.height], [84, 84]);
 
       // Optional: dump previews for a visual check.
       final out = Platform.environment["MARKER_PREVIEW_DIR"];

@@ -48,9 +48,9 @@ class MapMarkerIcons {
         _amber,
         Icons.two_wheeler_rounded,
         pixelRatio,
-        diameter: 42,
+        diameter: 30,
       ),
-      self: badge(_blue, Icons.two_wheeler_rounded, pixelRatio, diameter: 40),
+      self: badge(_blue, Icons.two_wheeler_rounded, pixelRatio, diameter: 28),
     };
     for (final entry in icons.entries) {
       await map.addImage(entry.key, await entry.value);
@@ -64,8 +64,8 @@ class MapMarkerIcons {
     Color color,
     IconData glyph,
     double pixelRatio, {
-    double width = 38,
-    double height = 50,
+    double width = 26,
+    double height = 34,
     double glyphScale = 0.55,
   }) {
     return _render(width, height, pixelRatio, (canvas) {
@@ -91,7 +91,7 @@ class MapMarkerIcons {
         Paint()
           ..color = Colors.white
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5,
+          ..strokeWidth = 2,
       );
       _drawGlyph(canvas, glyph, center, radius * 2 * glyphScale, Colors.white);
     });
@@ -102,7 +102,7 @@ class MapMarkerIcons {
     Color color,
     IconData glyph,
     double pixelRatio, {
-    double diameter = 34,
+    double diameter = 24,
   }) {
     final size = diameter + 4; // room for the shadow
     return _render(size, size, pixelRatio, (canvas) {
@@ -117,7 +117,7 @@ class MapMarkerIcons {
         Paint()
           ..color = Colors.white
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5,
+          ..strokeWidth = 2,
       );
       _drawGlyph(canvas, glyph, center, diameter * 0.58, Colors.white);
     });

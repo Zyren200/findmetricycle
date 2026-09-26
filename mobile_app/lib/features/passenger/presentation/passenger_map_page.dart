@@ -574,7 +574,7 @@ class _PassengerMapPageState extends State<PassengerMapPage>
       if (halo == null) {
         _currentLocationCircle = await map.addCircle(ml.CircleOptions(
           geometry: currentLocation,
-          circleRadius: 16,
+          circleRadius: 11,
           circleColor: _currentColorToHex(),
           // Solid dot only when the pin icon isn't available.
           circleOpacity: _iconsReady ? 0.18 : 0.9,
