@@ -38,7 +38,22 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(USER_KEY);
   }, []);
 
-  const setCaptchaSessionToken = useCallback((value) => {
+  // A stored token that has expired (or was revoked) can never recover —
+  // drop it so the user lands back on login instead of a dead Retry loop.
+  useEffect(() => {
+    const id = apiClient.interceptors.response.use(undefined, (error) => {
+      const isAuthEndpoint = /\/auth\/(v2\/)?(login|verify|otp|register)/.test(
+        error?.config?.url || ""
+      );
+      if (error?.response?.status === 401 && !isAuthEndpoint) {
+        logout();
+      }
+      return Promise.reject(error);
+    });
+    return () => apiClient.interceptors.response.eject(id);
+  }, [logout]);
+
+  const setCaptchaSessionToken =useCallback((value) => {
     sessionStorage.setItem(CAPTCHA_KEY, value);
     setCaptchaSessionTokenState(value);
   }, []);

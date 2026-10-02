@@ -37,7 +37,7 @@ export default function ReviewStep({ formData, user, mode, onBack, onSubmitted }
 
   async function verifyOtpAndSubmit(e) {
     e?.preventDefault();
-    if (!/^d{6}$/.test(otpCode)) {
+    if (!/^\d{6}$/.test(otpCode)) {
       setError("Enter the 6-digit code from your email.");
       return;
     }
@@ -91,7 +91,7 @@ export default function ReviewStep({ formData, user, mode, onBack, onSubmitted }
         throw new Error(data?.message || "Submission failed.");
       }
 
-      onSubmitted();
+      onSubmitted(data?.data);
     } catch (err) {
       if (err?.response?.data?.details?.code === "OTP_REQUIRED") {
         setNeedsOtp(true);

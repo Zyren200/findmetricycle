@@ -36,38 +36,29 @@ export default function WizardShell({ user, mode, onSubmitted, onExit }) {
           <span className="brand-title">FindMeTricycle</span>
         </div>
 
-        <div className="route" aria-label="Application progress">
-          <div className="route-track">
-            <div
-              className="route-fill"
-              style={{ width: `${((step - 1) / (STEP_TITLES.length - 1)) * 100}%` }}
-            />
+        <div aria-label="Application progress">
+          <div className="progress-head">
+            <span>
+              Step {step} of {STEP_TITLES.length} — {STEP_TITLES[step - 1]}
+            </span>
+            <span style={{ fontWeight: 500 }}>{Math.round((step / STEP_TITLES.length) * 100)}%</span>
           </div>
-          <ol className="route-stops">
-            {STEP_TITLES.map((title, i) => {
-              const n = i + 1;
-              const done = n < step;
-              const current = n === step;
-              return (
-                <li key={n}>
-                  <button
-                    type="button"
-                    className={`stop ${done ? "done" : ""} ${current ? "current" : ""}`}
-                    disabled={n > maxStep}
-                    onClick={() => n <= maxStep && n !== step && goTo(n)}
-                  >
-                    <span className="stop-dot">{done ? "✓" : n}</span>
-                    <span className="stop-label">{title.split(" ")[0]}</span>
+          <div className="progress-bar">
+            <div style={{ width: `${(step / STEP_TITLES.length) * 100}%` }} />
+          </div>
+          {maxStep > 1 ? (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: -12, marginBottom: 8 }}>
+              {STEP_TITLES.slice(0, maxStep).map((title, i) =>
+                i + 1 === step ? null : (
+                  <button key={title} type="button" className="link-btn" style={{ fontSize: ".78rem" }} onClick={() => goTo(i + 1)}>
+                    {i + 1 < step ? "✓ " : ""}
+                    {title}
                   </button>
-                </li>
-              );
-            })}
-          </ol>
+                )
+              )}
+            </div>
+          ) : null}
         </div>
-
-        <p className="progress-label center-text">
-          Step {step} of {STEP_TITLES.length} — {STEP_TITLES[step - 1]}
-        </p>
 
         {step === 1 ? (
           <PersonalInfoStep formData={formData} updateFormData={updateFormData} user={user} onNext={() => goTo(2)} />
@@ -84,6 +75,7 @@ export default function WizardShell({ user, mode, onSubmitted, onExit }) {
 
         {step === 3 ? (
           <DocumentsStep
+            user={user}
             formData={formData}
             updateFormData={updateFormData}
             onNext={() => goTo(4)}
