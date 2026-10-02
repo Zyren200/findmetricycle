@@ -2,11 +2,11 @@ import "package:flutter/material.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
 import "package:permission_handler/permission_handler.dart";
 import "package:provider/provider.dart";
-import "package:url_launcher/url_launcher.dart";
 import "../../../../core/components/index.dart";
 import "../../../../core/state/app_preferences.dart";
 import "../../../../core/theme/design_tokens.dart";
 import "../../../shared/presentation/change_password_page.dart";
+import "../../../shared/presentation/contact_support_sheet.dart";
 import "../../../shared/state/session_store.dart";
 import "../passenger_profile_controller.dart";
 import "../passenger_ride_controller.dart";
@@ -46,10 +46,13 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (_) => ChangePasswordPage(
           requestOtp: (currentPassword) =>
               ctrl.requestPasswordChangeOtp(currentPassword: currentPassword),
-          confirmChange: (currentPassword, newPassword, otp) => ctrl.confirmPasswordChange(
+          confirmChange: (currentPassword, newPassword, otp) =>
+              ctrl.confirmPasswordChange(
             currentPassword: currentPassword,
             newPassword: newPassword,
             otp: otp,
+            keepRefreshToken:
+                context.read<SessionStore>().session?.refreshToken,
           ),
         ),
       ),
@@ -69,10 +72,12 @@ class _SettingsPageState extends State<SettingsPage> {
         title: const Text("Logout"),
         content: const Text("Are you sure you want to log out?"),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text("Cancel")),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Cancel")),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text("Logout", style: TextStyle(color: DesignTokens.red)),
+            child: Text("Logout", style: TextStyle(color: DesignTokens.red)),
           ),
         ],
       ),
@@ -83,7 +88,8 @@ class _SettingsPageState extends State<SettingsPage> {
     final sessionStore = context.read<SessionStore>();
     await sessionStore.logout(storage);
     if (mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil("/login", (route) => false);
+      // AppRouter shows the login screen once the session is gone.
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
@@ -109,10 +115,13 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text("Cancel")),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Cancel")),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text("Delete Account", style: TextStyle(color: DesignTokens.red)),
+            child: Text("Delete Account",
+                style: TextStyle(color: DesignTokens.red)),
           ),
         ],
       ),
@@ -130,17 +139,15 @@ class _SettingsPageState extends State<SettingsPage> {
       final sessionStore = context.read<SessionStore>();
       await sessionStore.logout(storage);
       if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil("/login", (route) => false);
+        // AppRouter shows the login screen once the session is gone.
+        Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ctrl.profileError ?? "Failed to delete account.")),
+        SnackBar(
+            content: Text(ctrl.profileError ?? "Failed to delete account.")),
       );
     }
-  }
-
-  Future<void> _openUrl(String url) async {
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
   /// FavoritesPage needs PassengerRideController and the shell's nav-index
@@ -188,12 +195,20 @@ class _SettingsPageState extends State<SettingsPage> {
       builder: (dialogContext) => SimpleDialog(
         title: const Text("Report a Problem"),
         children: [
-          _ReportOptionTile(label: "Booking issue", onTap: () => Navigator.pop(dialogContext)),
-          _ReportOptionTile(label: "Driver issue", onTap: () => Navigator.pop(dialogContext)),
-          _ReportOptionTile(label: "Fare issue", onTap: () => Navigator.pop(dialogContext)),
-          _ReportOptionTile(label: "App issue", onTap: () => Navigator.pop(dialogContext)),
-          _ReportOptionTile(label: "Account issue", onTap: () => Navigator.pop(dialogContext)),
-          _ReportOptionTile(label: "Other", onTap: () => Navigator.pop(dialogContext)),
+          _ReportOptionTile(
+              label: "Booking issue",
+              onTap: () => Navigator.pop(dialogContext)),
+          _ReportOptionTile(
+              label: "Driver issue", onTap: () => Navigator.pop(dialogContext)),
+          _ReportOptionTile(
+              label: "Fare issue", onTap: () => Navigator.pop(dialogContext)),
+          _ReportOptionTile(
+              label: "App issue", onTap: () => Navigator.pop(dialogContext)),
+          _ReportOptionTile(
+              label: "Account issue",
+              onTap: () => Navigator.pop(dialogContext)),
+          _ReportOptionTile(
+              label: "Other", onTap: () => Navigator.pop(dialogContext)),
         ],
       ),
     );
@@ -220,22 +235,23 @@ class _SettingsPageState extends State<SettingsPage> {
                     onTap: _changePassword,
                   ),
                   const _SettingsDivider(),
-                  const _SettingsTile(
+                  _SettingsTile(
                     icon: Icons.mark_email_read_outlined,
                     label: "Email Verification",
-                    trailing: Text("Verified", style: TextStyle(color: DesignTokens.green)),
+                    trailing: Text("Verified",
+                        style: TextStyle(color: DesignTokens.green)),
                   ),
                   const _SettingsDivider(),
-                  const _SettingsTile(
+                  _SettingsTile(
                     icon: Icons.phone_android_outlined,
                     label: "Mobile Number Verification",
-                    trailing: Text("Verified", style: TextStyle(color: DesignTokens.green)),
+                    trailing: Text("Verified",
+                        style: TextStyle(color: DesignTokens.green)),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: DesignTokens.spacing20),
-
             const _SectionTitle("Notifications"),
             AppCard(
               child: Column(
@@ -246,13 +262,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       value: prefs.isNotificationEnabled(key),
                       onChanged: (v) => prefs.setNotificationEnabled(key, v),
                     ),
-                    if (key != AppPreferences.notificationKeys.last) const _SettingsDivider(),
+                    if (key != AppPreferences.notificationKeys.last)
+                      const _SettingsDivider(),
                   ],
                 ],
               ),
             ),
             const SizedBox(height: DesignTokens.spacing20),
-
             const _SectionTitle("App Preferences"),
             AppCard(
               child: Column(
@@ -277,8 +293,9 @@ class _SettingsPageState extends State<SettingsPage> {
                     icon: Icons.dark_mode_outlined,
                     label: "Dark Mode",
                     trailing: Switch(
-                      value: prefs.themeMode != ThemeMode.light,
-                      onChanged: (v) => prefs.setThemeMode(v ? ThemeMode.dark : ThemeMode.light),
+                      value: DesignTokens.isDark,
+                      onChanged: (v) => prefs
+                          .setThemeMode(v ? ThemeMode.dark : ThemeMode.light),
                     ),
                   ),
                   const _SettingsDivider(),
@@ -297,7 +314,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: DesignTokens.spacing20),
-
             const _SectionTitle("Location & Permissions"),
             AppCard(
               child: Column(
@@ -323,7 +339,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: DesignTokens.spacing20),
-
             const _SectionTitle("Ride Preferences"),
             AppCard(
               child: Column(
@@ -338,19 +353,24 @@ class _SettingsPageState extends State<SettingsPage> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.remove_circle_outline),
-                              onPressed: prefs.defaultPassengerCount <= AppPreferences.minPassengers
+                              onPressed: prefs.defaultPassengerCount <=
+                                      AppPreferences.minPassengers
                                   ? null
-                                  : () => prefs.setDefaultPassengerCount(prefs.defaultPassengerCount - 1),
+                                  : () => prefs.setDefaultPassengerCount(
+                                      prefs.defaultPassengerCount - 1),
                             ),
                             Text(
                               "${prefs.defaultPassengerCount}",
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 16),
                             ),
                             IconButton(
                               icon: const Icon(Icons.add_circle_outline),
-                              onPressed: prefs.defaultPassengerCount >= AppPreferences.maxPassengers
+                              onPressed: prefs.defaultPassengerCount >=
+                                      AppPreferences.maxPassengers
                                   ? null
-                                  : () => prefs.setDefaultPassengerCount(prefs.defaultPassengerCount + 1),
+                                  : () => prefs.setDefaultPassengerCount(
+                                      prefs.defaultPassengerCount + 1),
                             ),
                           ],
                         ),
@@ -367,7 +387,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: DesignTokens.spacing20),
-
             const _SectionTitle("Payment Method"),
             const AppCard(
               child: _SettingsTile(
@@ -377,7 +396,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: DesignTokens.spacing20),
-
             const _SectionTitle("Help & Support"),
             AppCard(
               child: Column(
@@ -388,7 +406,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     onTap: () => _showInfoDialog(
                       "Help Center",
                       "Need a hand booking a ride, tracking a driver, or managing your account? "
-                      "Reach us anytime at support@findmetricycle.local and we'll get back to you.",
+                          "Tap Contact Support below to call or email us and we'll get back to you.",
                     ),
                   ),
                   const _SettingsDivider(),
@@ -398,24 +416,26 @@ class _SettingsPageState extends State<SettingsPage> {
                     onTap: () => _showInfoDialog(
                       "Frequently Asked Questions",
                       "• How do I book a ride? Set your pickup and drop-off on the map, then tap Find Ride.\n\n"
-                      "• How is the fare calculated? Base fare plus distance, with a small fee per extra passenger.\n\n"
-                      "• How do I become a driver? Go to Profile and tap Become a Driver.\n\n"
-                      "• More questions? Contact Support below.",
+                          "• How is the fare calculated? Base fare plus distance, with a small fee per extra passenger.\n\n"
+                          "• How do I become a driver? Go to Profile and tap Become a Driver.\n\n"
+                          "• More questions? Contact Support below.",
                     ),
                   ),
                   const _SettingsDivider(),
-                  _SettingsTile(icon: Icons.report_problem_outlined, label: "Report a Problem", onTap: _reportProblem),
+                  _SettingsTile(
+                      icon: Icons.report_problem_outlined,
+                      label: "Report a Problem",
+                      onTap: _reportProblem),
                   const _SettingsDivider(),
                   _SettingsTile(
                     icon: Icons.support_agent_outlined,
                     label: "Contact Support",
-                    onTap: () => _openUrl("mailto:support@findmetricycle.local"),
+                    onTap: () => showContactSupport(context),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: DesignTokens.spacing20),
-
             const _SectionTitle("About"),
             AppCard(
               child: Column(
@@ -426,7 +446,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     onTap: () => _showInfoDialog(
                       "About FindMeTricycle",
                       "FindMeTricycle connects passengers with local tricycle drivers for fast, "
-                      "affordable rides. Version 1.0.0.",
+                          "affordable rides. Version 1.0.0.",
                     ),
                   ),
                   const _SettingsDivider(),
@@ -436,7 +456,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     onTap: () => _showInfoDialog(
                       "Terms of Service",
                       "Our full Terms of Service will be published here soon. "
-                      "For questions in the meantime, contact support@findmetricycle.local.",
+                          "For questions in the meantime, use Contact Support under Help & Support.",
                     ),
                   ),
                   const _SettingsDivider(),
@@ -446,7 +466,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     onTap: () => _showInfoDialog(
                       "Privacy Policy",
                       "Our full Privacy Policy will be published here soon. "
-                      "For questions in the meantime, contact support@findmetricycle.local.",
+                          "For questions in the meantime, use Contact Support under Help & Support.",
                     ),
                   ),
                   const _SettingsDivider(),
@@ -459,14 +479,16 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: DesignTokens.spacing20),
-
-            AppButton(label: "Logout", style: AppButtonStyle.destructive, onPressed: _logout),
+            AppButton(
+                label: "Logout",
+                style: AppButtonStyle.destructive,
+                onPressed: _logout),
             const SizedBox(height: 10),
             OutlinedButton(
               onPressed: _deleteAccount,
               style: OutlinedButton.styleFrom(
                 foregroundColor: DesignTokens.red,
-                side: const BorderSide(color: DesignTokens.red),
+                side: BorderSide(color: DesignTokens.red),
                 minimumSize: const Size.fromHeight(48),
               ),
               child: const Text("Delete Account"),
@@ -523,11 +545,13 @@ class _SectionTitle extends StatelessWidget {
 class _SettingsDivider extends StatelessWidget {
   const _SettingsDivider();
   @override
-  Widget build(BuildContext context) => const Divider(height: 1, color: DesignTokens.border);
+  Widget build(BuildContext context) =>
+      Divider(height: 1, color: DesignTokens.border);
 }
 
 class _SettingsTile extends StatelessWidget {
-  const _SettingsTile({required this.icon, required this.label, this.trailing, this.onTap});
+  const _SettingsTile(
+      {required this.icon, required this.label, this.trailing, this.onTap});
   final IconData icon;
   final String label;
   final Widget? trailing;
@@ -539,14 +563,18 @@ class _SettingsTile extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       leading: Icon(icon, color: DesignTokens.muted),
       title: Text(label),
-      trailing: trailing ?? (onTap != null ? const Icon(Icons.chevron_right, color: DesignTokens.muted) : null),
+      trailing: trailing ??
+          (onTap != null
+              ? Icon(Icons.chevron_right, color: DesignTokens.muted)
+              : null),
       onTap: onTap,
     );
   }
 }
 
 class _ToggleTile extends StatelessWidget {
-  const _ToggleTile({required this.label, required this.value, required this.onChanged});
+  const _ToggleTile(
+      {required this.label, required this.value, required this.onChanged});
   final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
@@ -563,7 +591,8 @@ class _ToggleTile extends StatelessWidget {
 }
 
 class _PermissionTile extends StatelessWidget {
-  const _PermissionTile({required this.label, required this.status, required this.onFix});
+  const _PermissionTile(
+      {required this.label, required this.status, required this.onFix});
   final String label;
   final PermissionStatus? status;
   final Future<void> Function() onFix;
@@ -575,11 +604,14 @@ class _PermissionTile extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       title: Text(label),
       subtitle: Text(
-        status == null ? "Checking…" : (granted ? "Allowed" : "Permission Required"),
-        style: TextStyle(color: granted ? DesignTokens.green : DesignTokens.red),
+        status == null
+            ? "Checking…"
+            : (granted ? "Allowed" : "Permission Required"),
+        style:
+            TextStyle(color: granted ? DesignTokens.green : DesignTokens.red),
       ),
       trailing: granted
-          ? const Icon(Icons.check_circle, color: DesignTokens.green)
+          ? Icon(Icons.check_circle, color: DesignTokens.green)
           : TextButton(
               onPressed: () {
                 if (status?.isPermanentlyDenied ?? false) {

@@ -6,9 +6,12 @@ import "../../../core/config/app_config.dart";
 import "../../../core/components/index.dart";
 import "../../../core/theme/design_tokens.dart";
 import "../../shared/presentation/change_password_page.dart";
+import "../../shared/presentation/notifications_screen.dart";
+import "../../shared/state/notifications_controller.dart";
 import "../../shared/state/session_store.dart";
 import "driver_edit_profile_page.dart";
 import "driver_ride_controller.dart";
+import "pages/driver_settings_page.dart";
 
 // Going Offline first (when currently online) before handing control back
 // to Passenger Mode — without this, a driver who switches modes (or the
@@ -36,12 +39,15 @@ Future<void> _changePassword(
   final saved = await Navigator.of(context).push<bool>(
     MaterialPageRoute(
       builder: (_) => ChangePasswordPage(
-        requestOtp: (currentPassword) =>
-            controller.requestPasswordChangeOtp(currentPassword: currentPassword),
-        confirmChange: (currentPassword, newPassword, otp) => controller.confirmPasswordChange(
+        requestOtp: (currentPassword) => controller.requestPasswordChangeOtp(
+            currentPassword: currentPassword),
+        confirmChange: (currentPassword, newPassword, otp) =>
+            controller.confirmPasswordChange(
           currentPassword: currentPassword,
           newPassword: newPassword,
           otp: otp,
+          keepRefreshToken:
+              context.read<SessionStore>().session?.refreshToken,
         ),
       ),
     ),
@@ -85,39 +91,49 @@ class _DriverProfilePageState extends State<DriverProfilePage> {
     });
   }
 
+  void _push(BuildContext context, Widget page) {
+    final ctrl = context.read<DriverRideController>();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChangeNotifierProvider.value(value: ctrl, child: page),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ctrl = context.watch<DriverRideController>();
     final session = context.watch<SessionStore>().session;
     final profile = ctrl.driverProfile ?? {};
     final summary = ctrl.earningsSummary ?? profile;
-    final ratings = ctrl.ratings;
-    final completedRides = ctrl.completedRides;
 
     final fullName =
         _text(profile["full_name"]) ?? session?.fullName ?? "Driver";
-    final email = _text(profile["email"]) ?? "-";
+    final email = _text(profile["email"]);
+    final phone = _text(profile["phone"]) ?? session?.phone;
     final tricycleNumber = _text(profile["tricycle_number"]) ?? "-";
     final approvalStatus = _text(profile["approval_status"]) ?? "unknown";
-    final (String, String)? approvalNotice = switch (approvalStatus.toLowerCase()) {
+    final (String, String)? approvalNotice =
+        switch (approvalStatus.toLowerCase()) {
       "pending" => (
           "Pending Approval",
-          "Sinusuri pa ng admin ang account mo. Aabisuhan ka kapag naaprubahan na.",
+          "Your account is still being reviewed by the admin. You'll be notified once approved.",
         ),
       "suspended" => (
           "Suspended",
-          "Naka-suspend ang driver account mo. Makipag-ugnayan sa admin.",
+          "Your driver account is suspended. Please contact the admin.",
         ),
       "license_expired" => (
-          "Expired na ang lisensya",
-          "I-update ang lisensya mo para makapag-online ulit.",
+          "License expired",
+          "Update your license to go online again.",
         ),
       "rejected" => (
-          "Hindi naaprubahan",
-          "Hindi naaprubahan ang application mo. Maaari kang mag-apply ulit.",
+          "Not approved",
+          "Your application was not approved. You can apply again.",
         ),
       _ => null,
     };
+    final rating = _number(summary["rating_avg"]);
     final totalRides =
         _text(summary["total_rides"] ?? profile["total_rides"]) ?? "0";
     final totalEarnings =
@@ -126,354 +142,419 @@ class _DriverProfilePageState extends State<DriverProfilePage> {
     final profileImageUrl = profileImagePath == null
         ? null
         : AppConfig.resolveAssetUrl(profileImagePath);
+    final docsNeedUpdate = const {"expired", "expiring_soon"}
+            .contains(_text(profile["license_expiry_status"])) ||
+        const {"expired", "expiring_soon"}
+            .contains(_text(profile["business_permit_expiry_status"]));
 
     return Scaffold(
-      appBar: AppAppBar(
-        title: "Driver Profile",
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: "Edit Profile",
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ChangeNotifierProvider.value(
-                  value: ctrl,
-                  child: const DriverEditProfilePage(),
-                ),
+      backgroundColor: DesignTokens.bg,
+      body: Column(
+        children: [
+          AppTopBar(
+            title: "Driver Profile",
+            trailing: IconButton(
+              icon: Icon(Icons.edit_outlined, color: DesignTokens.text),
+              tooltip: "Edit Profile",
+              onPressed: () => _push(context, const DriverEditProfilePage()),
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () async {
+                await ctrl.refreshEarnings(notify: false);
+                await ctrl.refreshProfile();
+              },
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  // Profile card
+                  Container(
+                    color: DesignTokens.bg2,
+                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 32,
+                              backgroundColor: DesignTokens.driverAccent,
+                              backgroundImage: profileImageUrl == null
+                                  ? null
+                                  : NetworkImage(profileImageUrl),
+                              child: profileImageUrl != null
+                                  ? null
+                                  : Text(
+                                      _initials(fullName),
+                                      style: TextStyle(
+                                        color: DesignTokens.bg,
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(fullName,
+                                      style: TextStyle(
+                                          color: DesignTokens.text,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700)),
+                                  if (phone != null)
+                                    Text(phone,
+                                        style: TextStyle(
+                                            color: DesignTokens.muted,
+                                            fontSize: 13)),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.star_rounded,
+                                          size: 16, color: Colors.amber),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                          rating == null
+                                              ? "N/A"
+                                              : rating.toStringAsFixed(2),
+                                          style: TextStyle(
+                                              color: DesignTokens.text,
+                                              fontWeight: FontWeight.w600)),
+                                      const SizedBox(width: 4),
+                                      Text("(${ctrl.ratings.length} ratings)",
+                                          style: TextStyle(
+                                              color: DesignTokens.muted,
+                                              fontSize: 12)),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            _VehicleInfo(
+                                label: "Tricycle", value: tricycleNumber),
+                            const SizedBox(width: 12),
+                            _VehicleInfo(
+                                label: "Status",
+                                value: approvalStatus.toUpperCase()),
+                            const SizedBox(width: 12),
+                            _VehicleInfo(
+                                label: "Mode",
+                                value: ctrl.isOnline ? "ONLINE" : "OFFLINE"),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  if (approvalNotice != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: StatusBanner(
+                        label: approvalNotice.$1,
+                        subtitle: approvalNotice.$2,
+                        color: DesignTokens.warning,
+                        icon: Icons.info_outline_rounded,
+                      ),
+                    ),
+                  if (ctrl.error != null && ctrl.driverProfile == null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: ErrorBox(
+                          message: ctrl.error!, onRetry: ctrl.refreshProfile),
+                    ),
+
+                  // Account details
+                  _Section(
+                    title: "Account",
+                    children: [
+                      _DetailRow(
+                          label: "Tricycle Number", value: tricycleNumber),
+                      if (email != null)
+                        _DetailRow(label: "Email", value: email),
+                      _DetailRow(label: "Total Trips", value: totalRides),
+                      _DetailRow(
+                          label: "Total Earnings",
+                          value: "₱${totalEarnings.toStringAsFixed(2)}"),
+                    ],
+                  ),
+
+                  // Documents
+                  _Section(
+                    title: "Documents",
+                    children: [
+                      _DocumentStatusRow(
+                        label: "Driver's License",
+                        status: _text(profile["license_expiry_status"]),
+                        expiresAt: _text(profile["license_expires_at"]),
+                      ),
+                      _DocumentStatusRow(
+                        label: "Business Permit",
+                        status: _text(profile["business_permit_expiry_status"]),
+                        expiresAt: _text(profile["business_permit_expires_at"]),
+                      ),
+                      if (docsNeedUpdate)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final uri = Uri.parse(AppConfig.driverApplyUrl);
+                              await launchUrl(uri,
+                                  mode: LaunchMode.externalApplication);
+                            },
+                            icon:
+                                const Icon(Icons.open_in_new_rounded, size: 16),
+                            label: const Text("Update Documents"),
+                          ),
+                        ),
+                    ],
+                  ),
+
+                  // Navigation
+                  _Section(
+                    children: [
+                      NavListItem(
+                        icon: Icons.star_border_rounded,
+                        label: "My Ratings",
+                        onTap: () => _push(context, const _MyRatingsPage()),
+                      ),
+                      NavListItem(
+                        icon: Icons.description_outlined,
+                        label: "Ride History",
+                        onTap: () =>
+                            context.read<ValueNotifier<int>>().value = 1,
+                      ),
+                      NavListItem(
+                        icon: Icons.notifications_none_rounded,
+                        label: "Notifications",
+                        onTap: () {
+                          final notifications =
+                              context.read<NotificationsController>();
+                          Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) =>
+                                NotificationsScreen(controller: notifications),
+                          ));
+                        },
+                      ),
+                      NavListItem(
+                        icon: Icons.lock_outline_rounded,
+                        label: "Change Password",
+                        onTap: () => _changePassword(context, ctrl),
+                      ),
+                      NavListItem(
+                        icon: Icons.settings_outlined,
+                        label: "Settings",
+                        onTap: () => _push(context, const DriverSettingsPage()),
+                      ),
+                    ],
+                  ),
+
+                  // Mode switch
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius:
+                            BorderRadius.circular(DesignTokens.radius),
+                        onTap: () => _switchToPassenger(context, ctrl),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            borderRadius:
+                                BorderRadius.circular(DesignTokens.radius),
+                            border: Border.all(color: DesignTokens.border2),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text("Switch to Passenger Mode",
+                                    style: TextStyle(
+                                        color: DesignTokens.text,
+                                        fontSize: 14)),
+                              ),
+                              Icon(Icons.chevron_right_rounded,
+                                  color: DesignTokens.muted),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Logout
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    decoration: BoxDecoration(
+                      border:
+                          Border(top: BorderSide(color: DesignTokens.border)),
+                    ),
+                    child: InkWell(
+                      onTap: () => _logout(context, ctrl),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        child: Row(
+                          children: [
+                            Icon(Icons.logout_rounded,
+                                size: 20, color: DesignTokens.red),
+                            const SizedBox(width: 12),
+                            Text("Sign Out",
+                                style: TextStyle(
+                                    color: DesignTokens.red,
+                                    fontWeight: FontWeight.w500)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
               ),
             ),
           ),
         ],
       ),
-      body: Container(
-        color: DesignTokens.bg,
-        child: RefreshIndicator(
-          onRefresh: () async {
-            await ctrl.refreshEarnings(notify: false);
-            await ctrl.refreshProfile();
-          },
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(DesignTokens.spacing16),
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: DesignTokens.bg2,
-                  border: Border.all(color: DesignTokens.border),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 66,
-                          height: 66,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            gradient: const LinearGradient(
-                              colors: [DesignTokens.driverAccent, DesignTokens.driverAccent2],
-                            ),
-                          ),
-                          alignment: Alignment.center,
-                          child: profileImageUrl != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(20),
-                                  child: Image.network(
-                                    profileImageUrl,
-                                    width: 66,
-                                    height: 66,
-                                    fit: BoxFit.cover,
-                                  ),
-                                )
-                              : Text(
-                                  _initials(fullName),
-                                  style: const TextStyle(
-                                    color: Colors.black,
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                fullName,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineSmall
-                                    ?.copyWith(
-                                      color: DesignTokens.text,
-                                      fontSize: 22,
-                                    ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                "Driver · $tricycleNumber",
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(color: DesignTokens.muted),
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: [
-                                  _StatusChip(
-                                    label: approvalStatus.toUpperCase(),
-                                    tone: _approvalTone(approvalStatus),
-                                  ),
-                                  _StatusChip(
-                                    label: ctrl.isOnline ? "ONLINE" : "OFFLINE",
-                                    tone: ctrl.isOnline ? "success" : "warning",
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    if (email != "-")
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          email,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: DesignTokens.muted),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: DesignTokens.spacing16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _StatCard(
-                      label: "Total Trips",
-                      value: totalRides,
-                      icon: Icons.route,
-                      color: DesignTokens.green,
-                    ),
-                  ),
-                  const SizedBox(width: DesignTokens.spacing12),
-                  Expanded(
-                    child: _StatCard(
-                      label: "Total Earnings",
-                      value: "PHP ${totalEarnings.toStringAsFixed(2)}",
-                      icon: Icons.payments,
-                      color: DesignTokens.driverAccent,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: DesignTokens.spacing16),
-              const Text(
-                "Documents",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: DesignTokens.text,
-                ),
-              ),
-              const SizedBox(height: 10),
-              _DocumentStatusRow(
-                label: "Driver's License",
-                status: _text(profile["license_expiry_status"]),
-                expiresAt: _text(profile["license_expires_at"]),
-              ),
-              const SizedBox(height: 8),
-              _DocumentStatusRow(
-                label: "Business Permit",
-                status: _text(profile["business_permit_expiry_status"]),
-                expiresAt: _text(profile["business_permit_expires_at"]),
-              ),
-              if (const {"expired", "expiring_soon"}.contains(
-                    _text(profile["license_expiry_status"]),
-                  ) ||
-                  const {"expired", "expiring_soon"}.contains(
-                    _text(profile["business_permit_expiry_status"]),
-                  )) ...[
-                const SizedBox(height: 10),
-                AppButton(
-                  label: "Update Documents",
-                  style: AppButtonStyle.ghost,
-                  onPressed: () async {
-                    final uri = Uri.parse(AppConfig.driverApplyUrl);
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  },
-                ),
-              ],
-              const SizedBox(height: DesignTokens.spacing16),
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      "Completed Trips",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: DesignTokens.text,
-                      ),
-                    ),
-                  ),
-                  if (ctrl.isProfileLoading)
-                    const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              // Only for a real, loaded non-approved status — "unknown" just
-              // means the profile hasn't loaded yet, and used to show
-              // "Pending Approval" to drivers who were already approved.
-              if (approvalNotice != null)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: DesignTokens.warning.withAlpha(20),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: DesignTokens.warning.withAlpha(60)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        approvalNotice.$1,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(color: DesignTokens.warning),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        approvalNotice.$2,
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: DesignTokens.text),
-                      ),
-                    ],
-                  ),
-                ),
-              if (approvalNotice != null)
-                const SizedBox(height: DesignTokens.spacing16),
-              if (ctrl.error != null && ctrl.driverProfile == null)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  margin: const EdgeInsets.only(bottom: DesignTokens.spacing16),
-                  decoration: BoxDecoration(
-                    color: DesignTokens.red.withAlpha(20),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: DesignTokens.red.withAlpha(60)),
-                  ),
-                  child: Text(
-                    ctrl.error!,
-                    style: const TextStyle(color: DesignTokens.red),
-                  ),
-                ),
-              if (!ctrl.isProfileLoading && completedRides.isEmpty)
-                const AppCard(
-                  child: Text(
-                    "Wala pang completed trips.",
-                    style: TextStyle(color: DesignTokens.muted),
-                  ),
-                ),
-              ...completedRides.map((ride) => _CompletedRideCard(ride: ride)),
-              const SizedBox(height: 16),
-              const Text(
-                "Passenger Ratings",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: DesignTokens.text,
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (!ctrl.isProfileLoading && ratings.isEmpty)
-                const AppCard(
-                  child: Text(
-                    "Wala pang ratings mula sa mga passenger.",
-                    style: TextStyle(color: DesignTokens.muted),
-                  ),
-                ),
-              ...ratings.map((rating) => _RatingCard(rating: rating)),
-              const SizedBox(height: DesignTokens.spacing24),
-              AppButton(
-                label: "Change Password",
-                style: AppButtonStyle.ghost,
-                onPressed: () => _changePassword(context, ctrl),
-              ),
-              const SizedBox(height: DesignTokens.spacing12),
-              AppButton(
-                label: "Switch to Passenger Mode",
-                style: AppButtonStyle.ghost,
-                onPressed: () => _switchToPassenger(context, ctrl),
-              ),
-              const SizedBox(height: DesignTokens.spacing12),
-              AppButton(
-                label: "Logout",
-                style: AppButtonStyle.destructive,
-                onPressed: () => _logout(context, ctrl),
-              ),
-            ],
-          ),
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  const _Section({this.title, required this.children});
+
+  final String? title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: DesignTokens.border)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (title != null) SectionLabel(title!),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _VehicleInfo extends StatelessWidget {
+  const _VehicleInfo({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: DesignTokens.bg3,
+          borderRadius: BorderRadius.circular(DesignTokens.radiusSm),
+        ),
+        child: Column(
+          children: [
+            Text(label,
+                style: TextStyle(color: DesignTokens.muted, fontSize: 11)),
+            FittedBox(
+              child: Text(value,
+                  style: TextStyle(
+                      color: DesignTokens.text,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-String _approvalTone(String status) {
-  final lower = status.toLowerCase();
-  if (lower.contains("approved")) return "success";
-  if (lower.contains("pending")) return "warning";
-  if (lower.contains("suspend")) return "error";
-  return "warning";
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({
-    required this.label,
-    required this.tone,
-  });
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
 
   final String label;
-  final String tone;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (tone) {
-      "success" => DesignTokens.green,
-      "error" => DesignTokens.red,
-      _ => DesignTokens.driverAccent,
-    };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        color: color.withAlpha(24),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withAlpha(50)),
+        border: Border(bottom: BorderSide(color: DesignTokens.border)),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-        ),
+      child: Row(
+        children: [
+          Text(label,
+              style: TextStyle(color: DesignTokens.muted, fontSize: 13)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(value,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                    color: DesignTokens.text,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Passenger ratings and recent completed trips with their feedback.
+class _MyRatingsPage extends StatelessWidget {
+  const _MyRatingsPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final ctrl = context.watch<DriverRideController>();
+    return Scaffold(
+      backgroundColor: DesignTokens.bg,
+      body: Column(
+        children: [
+          const AppTopBar(title: "My Ratings", showBack: true),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: ctrl.refreshProfile,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                children: [
+                  if (ctrl.isProfileLoading && ctrl.ratings.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 60),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (ctrl.ratings.isEmpty)
+                    const EmptyState(
+                      icon: Icons.star_border_rounded,
+                      message: "No ratings from passengers yet",
+                    ),
+                  ...ctrl.ratings.map((rating) => _RatingCard(rating: rating)),
+                  if (ctrl.completedRides.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    const SectionLabel("Completed Trips"),
+                    ...ctrl.completedRides
+                        .map((ride) => _CompletedRideCard(ride: ride)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -517,7 +598,7 @@ class _DocumentStatusRow extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: DesignTokens.text,
                   ),
@@ -526,7 +607,7 @@ class _DocumentStatusRow extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     "Expires: ${_formatDate(expiresAt) ?? expiresAt}",
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: DesignTokens.muted,
                       fontSize: 12,
                     ),
@@ -550,52 +631,6 @@ class _DocumentStatusRow extends StatelessWidget {
                 fontWeight: FontWeight.w800,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: DesignTokens.bg2,
-        border: Border.all(color: DesignTokens.border),
-        borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: DesignTokens.text,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(color: DesignTokens.muted),
           ),
         ],
       ),
@@ -637,7 +672,7 @@ class _CompletedRideCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   passengerName,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: DesignTokens.text,
                   ),
@@ -645,7 +680,7 @@ class _CompletedRideCard extends StatelessWidget {
               ),
               Text(
                 "PHP ${finalFare.toStringAsFixed(2)}",
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w800,
                   color: DesignTokens.driverAccent,
                 ),
@@ -653,26 +688,27 @@ class _CompletedRideCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text("Pickup: $pickup", style: const TextStyle(color: DesignTokens.text)),
+          Text("Pickup: $pickup", style: TextStyle(color: DesignTokens.text)),
           const SizedBox(height: 4),
-          Text("Drop-off: $dropoff", style: const TextStyle(color: DesignTokens.text)),
+          Text("Drop-off: $dropoff",
+              style: TextStyle(color: DesignTokens.text)),
           const SizedBox(height: 8),
           Text(
             "Distance: ${distance.toStringAsFixed(2)} km",
-            style: const TextStyle(color: DesignTokens.muted),
+            style: TextStyle(color: DesignTokens.muted),
           ),
           if (completedAt != null) ...[
             const SizedBox(height: 4),
             Text(
               "Completed: $completedAt",
-              style: const TextStyle(color: DesignTokens.muted),
+              style: TextStyle(color: DesignTokens.muted),
             ),
           ],
           if (passengerRating != null) ...[
             const SizedBox(height: 10),
             Row(
               children: [
-                const Text(
+                Text(
                   "Passenger rating:",
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
@@ -686,7 +722,7 @@ class _CompletedRideCard extends StatelessWidget {
           ],
           if (passengerFeedback != null && passengerFeedback.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text(passengerFeedback, style: const TextStyle(color: DesignTokens.text)),
+            Text(passengerFeedback, style: TextStyle(color: DesignTokens.text)),
           ],
         ],
       ),
@@ -722,7 +758,7 @@ class _RatingCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   passengerName,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: DesignTokens.text,
                   ),
@@ -733,13 +769,13 @@ class _RatingCard extends StatelessWidget {
           ),
           if (feedback != null && feedback.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Text(feedback, style: const TextStyle(color: DesignTokens.text)),
+            Text(feedback, style: TextStyle(color: DesignTokens.text)),
           ],
           if (createdAt != null) ...[
             const SizedBox(height: 8),
             Text(
               createdAt,
-              style: const TextStyle(fontSize: 12, color: DesignTokens.muted),
+              style: TextStyle(fontSize: 12, color: DesignTokens.muted),
             ),
           ],
         ],

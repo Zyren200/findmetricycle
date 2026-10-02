@@ -1,10 +1,12 @@
 import "package:flutter/material.dart";
 import "package:image_picker/image_picker.dart";
+import "../../../core/state/dispose_safe_notifier.dart";
 import "../repositories/favorites_repository.dart";
 import "../../auth/repositories/auth_repository.dart";
 
 /// Controller for managing passenger profile, driver status, and favorites
-class PassengerProfileController extends ChangeNotifier {
+class PassengerProfileController extends ChangeNotifier
+    with DisposeSafeNotifier {
   PassengerProfileController(
     this._authRepository,
     this._favoritesRepository,
@@ -199,7 +201,8 @@ class PassengerProfileController extends ChangeNotifier {
       if (result["success"] == true) {
         _userProfile = Map<String, dynamic>.from(result["data"] as Map);
       } else {
-        _profileError = result["message"] as String? ?? "Failed to load profile";
+        _profileError =
+            result["message"] as String? ?? "Failed to load profile";
       }
     } catch (e) {
       _profileError = "Error loading profile: $e";
@@ -232,7 +235,8 @@ class PassengerProfileController extends ChangeNotifier {
         _userProfile = Map<String, dynamic>.from(result["data"] as Map);
         return true;
       }
-      _profileError = result["message"] as String? ?? "Failed to update profile";
+      _profileError =
+          result["message"] as String? ?? "Failed to update profile";
       return false;
     } catch (e) {
       _profileError = "Error updating profile: $e";
@@ -252,10 +256,11 @@ class PassengerProfileController extends ChangeNotifier {
     required String currentPassword,
   }) async {
     try {
-      final result =
-          await _authRepository.requestPasswordChangeOtp(currentPassword: currentPassword);
+      final result = await _authRepository.requestPasswordChangeOtp(
+          currentPassword: currentPassword);
       if (result["success"] != true) {
-        _profileError = result["message"] as String? ?? "Failed to send verification code.";
+        _profileError =
+            result["message"] as String? ?? "Failed to send verification code.";
         notifyListeners();
       }
       return result;
@@ -273,15 +278,18 @@ class PassengerProfileController extends ChangeNotifier {
     required String currentPassword,
     required String newPassword,
     required String otp,
+    String? keepRefreshToken,
   }) async {
     try {
       final result = await _authRepository.confirmPasswordChange(
         currentPassword: currentPassword,
         newPassword: newPassword,
         otp: otp,
+        keepRefreshToken: keepRefreshToken,
       );
       if (result["success"] == true) return true;
-      _profileError = result["message"] as String? ?? "Failed to change password";
+      _profileError =
+          result["message"] as String? ?? "Failed to change password";
       notifyListeners();
       return false;
     } catch (e) {
@@ -295,7 +303,8 @@ class PassengerProfileController extends ChangeNotifier {
     try {
       final result = await _authRepository.deleteAccount(password: password);
       if (result["success"] == true) return true;
-      _profileError = result["message"] as String? ?? "Failed to delete account";
+      _profileError =
+          result["message"] as String? ?? "Failed to delete account";
       notifyListeners();
       return false;
     } catch (e) {

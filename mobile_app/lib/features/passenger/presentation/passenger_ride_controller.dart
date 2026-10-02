@@ -4,6 +4,7 @@ import "package:geolocator/geolocator.dart";
 import "package:latlong2/latlong.dart" as ll;
 import "../../../core/config/app_config.dart";
 import "../../../core/network/socket_client.dart";
+import "../../../core/state/dispose_safe_notifier.dart";
 import "../../../core/utils/geo_utils.dart";
 import "../../../core/utils/geocoding.dart";
 import "../../../core/utils/place_search.dart";
@@ -43,7 +44,7 @@ String bookingStatusLabel(String? status) {
   return kBookingStatusLabels[status] ?? status;
 }
 
-class PassengerRideController extends ChangeNotifier {
+class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
   PassengerRideController(
     this._repository,
     this._socketClient,
@@ -77,7 +78,8 @@ class PassengerRideController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await _repository.getBookingHistory(limit: _historyPageSize);
+      final response =
+          await _repository.getBookingHistory(limit: _historyPageSize);
       if (response["success"] != true) {
         throw Exception(response["message"]?.toString());
       }
@@ -104,7 +106,8 @@ class PassengerRideController extends ChangeNotifier {
         final seen = bookingHistory.map((r) => r["id"]).toSet();
         bookingHistory = [
           ...bookingHistory,
-          ..._toRideList(response["data"]).where((r) => !seen.contains(r["id"])),
+          ..._toRideList(response["data"])
+              .where((r) => !seen.contains(r["id"])),
         ];
         _applyHistoryMeta(response["meta"]);
       }
@@ -216,6 +219,33 @@ class PassengerRideController extends ChangeNotifier {
     if (clamped == _passengerCount) return;
     _passengerCount = clamped;
     notifyListeners();
+  }
+
+  // Fare breakdown for the fare-estimate screen (same inputs as
+  // [estimatedFare]).
+  double get baseFare => _baseFare;
+  double get distanceFare =>
+      double.parse((estimatedDistanceKm * _perKmRate).toStringAsFixed(2));
+  double get additionalPassengersFare =>
+      (_passengerCount - 1).clamp(0, maxPassengers) * _additionalPassengerFee;
+
+  /// Uses the GPS position as pickup (the "Use my current location" row).
+  void usePickupAtCurrentLocation() {
+    final here = currentPosition;
+    if (here == null) return;
+    if (activeBookingId != null &&
+        bookingStatus != null &&
+        kActiveBookingStatuses.contains(bookingStatus)) {
+      return;
+    }
+    pickup = here;
+    pickupAddress = null;
+    dropoff = null;
+    dropoffAddress = null;
+    routePolyline = null;
+    routeDistanceKm = null;
+    notifyListeners();
+    _resolveAddress(isPickup: true, point: here);
   }
 
   double get estimatedFare {
@@ -341,10 +371,14 @@ class PassengerRideController extends ChangeNotifier {
       bookingData = booking;
       pickupPin = data["pickupPin"]?.toString() ?? pickupPin;
 
-      final pickupLat = double.tryParse(booking["pickup_lat"]?.toString() ?? "");
-      final pickupLng = double.tryParse(booking["pickup_lng"]?.toString() ?? "");
-      final dropoffLat = double.tryParse(booking["dropoff_lat"]?.toString() ?? "");
-      final dropoffLng = double.tryParse(booking["dropoff_lng"]?.toString() ?? "");
+      final pickupLat =
+          double.tryParse(booking["pickup_lat"]?.toString() ?? "");
+      final pickupLng =
+          double.tryParse(booking["pickup_lng"]?.toString() ?? "");
+      final dropoffLat =
+          double.tryParse(booking["dropoff_lat"]?.toString() ?? "");
+      final dropoffLng =
+          double.tryParse(booking["dropoff_lng"]?.toString() ?? "");
       if (pickupLat != null && pickupLng != null) {
         pickup = ll.LatLng(pickupLat, pickupLng);
         pickupAddress = booking["pickup_address"]?.toString();
@@ -435,7 +469,8 @@ class PassengerRideController extends ChangeNotifier {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     locationServiceDisabled = !serviceEnabled;
     if (!serviceEnabled) {
-      throw Exception("Naka-off ang GPS/Location. I-on ito para makita ang lokasyon mo.");
+      throw Exception(
+          "Naka-off ang GPS/Location. I-on ito para makita ang lokasyon mo.");
     }
 
     var permission = await Geolocator.checkPermission();
@@ -642,7 +677,10 @@ class PassengerRideController extends ChangeNotifier {
   /// accepting it as pickup/drop-off — rejects taps that land nowhere near
   /// a road (open fields, water, building interiors) instead of silently
   /// allowing an unreachable point.
-  Future<void> selectOnMap(ll.LatLng rawLocation) async {
+  ///
+  /// [asPickup] forces which end the tap sets (the step-by-step booking
+  /// flow); left null, the first tap sets pickup and the next drop-off.
+  Future<void> selectOnMap(ll.LatLng rawLocation, {bool? asPickup}) async {
     if (activeBookingId != null &&
         bookingStatus != null &&
         kActiveBookingStatuses.contains(bookingStatus)) {
@@ -662,7 +700,9 @@ class PassengerRideController extends ChangeNotifier {
       return;
     }
 
-    if (pickup == null || (pickup != null && dropoff != null)) {
+    final setPickup =
+        asPickup ?? (pickup == null || (pickup != null && dropoff != null));
+    if (setPickup) {
       pickup = snapped;
       pickupAddress = null;
       dropoff = null;
@@ -679,6 +719,7 @@ class PassengerRideController extends ChangeNotifier {
       notifyListeners();
       _resolveAddress(isPickup: true, point: snapped);
     } else {
+      pickup ??= currentPosition;
       dropoff = snapped;
       dropoffAddress = null;
       notifyListeners();
@@ -834,7 +875,8 @@ class PassengerRideController extends ChangeNotifier {
 
       final success = response["success"] == true;
       if (!success) {
-        throw Exception(response["message"]?.toString() ?? "Failed to send SOS alert.");
+        throw Exception(
+            response["message"]?.toString() ?? "Failed to send SOS alert.");
       }
 
       sosMessage = "SOS alert sent. Admin has been notified.";
@@ -940,7 +982,8 @@ class PassengerRideController extends ChangeNotifier {
   StreamSubscription? _fareUpdateSub;
 
   void _bindSocketEvents() {
-    _fareUpdateSub ??= _socketClient.on("passenger:fare_updated").listen((event) {
+    _fareUpdateSub ??=
+        _socketClient.on("passenger:fare_updated").listen((event) {
       final fare = _toMap(event);
       final base = double.tryParse(fare["base_fare"]?.toString() ?? "");
       final perKm = double.tryParse(fare["per_km_rate"]?.toString() ?? "");
@@ -966,21 +1009,39 @@ class PassengerRideController extends ChangeNotifier {
       bookingStatus = status;
       bookingData = booking;
 
-      if (status == "pending" && booking["driver_id"] == null) {
-        // The rider we picked declined or let the request time out — the
-        // server hands back a fresh list so the passenger can choose again.
+      if (status == "cancelled") {
+        // Cancelled from the other side — the admin force-closed it, or the
+        // rider reported a no-show.
+        driverInfo = null;
+        driverPosition = null;
+        nearbyDrivers = [];
+        rideNotice = payload["message"]?.toString() ??
+            "Your ride has been cancelled.";
+        _stopNearbyRefresh();
+      } else if (status == "pending" && booking["driver_id"] == null) {
+        // The rider we picked declined, let the request time out, or backed
+        // out before pickup — the server hands back a fresh list so the
+        // passenger can choose again.
         final previous = driverName;
         driverInfo = null;
         driverPosition = null;
         nearbyDrivers = _toDriverList(payload["nearbyDrivers"]);
-        rideNotice = reason == "expired"
-            ? "Hindi sumagot si ${previous ?? "ang rider"}. Pumili ng ibang rider."
-            : "Hindi tinanggap ni ${previous ?? "ang rider"} ang request. Pumili ng ibang rider.";
+        rideNotice = switch (reason) {
+          "expired" =>
+            "Hindi sumagot si ${previous ?? "ang rider"}. Pumili ng ibang rider.",
+          "driver_cancelled" =>
+            "Kinansela ni ${previous ?? "ang rider"} ang ride. Pumili ng ibang rider.",
+          "driver_unreachable" =>
+            "Nawalan ng koneksyon kay ${previous ?? "ang rider"}, kaya ibinalik sa iyo ang ride. Pumili ng ibang rider.",
+          _ =>
+            "Hindi tinanggap ni ${previous ?? "ang rider"} ang request. Pumili ng ibang rider.",
+        };
         driverPickerRequest++;
         _startNearbyRefresh();
       } else {
         if (status == "accepted") {
-          rideNotice = "Tinanggap ni ${driverName ?? "ang rider"} ang ride mo! Papunta na siya.";
+          rideNotice =
+              "Tinanggap ni ${driverName ?? "ang rider"} ang ride mo! Papunta na siya.";
         }
         // Rider details from the booking row, layered over what we already
         // know about the chosen rider. Only rider fields are copied — the
@@ -1093,4 +1154,3 @@ class PassengerRideController extends ChangeNotifier {
     return {};
   }
 }
-

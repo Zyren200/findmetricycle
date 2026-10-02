@@ -4,6 +4,7 @@ import "package:provider/provider.dart";
 import "../../../core/components/index.dart";
 import "../../../core/theme/design_tokens.dart";
 import "../../shared/state/session_store.dart";
+import "forgot_password_page.dart";
 import "register_email_page.dart";
 
 class LoginPage extends StatefulWidget {
@@ -26,7 +27,25 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  static final _emailPattern = RegExp(r"^[^@\s]+@[^@\s]+\.[^@\s]+$");
+  // Same shape the backend's phoneSchema accepts.
+  static final _phonePattern = RegExp(r"^[0-9+ -]{7,20}$");
+
+  String? _validateIdentifier(String? value) {
+    final input = value?.trim() ?? "";
+    if (input.isEmpty) return "Email or mobile number is required";
+    if (input.contains("@")) {
+      return _emailPattern.hasMatch(input)
+          ? null
+          : "Enter a valid email address";
+    }
+    return _phonePattern.hasMatch(input)
+        ? null
+        : "Enter a valid email or mobile number";
+  }
+
   Future<void> _submit() async {
+    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
 
     final sessionStore = context.read<SessionStore>();
@@ -39,9 +58,39 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  Future<void> _openForgotPassword() async {
+    final identifier = _identifierController.text.trim();
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordPage(
+          initialEmail: identifier.contains("@") ? identifier : null,
+        ),
+      ),
+    );
+    if (saved != true || !mounted) return;
+
+    // The old (wrong) password and its error no longer apply.
+    _passwordController.clear();
+    context.read<SessionStore>().clearError();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Password updated. You can now log in."),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final sessionStore = context.watch<SessionStore>();
+    final errorField = sessionStore.errorField;
+    final identifierError = (errorField == "email" || errorField == "phone")
+        ? sessionStore.error
+        : null;
+    final passwordError =
+        errorField == "password" ? sessionStore.error : null;
+    final generalError = (identifierError == null && passwordError == null)
+        ? sessionStore.error
+        : null;
 
     return Scaffold(
       body: Container(
@@ -64,10 +113,11 @@ class _LoginPageState extends State<LoginPage> {
                       Text(
                         "FindMeTricycle",
                         textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                              color: DesignTokens.accent,
-                              fontSize: 30,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  color: DesignTokens.accent,
+                                  fontSize: 30,
+                                ),
                       ),
                       const SizedBox(height: DesignTokens.spacing6),
                       Text(
@@ -92,10 +142,15 @@ class _LoginPageState extends State<LoginPage> {
                         placeholder: "name@example.com or +63 9XX XXX XXXX",
                         controller: _identifierController,
                         keyboardType: TextInputType.emailAddress,
-                        validator: (value) =>
-                            (value == null || value.trim().isEmpty)
-                                ? "Email or mobile number is required"
-                                : null,
+                        validator: _validateIdentifier,
+                        errorText: identifierError,
+                        // What the user typed stays put; editing it just
+                        // clears the "not registered" message.
+                        onChanged: (_) {
+                          if (identifierError != null) {
+                            sessionStore.clearError();
+                          }
+                        },
                       ),
                       const SizedBox(height: DesignTokens.spacing14),
                       AppTextField(
@@ -117,9 +172,15 @@ class _LoginPageState extends State<LoginPage> {
                             (value == null || value.trim().isEmpty)
                                 ? "Password is required"
                                 : null,
+                        errorText: passwordError,
+                        onChanged: (_) {
+                          if (passwordError != null) {
+                            sessionStore.clearError();
+                          }
+                        },
                       ),
                       const SizedBox(height: DesignTokens.spacing14),
-                      if (sessionStore.error != null)
+                      if (generalError != null)
                         Container(
                           padding: const EdgeInsets.all(DesignTokens.spacing12),
                           decoration: BoxDecoration(
@@ -132,8 +193,8 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                           child: Text(
-                            sessionStore.error!,
-                            style: const TextStyle(
+                            generalError,
+                            style: TextStyle(
                               color: DesignTokens.red,
                               fontSize: DesignTokens.fontSize12,
                               fontFamily: DesignTokens.fontDmSans,
@@ -161,13 +222,31 @@ class _LoginPageState extends State<LoginPage> {
                                 );
                               },
                       ),
-                      const SizedBox(height: DesignTokens.spacing12),
-                      Text(
-                        "Forgot password? Reset",
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: DesignTokens.muted,
+                      const SizedBox(height: DesignTokens.spacing4),
+                      Center(
+                        child: TextButton(
+                          onPressed: sessionStore.isLoading
+                              ? null
+                              : _openForgotPassword,
+                          child: Text.rich(
+                            TextSpan(
+                              text: "Forgot password? ",
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: DesignTokens.muted),
+                              children: [
+                                TextSpan(
+                                  text: "Reset",
+                                  style: TextStyle(
+                                    color: DesignTokens.accent,
+                                    fontWeight: DesignTokens.fw600,
+                                  ),
+                                ),
+                              ],
                             ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -180,5 +259,3 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 }
-
-

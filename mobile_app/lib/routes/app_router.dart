@@ -14,7 +14,10 @@ class AppRouter extends StatelessWidget {
     final sessionStore = context.watch<SessionStore>();
     final storage = context.read<FlutterSecureStorage>();
 
-    if (!sessionStore.isInitialized || sessionStore.isLoading) {
+    // Only the startup session restore gets a full-screen spinner. A login
+    // attempt shows its spinner on the Login button instead — replacing
+    // LoginPage here would dispose it and wipe what the user typed.
+    if (!sessionStore.isInitialized) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );

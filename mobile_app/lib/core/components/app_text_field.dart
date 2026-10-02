@@ -15,6 +15,10 @@ class AppTextField extends StatefulWidget {
   final Widget? prefixIcon;
   final Widget? suffixIcon;
 
+  /// Shown under the field (red border) when the validator has no error of
+  /// its own — e.g. a server response like "This email is not registered."
+  final String? errorText;
+
   const AppTextField({
     this.label,
     required this.placeholder,
@@ -27,6 +31,7 @@ class AppTextField extends StatefulWidget {
     this.maxLength,
     this.prefixIcon,
     this.suffixIcon,
+    this.errorText,
     super.key,
   });
 
@@ -59,7 +64,7 @@ class _AppTextFieldState extends State<AppTextField> {
             padding: const EdgeInsets.only(bottom: DesignTokens.spacing7),
             child: Text(
               widget.label!,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: DesignTokens.fontSize10,
                 fontWeight: DesignTokens.fw500,
                 color: DesignTokens.muted,
@@ -78,14 +83,14 @@ class _AppTextFieldState extends State<AppTextField> {
           maxLength: widget.maxLength,
           validator: widget.validator,
           onChanged: widget.onChanged,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: DesignTokens.fontSize14,
             color: DesignTokens.text,
             fontFamily: DesignTokens.fontDmSans,
           ),
           decoration: InputDecoration(
             hintText: widget.placeholder,
-            hintStyle: const TextStyle(
+            hintStyle: TextStyle(
               color: DesignTokens.muted,
               fontFamily: DesignTokens.fontDmSans,
             ),
@@ -97,30 +102,30 @@ class _AppTextFieldState extends State<AppTextField> {
             ),
             prefixIcon: widget.prefixIcon,
             suffixIcon: widget.suffixIcon,
+            errorText: widget.errorText,
+            errorMaxLines: 2,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(DesignTokens.radius),
-              borderSide:
-                  const BorderSide(color: DesignTokens.border, width: 1),
+              borderSide: BorderSide(color: DesignTokens.border, width: 1),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(DesignTokens.radius),
-              borderSide:
-                  const BorderSide(color: DesignTokens.border, width: 1),
+              borderSide: BorderSide(color: DesignTokens.border, width: 1),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(DesignTokens.radius),
-              borderSide: const BorderSide(
+              borderSide: BorderSide(
                 color: DesignTokens.accent,
                 width: 2,
               ),
             ),
             errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(DesignTokens.radius),
-              borderSide: const BorderSide(color: DesignTokens.red, width: 1),
+              borderSide: BorderSide(color: DesignTokens.red, width: 1),
             ),
             focusedErrorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(DesignTokens.radius),
-              borderSide: const BorderSide(color: DesignTokens.red, width: 2),
+              borderSide: BorderSide(color: DesignTokens.red, width: 2),
             ),
           ),
         ),

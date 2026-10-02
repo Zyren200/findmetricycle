@@ -1,14 +1,17 @@
 import "dart:async";
+import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:flutter_map/flutter_map.dart";
 import "package:geolocator/geolocator.dart";
 import "package:image_picker/image_picker.dart";
 import "package:latlong2/latlong.dart" as ll;
+import "package:permission_handler/permission_handler.dart";
 import "../../../core/network/socket_client.dart";
+import "../../../core/state/dispose_safe_notifier.dart";
 import "../repositories/driver_repository.dart";
 
-class DriverRideController extends ChangeNotifier {
+class DriverRideController extends ChangeNotifier with DisposeSafeNotifier {
   DriverRideController(this._repository, this._socketClient);
 
   final DriverRepository _repository;
@@ -68,7 +71,8 @@ class DriverRideController extends ChangeNotifier {
     rideHistoryError = null;
     notifyListeners();
     try {
-      final response = await _repository.getRideHistory(limit: _historyPageSize);
+      final response =
+          await _repository.getRideHistory(limit: _historyPageSize);
       if (response["success"] != true) {
         throw Exception(response["message"]?.toString());
       }
@@ -83,7 +87,9 @@ class DriverRideController extends ChangeNotifier {
   }
 
   Future<void> loadMoreRideHistory() async {
-    if (isLoadingMoreRideHistory || isLoadingRideHistory || !rideHistoryHasMore) return;
+    if (isLoadingMoreRideHistory || isLoadingRideHistory || !rideHistoryHasMore) {
+      return;
+    }
     isLoadingMoreRideHistory = true;
     notifyListeners();
     try {
@@ -116,11 +122,13 @@ class DriverRideController extends ChangeNotifier {
   }
 
   Timer? _locationTimer;
+  StreamSubscription<Position>? _backgroundPositionSub;
+  Position? _streamPosition;
   StreamSubscription? _bookingRequestSub;
   StreamSubscription? _bookingExpiredSub;
   StreamSubscription? _bookingCancelledSub;
+  StreamSubscription? _bookingClosedSub;
   StreamSubscription? _approvalSub;
-  StreamSubscription? _paymentReceivedSub;
 
   List<Polyline> get polylines {
     final pickup = pickupLocation;
@@ -187,6 +195,7 @@ class DriverRideController extends ChangeNotifier {
       refreshProfile(notify: false),
       refreshPerformance(notify: false),
       _refreshDeviceStatus(),
+      _syncActiveBooking(),
       _resolveCurrentLocation().catchError((Object e) {
         error = e.toString().replaceFirst("Exception: ", "");
       }),
@@ -259,7 +268,8 @@ class DriverRideController extends ChangeNotifier {
   }
 
   /// Whether the driver currently meets every precondition to go Online.
-  bool get canGoOnline => gpsEnabled && locationPermissionGranted && hasInternet;
+  bool get canGoOnline =>
+      gpsEnabled && locationPermissionGranted && hasInternet;
 
   Future<void> _resolveCurrentLocation() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -278,7 +288,8 @@ class DriverRideController extends ChangeNotifier {
 
     final pos = await _currentFix();
     if (pos == null) {
-      throw Exception("Hindi makuha ang lokasyon. Siguraduhing naka-on ang GPS.");
+      throw Exception(
+          "Hindi makuha ang lokasyon. Siguraduhing naka-on ang GPS.");
     }
     currentPosition = ll.LatLng(pos.latitude, pos.longitude);
   }
@@ -313,7 +324,8 @@ class DriverRideController extends ChangeNotifier {
       final payload = _toMap(event);
       final booking = _toMap(payload["booking"]);
       if (booking["id"] == null) return;
-      final isNew = booking["id"]?.toString() != incomingBooking?["id"]?.toString();
+      final isNew =
+          booking["id"]?.toString() != incomingBooking?["id"]?.toString();
       incomingBooking = booking;
       if (isNew) HapticFeedback.heavyImpact();
       notifyListeners();
@@ -330,25 +342,21 @@ class DriverRideController extends ChangeNotifier {
       }
     });
 
-    // The passenger can cancel a pending/accepted booking from their side
-    // at any point — without this, the driver's "Active Ride" card would
-    // stay stuck showing a ride that no longer exists.
+    // The passenger can cancel up to the rider's arrival, and the admin can
+    // force-close a ride at any point — without these, the "Active Ride"
+    // card (or a request card) would stay stuck on a ride that's gone.
     _bookingCancelledSub ??=
-        _socketClient.on("driver:booking_cancelled").listen((event) {
-      final payload = _toMap(event);
-      final cancelledId = payload["bookingId"]?.toString();
-      final currentId = activeBooking?["id"]?.toString();
-      if (cancelledId != null && cancelledId == currentId) {
-        activeBooking = null;
-        error = "The passenger cancelled this ride.";
-        notifyListeners();
-      }
-    });
+        _socketClient.on("driver:booking_cancelled").listen((event) =>
+            _onRideClosedElsewhere(event, "The passenger cancelled this ride."));
+    _bookingClosedSub ??=
+        _socketClient.on("driver:booking_closed").listen((event) =>
+            _onRideClosedElsewhere(event, "The admin closed this ride."));
 
     _approvalSub ??= _socketClient.on("driver:approval_status").listen((event) {
       final payload = _toMap(event);
       approvalStatus = payload["status"]?.toString();
-      final detail = payload["reason"]?.toString() ?? payload["note"]?.toString();
+      final detail =
+          payload["reason"]?.toString() ?? payload["note"]?.toString();
       approvalMessage = [
         payload["message"]?.toString(),
         if (detail != null && detail.isNotEmpty) detail,
@@ -356,11 +364,6 @@ class DriverRideController extends ChangeNotifier {
       notifyListeners();
       // Pull the new approval state into the profile right away.
       refreshProfile();
-    });
-
-    _paymentReceivedSub ??=
-        _socketClient.on("driver:payment_received").listen((event) {
-      refreshEarnings();
     });
 
     _connectionStatusSub ??= _socketClient.connectionStatus.listen((connected) {
@@ -371,7 +374,67 @@ class DriverRideController extends ChangeNotifier {
         // instead of waiting for the next periodic tick.
         _pushLocation();
       }
+      if (connected) {
+        // Events sent while disconnected are lost: re-read the ride and the
+        // online flag (the server sets a driver it couldn't reach Offline).
+        _syncActiveBooking();
+        refreshProfile();
+      }
     });
+  }
+
+  /// Brings back the ride this driver is on after an app restart or a lost
+  /// connection, and drops one that was closed while they were away (e.g.
+  /// handed back to the passenger because the phone was unreachable).
+  Future<void> _syncActiveBooking() async {
+    if (isBusy) return;
+    try {
+      final response = await _repository.getActiveBooking();
+      if (response["success"] != true) return;
+      final serverRide =
+          response["data"] == null ? null : _toMap(response["data"]);
+      if (serverRide != null) {
+        activeBooking = serverRide;
+        incomingBooking = null;
+      } else if (activeBooking != null) {
+        activeBooking = null;
+        error = "This ride was closed while you were offline.";
+      } else {
+        return;
+      }
+      notifyListeners();
+    } catch (_) {
+      // Offline — the next reconnect tries again.
+    }
+  }
+
+  void _onRideClosedElsewhere(dynamic event, String fallbackMessage) {
+    final payload = _toMap(event);
+    final closedId = payload["bookingId"]?.toString();
+    if (closedId == null) return;
+    final message = payload["message"]?.toString() ?? fallbackMessage;
+
+    var changed = false;
+    // The server already set this driver Offline (unreachable for too long).
+    if (payload["wentOffline"] == true && isOnline) {
+      isOnline = false;
+      _stopLocationUpdates();
+      error = message;
+      changed = true;
+    }
+
+    if (closedId == activeBooking?["id"]?.toString()) {
+      activeBooking = null;
+      error = message;
+      // An admin "completed" close credits the fare.
+      if (payload["status"] == "completed") unawaited(refreshEarnings());
+      unawaited(loadRideHistory());
+      changed = true;
+    } else if (closedId == incomingBooking?["id"]?.toString()) {
+      incomingBooking = null;
+      changed = true;
+    }
+    if (changed) notifyListeners();
   }
 
   Future<void> setOnline(bool value) async {
@@ -431,7 +494,15 @@ class DriverRideController extends ChangeNotifier {
     if (_isPushingLocation) return;
     _isPushingLocation = true;
     try {
-      final pos = await _currentFix();
+      // The background stream only reports movement (distanceFilter), so a
+      // parked rider still falls back to a one-off fix — the server needs a
+      // location at least every 60s to keep them matchable.
+      final streamed = _streamPosition;
+      final pos = streamed != null &&
+              DateTime.now().difference(streamed.timestamp) <
+                  const Duration(seconds: 15)
+          ? streamed
+          : await _currentFix();
       if (pos == null) return;
       currentPosition = ll.LatLng(pos.latitude, pos.longitude);
 
@@ -458,6 +529,7 @@ class DriverRideController extends ChangeNotifier {
 
   void _startLocationUpdates() {
     _locationTimer?.cancel();
+    _startBackgroundTracking();
     _pushLocation();
     _checkIncomingBooking();
     _locationTimer = Timer.periodic(const Duration(seconds: 4), (_) {
@@ -469,6 +541,49 @@ class DriverRideController extends ChangeNotifier {
   void _stopLocationUpdates() {
     _locationTimer?.cancel();
     _locationTimer = null;
+    _backgroundPositionSub?.cancel();
+    _backgroundPositionSub = null;
+    _streamPosition = null;
+  }
+
+  /// Android pauses (and eventually freezes) a backgrounded app, so a rider
+  /// who locked their phone stopped sending locations, dropped out of
+  /// matching after 60s and missed ride requests. A position stream with a
+  /// foreground notification runs as a location foreground service: the
+  /// app stays alive and keeps tracking until the rider goes Offline.
+  void _startBackgroundTracking() {
+    if (_backgroundPositionSub != null) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+
+    // Android 13+ hides the ongoing notification without this permission
+    // (the service still runs) — ask once, never block going online on it.
+    unawaited(Permission.notification.request().catchError(
+          (Object _) => PermissionStatus.denied,
+        ));
+
+    _backgroundPositionSub = Geolocator.getPositionStream(
+      locationSettings: AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+        intervalDuration: const Duration(seconds: 4),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: "You're online",
+          notificationText:
+              "Sharing your location so passengers can book you. Go Offline in the app to stop.",
+          notificationChannelName: "Driver online status",
+          enableWakeLock: true,
+          setOngoing: true,
+        ),
+      ),
+    ).listen(
+      (pos) => _streamPosition = pos,
+      onError: (Object _) {
+        // GPS off / permission revoked — _refreshDeviceStatus takes the
+        // rider offline; drop the stream so going online restarts it.
+        _backgroundPositionSub?.cancel();
+        _backgroundPositionSub = null;
+      },
+    );
   }
 
   Future<void> acceptIncomingBooking() async {
@@ -616,6 +731,33 @@ class DriverRideController extends ChangeNotifier {
     }
   }
 
+  /// Backs out of an accepted ride before the trip starts; the passenger
+  /// picks another rider.
+  Future<bool> cancelActiveRide({String? reason}) async {
+    final bookingId = int.tryParse(activeBooking?["id"]?.toString() ?? "");
+    if (bookingId == null) return false;
+
+    isBusy = true;
+    error = null;
+    notifyListeners();
+    try {
+      final response = await _repository.cancelRide(bookingId, reason: reason);
+      if (response["success"] != true) {
+        throw Exception(
+            response["message"]?.toString() ?? "Failed to cancel ride.");
+      }
+      activeBooking = null;
+      unawaited(loadRideHistory());
+      return true;
+    } catch (e) {
+      error = e.toString().replaceFirst("Exception: ", "");
+      return false;
+    } finally {
+      isBusy = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> markNoShow({String? note}) async {
     final bookingId = int.tryParse(activeBooking?["id"]?.toString() ?? "");
     if (bookingId == null) return false;
@@ -713,7 +855,8 @@ class DriverRideController extends ChangeNotifier {
       // driver marked online (and still broadcasting their last location).
       final wasOnline = isOnline;
       final serverOnline = driverProfile?["is_online"];
-      isOnline = serverOnline == true || serverOnline == 1 || serverOnline == "1";
+      isOnline =
+          serverOnline == true || serverOnline == 1 || serverOnline == "1";
       if (isOnline && !wasOnline) {
         _startLocationUpdates();
       } else if (!isOnline && wasOnline) {
@@ -826,10 +969,11 @@ class DriverRideController extends ChangeNotifier {
     required String currentPassword,
   }) async {
     try {
-      final result =
-          await _repository.requestPasswordChangeOtp(currentPassword: currentPassword);
+      final result = await _repository.requestPasswordChangeOtp(
+          currentPassword: currentPassword);
       if (result["success"] != true) {
-        error = result["message"] as String? ?? "Failed to send verification code.";
+        error =
+            result["message"] as String? ?? "Failed to send verification code.";
         notifyListeners();
       }
       return result;
@@ -844,12 +988,14 @@ class DriverRideController extends ChangeNotifier {
     required String currentPassword,
     required String newPassword,
     required String otp,
+    String? keepRefreshToken,
   }) async {
     try {
       final result = await _repository.confirmPasswordChange(
         currentPassword: currentPassword,
         newPassword: newPassword,
         otp: otp,
+        keepRefreshToken: keepRefreshToken,
       );
       if (result["success"] == true) return true;
       error = result["message"] as String? ?? "Failed to change password";
@@ -901,8 +1047,8 @@ class DriverRideController extends ChangeNotifier {
     _bookingRequestSub?.cancel();
     _bookingExpiredSub?.cancel();
     _bookingCancelledSub?.cancel();
+    _bookingClosedSub?.cancel();
     _approvalSub?.cancel();
-    _paymentReceivedSub?.cancel();
     _connectionStatusSub?.cancel();
     super.dispose();
   }
@@ -915,4 +1061,3 @@ class DriverRideController extends ChangeNotifier {
     return {};
   }
 }
-

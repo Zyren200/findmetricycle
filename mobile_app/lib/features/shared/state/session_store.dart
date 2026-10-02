@@ -25,12 +25,24 @@ class SessionStore extends ChangeNotifier {
   bool _isLoading = false;
   bool _isInitialized = false;
   String? _error;
+  String? _errorField;
 
   UserSession? get session => _session;
   bool get isLoading => _isLoading;
   bool get isInitialized => _isInitialized;
   bool get isLoggedIn => _session != null;
   String? get error => _error;
+
+  /// Which login input [error] is about — "email", "phone" or "password" —
+  /// or null when it isn't tied to one field (suspended account, offline).
+  String? get errorField => _errorField;
+
+  void clearError() {
+    if (_error == null && _errorField == null) return;
+    _error = null;
+    _errorField = null;
+    notifyListeners();
+  }
 
   void bind(ApiClient apiClient, SocketClient socketClient) {
     _apiClient = apiClient;
@@ -63,7 +75,8 @@ class SessionStore extends ChangeNotifier {
       }
 
       final data = response["data"] as Map<String, dynamic>? ?? {};
-      final newAccessToken = data["token"] as String? ?? data["accessToken"] as String?;
+      final newAccessToken =
+          data["token"] as String? ?? data["accessToken"] as String?;
       final newRefreshToken = data["refreshToken"] as String?;
       if (newAccessToken == null || newRefreshToken == null) {
         await logout(storage);
@@ -99,6 +112,28 @@ class SessionStore extends ChangeNotifier {
     _storage = storage;
     notifyListeners();
 
+    try {
+      await _restoreSession(storage).timeout(const Duration(seconds: 10));
+    } catch (_) {
+      // Unreadable secure storage (e.g. keystore reset after a reinstall)
+      // used to throw here and leave the app on a spinner forever. Start
+      // clean and send the user to login instead.
+      _session = null;
+      try {
+        await storage.deleteAll();
+      } catch (_) {}
+    }
+
+    _isLoading = false;
+    _isInitialized = true;
+    notifyListeners();
+
+    // The driver-approval fields above were cached at login; an admin may
+    // have approved (or suspended) the account since. Refresh them.
+    if (_session != null) unawaited(refreshDriverAccess());
+  }
+
+  Future<void> _restoreSession(FlutterSecureStorage storage) async {
     final token = await storage.read(key: _tokenKey);
     final refreshToken = await storage.read(key: _refreshTokenKey);
     final userId = await storage.read(key: _userIdKey);
@@ -107,7 +142,8 @@ class SessionStore extends ChangeNotifier {
     final role = await storage.read(key: _roleKey);
     final activeRole = await storage.read(key: _activeRoleKey);
     final isDriverAccount = await storage.read(key: _isDriverAccountKey);
-    final driverApprovalStatus = await storage.read(key: _driverApprovalStatusKey);
+    final driverApprovalStatus =
+        await storage.read(key: _driverApprovalStatusKey);
 
     if (token != null &&
         refreshToken != null &&
@@ -129,14 +165,6 @@ class SessionStore extends ChangeNotifier {
       _apiClient?.setToken(token);
       _socketClient?.connect(token);
     }
-
-    _isLoading = false;
-    _isInitialized = true;
-    notifyListeners();
-
-    // The driver-approval fields above were cached at login; an admin may
-    // have approved (or suspended) the account since. Refresh them.
-    if (_session != null) unawaited(refreshDriverAccess());
   }
 
   /// Re-reads the account's driver flags from the server so an approval
@@ -178,7 +206,8 @@ class SessionStore extends ChangeNotifier {
         driverApprovalStatus: approval,
       );
       if (storage != null) {
-        await storage.write(key: _isDriverAccountKey, value: isDriverAccount ? "1" : "0");
+        await storage.write(
+            key: _isDriverAccountKey, value: isDriverAccount ? "1" : "0");
         await storage.write(key: _driverApprovalStatusKey, value: approval);
         await storage.write(key: _activeRoleKey, value: activeRole);
       }
@@ -194,6 +223,7 @@ class SessionStore extends ChangeNotifier {
     required String password,
   }) async {
     _error = null;
+    _errorField = null;
     _isLoading = true;
     _storage = storage;
     notifyListeners();
@@ -208,7 +238,7 @@ class SessionStore extends ChangeNotifier {
 
       final success = response["success"] == true;
       if (!success) {
-        _error = response["message"]?.toString() ?? "Login failed.";
+        _setLoginError(response);
         _isLoading = false;
         notifyListeners();
         return false;
@@ -306,20 +336,50 @@ class SessionStore extends ChangeNotifier {
 
   Future<void> logout(FlutterSecureStorage storage) async {
     final refreshToken = _session?.refreshToken;
-    if (refreshToken != null && refreshToken.isNotEmpty) {
-      try {
-        await _apiClient?.post(
-          "/auth/logout",
-          data: {"refreshToken": refreshToken},
-        );
-      } catch (_) {}
+    final apiClient = _apiClient;
+
+    // Sign out locally first — logout must work even when the server is
+    // unreachable, instead of hanging on the request for 30s.
+    _session = null;
+    apiClient?.setToken(null);
+    _socketClient?.disconnect();
+    notifyListeners();
+    try {
+      await storage.deleteAll();
+    } catch (_) {}
+
+    // /auth/logout only needs the refresh token in the body.
+    if (refreshToken != null && refreshToken.isNotEmpty && apiClient != null) {
+      unawaited(apiClient.post("/auth/logout", data: {
+        "refreshToken": refreshToken
+      }).catchError((_) => <String, dynamic>{}));
+    }
+  }
+
+  void _setLoginError(Map<String, dynamic> response) {
+    _error = response["message"]?.toString() ?? "Login failed.";
+    final details = response["details"];
+    if (details is! Map) return;
+
+    final field = details["field"]?.toString();
+    if (field != null) {
+      _errorField = field;
+      return;
     }
 
-    _session = null;
-    _apiClient?.setToken(null);
-    _socketClient?.disconnect();
-    await storage.deleteAll();
-    notifyListeners();
+    // Schema rejection ("Validation failed.") — point at the bad input
+    // instead of showing the generic message.
+    final issues = details["issues"];
+    if (issues is List && issues.isNotEmpty && issues.first is Map) {
+      final path = (issues.first as Map)["path"]?.toString() ?? "";
+      if (path.endsWith("email")) {
+        _error = "Enter a valid email address.";
+        _errorField = "email";
+      } else if (path.endsWith("phone")) {
+        _error = "Enter a valid mobile number.";
+        _errorField = "phone";
+      }
+    }
   }
 
   String _extractError(DioException e) {

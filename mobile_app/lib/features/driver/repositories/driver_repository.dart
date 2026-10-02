@@ -60,6 +60,11 @@ class DriverRepository {
     return _apiClient.get("/driver/bookings/incoming");
   }
 
+  /// The ride the driver is on (accepted → ongoing), or null.
+  Future<Map<String, dynamic>> getActiveBooking() {
+    return _apiClient.get("/driver/bookings/active");
+  }
+
   Future<Map<String, dynamic>> arriveAtPickup(int bookingId) {
     return _apiClient.post("/driver/bookings/$bookingId/arrive");
   }
@@ -68,6 +73,13 @@ class DriverRepository {
     return _apiClient.post(
       "/driver/bookings/$bookingId/start",
       data: {"pin": pin},
+    );
+  }
+
+  Future<Map<String, dynamic>> cancelRide(int bookingId, {String? reason}) {
+    return _apiClient.post(
+      "/driver/bookings/$bookingId/cancel",
+      data: {if (reason != null) "reason": reason},
     );
   }
 
@@ -163,10 +175,13 @@ class DriverRepository {
     );
   }
 
+  /// [keepRefreshToken] is this device's session: the backend signs every
+  /// other device out after the change, but keeps this one signed in.
   Future<Map<String, dynamic>> confirmPasswordChange({
     required String currentPassword,
     required String newPassword,
     required String otp,
+    String? keepRefreshToken,
   }) {
     return _apiClient.post(
       "/driver/change-password/confirm",
@@ -174,6 +189,7 @@ class DriverRepository {
         "currentPassword": currentPassword,
         "newPassword": newPassword,
         "otp": otp,
+        if (keepRefreshToken != null) "keepRefreshToken": keepRefreshToken,
       },
     );
   }

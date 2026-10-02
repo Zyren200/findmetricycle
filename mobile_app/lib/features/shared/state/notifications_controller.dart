@@ -4,11 +4,12 @@ import "package:flutter/foundation.dart";
 
 import "../../../core/network/api_client.dart";
 import "../../../core/network/socket_client.dart";
+import "../../../core/state/dispose_safe_notifier.dart";
 
 /// The signed-in user's notifications for one app mode ("passenger" or
 /// "driver"): the list, the unread count for the 🔔 badge, and live
 /// updates from the socket.
-class NotificationsController extends ChangeNotifier {
+class NotificationsController extends ChangeNotifier with DisposeSafeNotifier {
   NotificationsController(this._api, this._socket, {required this.role}) {
     _liveSub = _socket.on("notification:created").listen(_onLive);
   }
@@ -52,7 +53,9 @@ class NotificationsController extends ChangeNotifier {
   /// Marks everything as read (called once the list has been seen).
   Future<void> markAllRead() async {
     if (unread == 0 && items.every(isRead)) return;
-    items = [for (final n in items) {...n, "is_read": 1}];
+    items = [
+      for (final n in items) {...n, "is_read": 1}
+    ];
     unread = 0;
     notifyListeners();
     try {

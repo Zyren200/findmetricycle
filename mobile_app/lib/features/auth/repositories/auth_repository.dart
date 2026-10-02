@@ -48,6 +48,28 @@ class AuthRepository {
     );
   }
 
+  Future<Map<String, dynamic>> requestPasswordReset({required String email}) {
+    return _apiClient.post(
+      "/auth/v2/forgot-password/request",
+      data: {"email": email.trim()},
+    );
+  }
+
+  Future<Map<String, dynamic>> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) {
+    return _apiClient.post(
+      "/auth/v2/forgot-password/reset",
+      data: {
+        "email": email.trim(),
+        "code": code.trim(),
+        "newPassword": newPassword,
+      },
+    );
+  }
+
   Future<Map<String, dynamic>> getDriverStatus() {
     return _apiClient.get("/auth/v2/driver-status");
   }
@@ -83,10 +105,13 @@ class AuthRepository {
     );
   }
 
+  /// [keepRefreshToken] is this device's session: the backend signs every
+  /// other device out after the change, but keeps this one signed in.
   Future<Map<String, dynamic>> confirmPasswordChange({
     required String currentPassword,
     required String newPassword,
     required String otp,
+    String? keepRefreshToken,
   }) {
     return _apiClient.post(
       "/passenger/change-password/confirm",
@@ -94,12 +119,14 @@ class AuthRepository {
         "currentPassword": currentPassword,
         "newPassword": newPassword,
         "otp": otp,
+        if (keepRefreshToken != null) "keepRefreshToken": keepRefreshToken,
       },
     );
   }
 
   Future<Map<String, dynamic>> deleteAccount({required String password}) {
-    return _apiClient.delete("/passenger/account", data: {"password": password});
+    return _apiClient
+        .delete("/passenger/account", data: {"password": password});
   }
 
   Future<MultipartFile> _toMultipartFile(XFile file) async {

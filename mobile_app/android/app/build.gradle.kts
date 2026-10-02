@@ -5,6 +5,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Push notifications need google-services.json from the Firebase console
+// (Project settings → Your apps → Android). Without it the app still builds
+// and runs; push is simply off.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.example.findme_tricycle_mobile"
     compileSdk = flutter.compileSdkVersion
