@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../api/client";
 import PageHero from "../components/PageHero";
+import { exportCsv, exportExcel, exportPdf } from "../utils/export";
 
 export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
@@ -40,7 +41,93 @@ export default function AnalyticsPage() {
   // Calculate metrics
   const totalRides = analytics?.totalRides || 0;
   const completedToday = analytics?.completedRidesToday || 0;
-  const avgRideValue = totalRides > 0 ? Math.round(analytics?.dailyEarnings || 0 / (completedToday || 1)) : 0;
+  // Today's cash divided by today's completed rides.
+  const avgRideValue = completedToday > 0 ? Math.round((analytics?.dailyEarnings || 0) / completedToday) : 0;
+
+  const [exporting, setExporting] = useState(null);
+  const [exportError, setExportError] = useState(null);
+
+  // Builds the report from live data: key metrics, the last 30 days and
+  // the latest 500 rides.
+  async function buildReport() {
+    const [activityRes, ridesRes] = await Promise.all([
+      apiClient.get("/admin/reports/ride-activity?days=30"),
+      apiClient.get("/admin/rides/history?limit=500"),
+    ]);
+    const activity = Array.isArray(activityRes.data?.data) ? activityRes.data.data : [];
+    const rides = Array.isArray(ridesRes.data?.data) ? ridesRes.data.data : [];
+    const day = (value) => (value ? new Date(value).toLocaleDateString("en-PH") : "");
+    const dateTime = (value) => (value ? new Date(value).toLocaleString("en-PH") : "");
+
+    return [
+      {
+        title: "Key Metrics",
+        columns: [
+          { key: "metric", label: "Metric" },
+          { key: "value", label: "Value" },
+        ],
+        rows: [
+          { metric: "Total rides", value: totalRides },
+          { metric: "Completed today", value: completedToday },
+          { metric: "Cancelled today", value: analytics?.cancelledRidesToday ?? 0 },
+          { metric: "Earnings today (PHP)", value: analytics?.dailyEarnings ?? 0 },
+          { metric: "Average ride value today (PHP)", value: avgRideValue },
+          { metric: "Online drivers", value: analytics?.activeDrivers ?? 0 },
+          { metric: "Approved drivers", value: analytics?.approvedDrivers ?? 0 },
+          { metric: "Total passengers", value: analytics?.totalPassengers ?? 0 },
+          { metric: "Pending applications", value: analytics?.pendingApplications ?? 0 },
+          { metric: "Open SOS alerts", value: analytics?.sosAlerts ?? 0 },
+        ],
+      },
+      {
+        title: "Daily Ride Activity (last 30 days)",
+        columns: [
+          { key: "date", label: "Date" },
+          { key: "total", label: "Bookings" },
+          { key: "completed", label: "Completed" },
+          { key: "cancelled", label: "Cancelled" },
+          { key: "earnings", label: "Earnings (PHP)" },
+        ],
+        rows: activity.map((row) => ({ ...row, date: day(row.date) })),
+      },
+      {
+        title: `Ride History (latest ${rides.length})`,
+        columns: [
+          { key: "id", label: "Booking #" },
+          { key: "status", label: "Status" },
+          { key: "passengerName", label: "Passenger" },
+          { key: "driverName", label: "Driver" },
+          { key: "pickupAddress", label: "Pickup" },
+          { key: "dropoffAddress", label: "Drop-off" },
+          { key: "distanceKm", label: "Distance (km)" },
+          { key: "fare", label: "Fare (PHP)" },
+          { key: "requestedAt", label: "Requested" },
+          { key: "completedAt", label: "Completed" },
+        ],
+        rows: rides.map((ride) => ({
+          ...ride,
+          driverName: ride.driverName || "-",
+          requestedAt: dateTime(ride.requestedAt),
+          completedAt: dateTime(ride.completedAt),
+        })),
+      },
+    ];
+  }
+
+  async function handleExport(format) {
+    setExporting(format);
+    setExportError(null);
+    try {
+      const sections = await buildReport();
+      if (format === "csv") exportCsv("findmetricycle-report", sections);
+      else if (format === "excel") exportExcel("findmetricycle-report", sections);
+      else exportPdf("FindMeTricycle Operations Report", sections);
+    } catch (err) {
+      setExportError(err?.response?.data?.message || "Failed to build the report.");
+    } finally {
+      setExporting(null);
+    }
+  }
 
   return (
     <div className="page-stack">
@@ -151,22 +238,28 @@ export default function AnalyticsPage() {
             <div className="panel-header">
               <h3>Export Data</h3>
             </div>
+            {exportError ? <div className="error-banner">{exportError}</div> : null}
             <div className="export-options">
-              <button type="button" className="export-btn" title="Export as PDF">
-                <span className="export-icon">📄</span>
-                <span>PDF Report</span>
-              </button>
-              <button type="button" className="export-btn" title="Export as Excel">
-                <span className="export-icon">📊</span>
-                <span>Excel Spreadsheet</span>
-              </button>
-              <button type="button" className="export-btn" title="Export as CSV">
-                <span className="export-icon">📋</span>
-                <span>CSV File</span>
-              </button>
+              {[
+                { format: "pdf", icon: "📄", label: "PDF Report", title: "Opens a print-ready report — choose “Save as PDF”" },
+                { format: "excel", icon: "📊", label: "Excel Spreadsheet", title: "Download as an Excel file (.xls)" },
+                { format: "csv", icon: "📋", label: "CSV File", title: "Download as CSV" },
+              ].map((item) => (
+                <button
+                  key={item.format}
+                  type="button"
+                  className="export-btn"
+                  title={item.title}
+                  disabled={Boolean(exporting)}
+                  onClick={() => handleExport(item.format)}
+                >
+                  <span className="export-icon">{item.icon}</span>
+                  <span>{exporting === item.format ? "Preparing…" : item.label}</span>
+                </button>
+              ))}
             </div>
             <p className="muted text-sm" style={{ marginTop: "1rem" }}>
-              💡 Export formats ready for import into business intelligence tools.
+              💡 Includes key metrics, the last 30 days of ride activity and the latest 500 rides.
             </p>
           </section>
         </>

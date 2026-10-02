@@ -1,12 +1,31 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient } from "../api/client";
 import PageHero from "../components/PageHero";
+
+// "11.0736, 125.7276" → { lat, lng }, or null.
+function parsePin(text) {
+  const match = String(text).trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match) return null;
+  return { lat: Number(match[1]), lng: Number(match[2]) };
+}
+
+function formatPin(barangay) {
+  if (barangay.lat == null || barangay.lng == null) return "";
+  return `${Number(barangay.lat).toFixed(4)}, ${Number(barangay.lng).toFixed(4)}`;
+}
+
+function errorMessage(err, fallback) {
+  return err?.response?.data?.details?.issues?.[0]?.message || err?.response?.data?.message || fallback;
+}
 
 export default function BarangayManagerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [barangays, setBarangays] = useState([]);
   const [updatingId, setUpdatingId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [pinDraft, setPinDraft] = useState("");
 
   const loadBarangays = useCallback(async () => {
     try {
@@ -14,7 +33,7 @@ export default function BarangayManagerPage() {
       const { data } = await apiClient.get("/admin/barangays");
       setBarangays(Array.isArray(data?.data) ? data.data : []);
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to load barangays.");
+      setError(errorMessage(err, "Failed to load barangays."));
     } finally {
       setLoading(false);
     }
@@ -24,24 +43,48 @@ export default function BarangayManagerPage() {
     loadBarangays();
   }, [loadBarangays]);
 
-  async function toggleBarangay(barangayId, currentStatus) {
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return term ? barangays.filter((b) => b.name.toLowerCase().includes(term)) : barangays;
+  }, [barangays, search]);
+
+  async function saveBarangay(barangayId, changes) {
     setUpdatingId(barangayId);
+    setError(null);
     try {
-      await apiClient.put(`/admin/barangays/${barangayId}`, { is_enabled: !currentStatus });
-      await loadBarangays();
+      const { data } = await apiClient.put(`/admin/barangays/${barangayId}`, changes);
+      setBarangays((prev) => prev.map((b) => (b.id === barangayId ? { ...b, ...data?.data } : b)));
+      return true;
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to update barangay.");
+      setError(errorMessage(err, "Failed to update barangay."));
+      return false;
     } finally {
       setUpdatingId(null);
     }
   }
+
+  function startEditingPin(barangay) {
+    setEditingId(barangay.id);
+    setPinDraft(formatPin(barangay));
+  }
+
+  async function savePin(barangayId) {
+    const pin = parsePin(pinDraft);
+    if (!pin) {
+      setError("Enter the pin as latitude, longitude — e.g. 11.0311, 125.7235.");
+      return;
+    }
+    if (await saveBarangay(barangayId, pin)) setEditingId(null);
+  }
+
+  const enabledCount = barangays.filter((b) => b.is_enabled).length;
 
   return (
     <div className="page-stack">
       <PageHero
         eyebrow="Service area"
         title="Barangay Coverage"
-        description="Enable or disable barangays for booking availability. Disabled areas will not appear in the mobile app."
+        description="Disable a barangay to stop new bookings with a pickup or drop-off there. Each location counts as the barangay whose pin is nearest, so keep pins in the barangay's centre."
         actions={
           <button type="button" className="ghost-btn" onClick={loadBarangays}>
             Refresh
@@ -57,46 +100,109 @@ export default function BarangayManagerPage() {
           <div className="panel-header">
             <h3>Service Areas</h3>
             <span className="badge plain">
-              {barangays.filter((b) => b.is_enabled).length} of {barangays.length} active
+              {enabledCount} of {barangays.length} active
             </span>
           </div>
+          <input
+            type="search"
+            className="barangay-search"
+            placeholder="Search barangay"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           {barangays.length === 0 ? (
-            <div className="state-block">No barangays configured.</div>
+            <div className="state-block">
+              No barangays yet. Restart the backend after running <code>npm run migrate</code> to load Guiuan&apos;s 60 barangays.
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="state-block">No barangay matches &ldquo;{search}&rdquo;.</div>
           ) : (
             <div className="barangay-grid">
-              {barangays.map((barangay) => (
-                <div key={barangay.id} className={`barangay-card ${barangay.is_enabled ? "enabled" : "disabled"}`}>
-                  <div className="card-header">
-                    <h4>{barangay.name}</h4>
-                    <span className={`status-pill status-${barangay.is_enabled ? "approved" : "rejected"}`}>
-                      {barangay.is_enabled ? "Enabled" : "Disabled"}
-                    </span>
+              {visible.map((barangay) => {
+                const busy = updatingId === barangay.id;
+                const pin = formatPin(barangay);
+                return (
+                  <div key={barangay.id} className={`barangay-card ${barangay.is_enabled ? "enabled" : "disabled"}`}>
+                    <div className="card-header">
+                      <h4>{barangay.name}</h4>
+                      <span className={`status-pill status-${barangay.is_enabled ? "approved" : "rejected"}`}>
+                        {barangay.is_enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+
+                    {editingId === barangay.id ? (
+                      <div className="pin-editor">
+                        <input
+                          type="text"
+                          value={pinDraft}
+                          onChange={(e) => setPinDraft(e.target.value)}
+                          placeholder="11.0311, 125.7235"
+                          aria-label={`Pin for ${barangay.name}`}
+                          autoFocus
+                        />
+                        <div className="pin-actions">
+                          <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => savePin(barangay.id)}>
+                            {busy ? "..." : "Save pin"}
+                          </button>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditingId(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="pin-line">
+                        {pin ? (
+                          <a
+                            href={`https://www.openstreetmap.org/?mlat=${barangay.lat}&mlon=${barangay.lng}#map=16/${barangay.lat}/${barangay.lng}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            📍 {pin}
+                          </a>
+                        ) : (
+                          <span className="pin-missing">No pin — this barangay can&apos;t be matched</span>
+                        )}
+                      </p>
+                    )}
+
+                    <div className="card-footer">
+                      <button
+                        type="button"
+                        className={barangay.is_enabled ? "btn btn-warning btn-sm" : "btn btn-success btn-sm"}
+                        disabled={busy}
+                        onClick={() => saveBarangay(barangay.id, { is_enabled: !barangay.is_enabled })}
+                      >
+                        {busy ? "..." : barangay.is_enabled ? "Disable" : "Enable"}
+                      </button>
+                      {editingId !== barangay.id ? (
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => startEditingPin(barangay)}>
+                          {pin ? "Move pin" : "Set pin"}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="card-footer">
-                    <button
-                      type="button"
-                      className={barangay.is_enabled ? "btn btn-warning btn-sm" : "btn btn-success btn-sm"}
-                      disabled={updatingId === barangay.id}
-                      onClick={() => toggleBarangay(barangay.id, barangay.is_enabled)}
-                    >
-                      {updatingId === barangay.id
-                        ? "..."
-                        : barangay.is_enabled
-                          ? "Disable"
-                          : "Enable"}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
       ) : null}
 
       <style>{`
+        .barangay-search {
+          width: 100%;
+          max-width: 320px;
+          margin-top: 1rem;
+          padding: 0.6rem 0.75rem;
+          border: 1px solid var(--border-color);
+          border-radius: 0.375rem;
+          background: var(--input-bg);
+          color: var(--text-primary);
+        }
+
         .barangay-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
           gap: 1rem;
           margin-top: 1rem;
         }
@@ -117,14 +223,14 @@ export default function BarangayManagerPage() {
         .barangay-card.disabled {
           border-color: rgb(239, 68, 68);
           background: rgba(239, 68, 68, 0.05);
-          opacity: 0.7;
         }
 
         .barangay-card .card-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 1rem;
+          gap: 0.5rem;
+          margin-bottom: 0.5rem;
         }
 
         .barangay-card h4 {
@@ -133,9 +239,36 @@ export default function BarangayManagerPage() {
           font-weight: 600;
         }
 
+        .barangay-card .pin-line {
+          margin: 0 0 0.75rem;
+          font-size: 0.8rem;
+        }
+
+        .barangay-card .pin-missing {
+          color: rgb(217, 119, 6);
+        }
+
+        .barangay-card .pin-editor {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          margin-bottom: 0.75rem;
+        }
+
+        .barangay-card .pin-editor input {
+          padding: 0.45rem 0.6rem;
+          border: 1px solid var(--border-color);
+          border-radius: 0.375rem;
+          background: var(--input-bg);
+          color: var(--text-primary);
+          font-size: 0.85rem;
+        }
+
+        .barangay-card .pin-actions,
         .barangay-card .card-footer {
           display: flex;
           gap: 0.5rem;
+          flex-wrap: wrap;
         }
       `}</style>
     </div>

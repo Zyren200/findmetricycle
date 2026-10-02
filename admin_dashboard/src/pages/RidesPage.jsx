@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient } from "../api/client";
 import PageHero from "../components/PageHero";
+import { formatPlace } from "../utils/admin-formatters";
 
 const STATUS_META = {
   pending: { label: "Pending", bg: "rgba(240,180,41,0.2)", color: "var(--yellow, #f0b429)" },
@@ -52,23 +53,33 @@ export default function RidesPage() {
   const loadRides = useCallback(async () => {
     try {
       setError(null);
-      const limit = 100;
+      const limit = 500;
       const { data } = await apiClient.get(`/admin/rides/history?limit=${limit}`);
       const ridesArray = Array.isArray(data?.data) ? data.data : [];
-      const formattedRides = ridesArray.map((ride) => ({
-        id: ride.id,
-        rideId: ride.ride_id || `#R-${ride.id}`,
-        passenger: ride.passenger_name || "Unknown",
-        driver: ride.driver_name || "Unknown",
-        pickup: ride.pickup_location || "-",
-        dropoff: ride.dropoff_location || "-",
-        distance: ride.distance_km || 0,
-        fare: ride.final_fare || ride.estimated_fare || 0,
-        rating: ride.rating || null,
-        status: ride.status || "Unknown",
-        date: ride.completed_at ? new Date(ride.completed_at).toLocaleDateString() : "Unknown",
-        time: ride.completed_at ? new Date(ride.completed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
-      }));
+      // /admin/rides/history returns camelCase fields (see admin.service
+      // getRideHistory); the snake_case names are kept as fallbacks.
+      const formattedRides = ridesArray.map((ride) => {
+        const when = ride.completedAt || ride.requestedAt || ride.completed_at || ride.requested_at;
+        const whenDate = when ? new Date(when) : null;
+        return {
+          id: ride.id,
+          rideId: `#${ride.id}`,
+          passenger: ride.passengerName || ride.passenger_name || "Unknown",
+          driver: ride.driverName || ride.driver_name || "—",
+          pickup: formatPlace(ride.pickupAddress || ride.pickup_address),
+          dropoff: formatPlace(ride.dropoffAddress || ride.dropoff_address),
+          distance: Number(ride.distanceKm ?? ride.distance_km ?? 0) || 0,
+          fare: Number(ride.fare ?? ride.final_fare ?? ride.estimated_fare ?? 0) || 0,
+          rating: ride.rating || null,
+          status: ride.status || "Unknown",
+          // yyyy-mm-dd in local time, to match the date filter input.
+          isoDate: whenDate
+            ? `${whenDate.getFullYear()}-${String(whenDate.getMonth() + 1).padStart(2, "0")}-${String(whenDate.getDate()).padStart(2, "0")}`
+            : "",
+          date: whenDate ? whenDate.toLocaleDateString() : "—",
+          time: whenDate ? whenDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
+        };
+      });
       setRides(formattedRides);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load rides.");
@@ -99,7 +110,7 @@ export default function RidesPage() {
     }
 
     if (dateFilter) {
-      result = result.filter((r) => r.date === dateFilter);
+      result = result.filter((r) => r.isoDate === dateFilter);
     }
 
     return result;

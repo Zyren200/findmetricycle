@@ -1,3 +1,4 @@
+import AuthShell from "../components/AuthShell";
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 
@@ -54,12 +55,13 @@ export default function SignupPage() {
   }
 
   return (
+    <AuthShell>
     <main className="login-page">
       <section className="login-card">
         <div className="login-hero">
           <div className="login-hero-icon">🛺</div>
-          <h1>FindMeTricycle</h1>
-          <p className="login-eyebrow">Create the Admin Account</p>
+          <h1>Create account</h1>
+          <p className="login-eyebrow">Set up the first FindMeTricycle admin account</p>
         </div>
 
         {step === STEPS.USERNAME && (
@@ -228,5 +230,6 @@ export default function SignupPage() {
         <p className="login-footnote">This is a one-time setup. Only one admin account can be created.</p>
       </section>
     </main>
+    </AuthShell>
   );
 }

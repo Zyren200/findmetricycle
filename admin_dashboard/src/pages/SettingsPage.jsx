@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../api/client";
 import PageHero from "../components/PageHero";
 
-export default function SettingsPage() {
+export default function SettingsPage({ onOpenFares }) {
+  const [fare, setFare] = useState(null);
+  const [fareError, setFareError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -11,19 +13,16 @@ export default function SettingsPage() {
     appName: "",
     supportEmail: "",
     contactNumber: "",
-    operatingHours: "",
+    operatingHoursStart: "05:00",
+    operatingHoursEnd: "22:00",
+    enforceOperatingHours: false,
   });
 
   const loadSettings = useCallback(async () => {
     try {
       setError(null);
       const { data } = await apiClient.get("/admin/settings");
-      setSettings(data?.data || {
-        appName: "FindMeTricycle",
-        supportEmail: "support@findme.local",
-        contactNumber: "+63 9XX XXX XXXX",
-        operatingHours: "5:00 AM - 10:00 PM",
-      });
+      if (data?.data) setSettings(data.data);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load settings.");
     } finally {
@@ -33,6 +32,10 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadSettings();
+    apiClient
+      .get("/admin/fare")
+      .then(({ data }) => setFare(data?.data || null))
+      .catch((err) => setFareError(err?.response?.data?.message || "Failed to load fares."));
   }, [loadSettings]);
 
   function handleChange(field, value) {
@@ -44,11 +47,14 @@ export default function SettingsPage() {
     setError(null);
     setSuccess(null);
     try {
-      await apiClient.put("/admin/settings", settings);
-      setSuccess("Settings saved successfully!");
+      const { data } = await apiClient.put("/admin/settings", settings);
+      if (data?.data) setSettings(data.data);
+      setSuccess("Settings saved. The apps pick up the change within a minute.");
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to save settings.");
+      // Validation errors name the field that needs fixing.
+      const issue = err?.response?.data?.details?.issues?.[0]?.message;
+      setError(issue || err?.response?.data?.message || "Failed to save settings.");
     } finally {
       setSaving(false);
     }
@@ -91,8 +97,9 @@ export default function SettingsPage() {
                   type="email"
                   value={settings.supportEmail || ""}
                   onChange={(e) => handleChange("supportEmail", e.target.value)}
-                  placeholder="support@findme.local"
+                  placeholder="help@yourdomain.com"
                 />
+                <span className="field-hint">Shown under Help &amp; Support in the passenger and driver apps. Leave blank to hide.</span>
               </div>
 
               <div className="form-group">
@@ -104,17 +111,42 @@ export default function SettingsPage() {
                   onChange={(e) => handleChange("contactNumber", e.target.value)}
                   placeholder="+63 9XX XXX XXXX"
                 />
+                <span className="field-hint">Users can tap it to call. Leave blank to hide.</span>
               </div>
 
               <div className="form-group">
-                <label htmlFor="operatingHours">Operating Hours</label>
-                <input
-                  id="operatingHours"
-                  type="text"
-                  value={settings.operatingHours || ""}
-                  onChange={(e) => handleChange("operatingHours", e.target.value)}
-                  placeholder="5:00 AM - 10:00 PM"
-                />
+                <label htmlFor="operatingHoursStart">Operating Hours (Philippine time)</label>
+                <div className="hours-row">
+                  <input
+                    id="operatingHoursStart"
+                    type="time"
+                    value={settings.operatingHoursStart || ""}
+                    onChange={(e) => handleChange("operatingHoursStart", e.target.value)}
+                    aria-label="Opens at"
+                  />
+                  <span className="muted">to</span>
+                  <input
+                    id="operatingHoursEnd"
+                    type="time"
+                    value={settings.operatingHoursEnd || ""}
+                    onChange={(e) => handleChange("operatingHoursEnd", e.target.value)}
+                    aria-label="Closes at"
+                  />
+                </div>
+                <label className="checkbox-row" htmlFor="enforceOperatingHours">
+                  <input
+                    id="enforceOperatingHours"
+                    type="checkbox"
+                    checked={Boolean(settings.enforceOperatingHours)}
+                    onChange={(e) => handleChange("enforceOperatingHours", e.target.checked)}
+                  />
+                  Block new bookings outside these hours
+                </label>
+                <span className="field-hint">
+                  {settings.enforceOperatingHours
+                    ? "Passengers can only book during these hours. Rides already in progress are not affected."
+                    : "Hours are shown in the apps only; booking stays open 24 hours."}
+                </span>
               </div>
 
               <div className="form-group form-actions">
@@ -137,31 +169,33 @@ export default function SettingsPage() {
             <div className="panel-header">
               <h3>Fare Management</h3>
             </div>
-            <div className="info-grid">
-              <div className="info-card">
-                <p className="panel-label">Base Fare</p>
-                <h4>PHP 20.00</h4>
-                <p className="muted text-sm">Minimum starting fare for any ride</p>
+            {fare ? (
+              <div className="info-grid">
+                {[
+                  ["Base Fare", fare.base_fare, "Starting fare for any ride"],
+                  ["Per Kilometer", fare.per_km_rate, "Additional charge per km traveled"],
+                  ["Minimum Fare", fare.minimum_fare, "Absolute minimum ride cost"],
+                  ["Night Fee", fare.night_fee, "Premium for evening rides"],
+                  ["Extra Passenger Fee", fare.additional_passenger_fee, "Per passenger after the first"],
+                ].map(([label, value, hint]) => (
+                  <div className="info-card" key={label}>
+                    <p className="panel-label">{label}</p>
+                    <h4>PHP {Number(value || 0).toFixed(2)}</h4>
+                    <p className="muted text-sm">{hint}</p>
+                  </div>
+                ))}
               </div>
-              <div className="info-card">
-                <p className="panel-label">Per Kilometer</p>
-                <h4>PHP 12.00</h4>
-                <p className="muted text-sm">Additional charge per km traveled</p>
-              </div>
-              <div className="info-card">
-                <p className="panel-label">Minimum Fare</p>
-                <h4>PHP 0.00</h4>
-                <p className="muted text-sm">Absolute minimum ride cost</p>
-              </div>
-              <div className="info-card">
-                <p className="panel-label">Night Fee</p>
-                <h4>PHP 0.00</h4>
-                <p className="muted text-sm">Optional premium for evening rides</p>
-              </div>
+            ) : (
+              <div className="state-block">{fareError || "Loading current fares..."}</div>
+            )}
+            <div style={{ marginTop: "1rem", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              {onOpenFares ? (
+                <button type="button" className="btn btn-primary" onClick={onOpenFares}>
+                  Edit Fares
+                </button>
+              ) : null}
+              <span className="muted text-sm">These are the live fares used by the app. Change them in Fare Settings.</span>
             </div>
-            <p className="muted text-sm" style={{ marginTop: "1rem" }}>
-              📝 <strong>Note:</strong> Manage fares from the dedicated Fare Settings page in the Settings menu.
-            </p>
           </section>
         </>
       ) : null}
@@ -199,6 +233,39 @@ export default function SettingsPage() {
           outline: none;
           border-color: rgb(59, 130, 246);
           box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .field-hint {
+          margin-top: 0.4rem;
+          font-size: 0.8rem;
+          color: var(--text-muted);
+        }
+
+        .hours-row {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .hours-row input {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .form-group .checkbox-row {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin: 0.75rem 0 0;
+          font-weight: 500;
+          color: var(--text-primary);
+          cursor: pointer;
+        }
+
+        .form-group .checkbox-row input {
+          padding: 0;
+          width: 1rem;
+          height: 1rem;
         }
 
         .form-group.form-actions {

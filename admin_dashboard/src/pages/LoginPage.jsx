@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import ForgotPasswordModal from "../components/ForgotPasswordModal";
+import AuthShell from "../components/AuthShell";
 
 export default function LoginPage() {
   const { login, loading, error } = useAuth();
@@ -16,12 +17,13 @@ export default function LoginPage() {
   }
 
   return (
+    <AuthShell>
     <main className="login-page">
       <section className="login-card">
         <div className="login-hero">
           <div className="login-hero-icon">🛺</div>
-          <h1>FindMeTricycle</h1>
-          <p className="login-eyebrow">Municipal Admin Console</p>
+          <h1>Sign in</h1>
+          <p className="login-eyebrow">Access the FindMeTricycle admin dashboard</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
@@ -91,5 +93,6 @@ export default function LoginPage() {
 
       {showForgotPassword ? <ForgotPasswordModal onClose={() => setShowForgotPassword(false)} /> : null}
     </main>
+    </AuthShell>
   );
 }
