@@ -61,101 +61,105 @@ class _DriverRidesPageState extends State<DriverRidesPage> {
     final all = ctrl.rideHistory;
     final rides = switch (_filter) {
       _RideFilter.all => all,
-      _RideFilter.completed => all.where((r) => r["status"] == "completed").toList(),
-      _RideFilter.cancelled => all.where((r) => r["status"] == "cancelled").toList(),
+      _RideFilter.completed =>
+        all.where((r) => r["status"] == "completed").toList(),
+      _RideFilter.cancelled =>
+        all.where((r) => r["status"] == "cancelled").toList(),
     };
     final stats = ctrl.rideHistoryStats;
 
     return Scaffold(
-      appBar: const AppAppBar(title: "My Rides"),
-      body: Container(
-        color: DesignTokens.bg,
-        child: RefreshIndicator(
-          onRefresh: ctrl.loadRideHistory,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(DesignTokens.spacing16),
-            children: [
-              _SummaryCard(
-                completed: toInt(stats["completed"]),
-                cancelled: toInt(stats["cancelled"]),
-                totalEarned: toDouble(stats["totalEarned"]),
-              ),
-              const SizedBox(height: DesignTokens.spacing12),
-              Wrap(
-                spacing: 8,
+      backgroundColor: DesignTokens.bg,
+      body: Column(
+        children: [
+          const AppTopBar(title: "Ride History"),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: ctrl.loadRideHistory,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                  for (final (filter, label) in const [
-                    (_RideFilter.all, "Lahat"),
-                    (_RideFilter.completed, "Natapos"),
-                    (_RideFilter.cancelled, "Kinansela"),
-                  ])
-                    ChoiceChip(
-                      label: Text(label),
-                      selected: _filter == filter,
-                      onSelected: (_) => setState(() => _filter = filter),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: _SummaryRow(
+                      completed: toInt(stats["completed"]),
+                      cancelled: toInt(stats["cancelled"]),
+                      totalEarned: toDouble(stats["totalEarned"]),
                     ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final (filter, label) in const [
+                          (_RideFilter.all, "All"),
+                          (_RideFilter.completed, "Completed"),
+                          (_RideFilter.cancelled, "Cancelled"),
+                        ])
+                          ChoiceChip(
+                            label: Text(label),
+                            selected: _filter == filter,
+                            onSelected: (_) => setState(() => _filter = filter),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (ctrl.rideHistoryError != null && all.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: ErrorBox(
+                        message: ctrl.rideHistoryError!,
+                        onRetry: ctrl.loadRideHistory,
+                      ),
+                    )
+                  else if (ctrl.isLoadingRideHistory && all.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 60),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (rides.isEmpty)
+                    EmptyState(
+                      icon: Icons.schedule_rounded,
+                      message: switch (_filter) {
+                        _RideFilter.all => "No ride history yet",
+                        _RideFilter.completed => "No completed rides yet",
+                        _RideFilter.cancelled => "No cancelled rides",
+                      },
+                    )
+                  else ...[
+                    for (final ride in rides) _RideRow(ride: ride),
+                    if (ctrl.rideHistoryHasMore)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: OutlinedButton(
+                          onPressed: ctrl.isLoadingMoreRideHistory
+                              ? null
+                              : ctrl.loadMoreRideHistory,
+                          child: ctrl.isLoadingMoreRideHistory
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text("Show more"),
+                        ),
+                      ),
+                  ],
                 ],
               ),
-              const SizedBox(height: DesignTokens.spacing12),
-              if (ctrl.rideHistoryError != null && all.isEmpty)
-                AppCard(
-                  child: Column(
-                    children: [
-                      Text(
-                        ctrl.rideHistoryError!,
-                        style: const TextStyle(color: DesignTokens.text),
-                      ),
-                      const SizedBox(height: DesignTokens.spacing8),
-                      AppButton(label: "Subukan ulit", onPressed: ctrl.loadRideHistory),
-                    ],
-                  ),
-                )
-              else if (ctrl.isLoadingRideHistory && all.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 40),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (rides.isEmpty)
-                AppCard(
-                  child: Text(
-                    switch (_filter) {
-                      _RideFilter.all =>
-                        "Wala ka pang biyahe. Mag-online para makatanggap ng ride requests.",
-                      _RideFilter.completed => "Wala pang natapos na biyahe.",
-                      _RideFilter.cancelled => "Walang kinanselang biyahe.",
-                    },
-                    style: const TextStyle(color: DesignTokens.muted),
-                  ),
-                )
-              else ...[
-                ...rides.map((ride) => _RideCard(ride: ride)),
-                if (ctrl.rideHistoryHasMore)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: OutlinedButton(
-                      onPressed:
-                          ctrl.isLoadingMoreRideHistory ? null : ctrl.loadMoreRideHistory,
-                      child: ctrl.isLoadingMoreRideHistory
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text("Ipakita pa"),
-                    ),
-                  ),
-              ],
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 }
 
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow({
     required this.completed,
     required this.cancelled,
     required this.totalEarned,
@@ -168,47 +172,52 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget stat(String value, String label) => Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  value,
-                  style: const TextStyle(
-                    color: DesignTokens.text,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: DesignTokens.bg2,
+              borderRadius: BorderRadius.circular(DesignTokens.radius),
+              border: Border.all(color: DesignTokens.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(color: DesignTokens.muted, fontSize: 11)),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      color: DesignTokens.text,
+                      fontSize: 18,
+                      fontWeight: DesignTokens.fw700,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(label, style: const TextStyle(color: DesignTokens.muted, fontSize: 12)),
-            ],
+              ],
+            ),
           ),
         );
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: DesignTokens.driverAccent.withAlpha(28),
-        border: Border.all(color: DesignTokens.driverAccent.withAlpha(70)),
-        borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
-      ),
-      child: Row(
-        children: [
-          stat("$completed", "Natapos"),
-          stat("$cancelled", "Kinansela"),
-          stat(peso(totalEarned), "Kabuuang kita"),
-        ],
-      ),
+    return Row(
+      children: [
+        stat("$completed", "Completed"),
+        const SizedBox(width: 8),
+        stat("$cancelled", "Cancelled"),
+        const SizedBox(width: 8),
+        stat(peso(totalEarned), "Total earned"),
+      ],
     );
   }
 }
 
-class _RideCard extends StatelessWidget {
-  const _RideCard({required this.ride});
+/// One trip: status icon, destination and fare, pickup, then passenger,
+/// count, date and the passenger's rating.
+class _RideRow extends StatelessWidget {
+  const _RideRow({required this.ride});
 
   final Map<String, dynamic> ride;
 
@@ -217,11 +226,15 @@ class _RideCard extends StatelessWidget {
     final status = ride["status"]?.toString() ?? "";
     final isCompleted = status == "completed";
     final cancelledBy = ride["cancelled_by"]?.toString();
-    final (statusLabel, statusColor) = isCompleted
-        ? ("NATAPOS", DesignTokens.green)
+    final (IconData icon, Color color, String note) = isCompleted
+        ? (Icons.check_circle_outline_rounded, DesignTokens.green, "")
         : cancelledBy == "driver"
-            ? ("NO-SHOW", DesignTokens.warning)
-            : ("KINANSELA", DesignTokens.red);
+            ? (
+                Icons.person_off_outlined,
+                DesignTokens.warning,
+                "Passenger no-show"
+              )
+            : (Icons.close_rounded, DesignTokens.red, "Cancelled by passenger");
 
     final when = formatRideDateTime(
       ride["completed_at"] ?? ride["cancelled_at"] ?? ride["requested_at"],
@@ -234,177 +247,110 @@ class _RideCard extends StatelessWidget {
     final feedback = ride["passenger_feedback"]?.toString().trim();
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: DesignTokens.bg2,
-        border: Border.all(color: DesignTokens.border),
-        borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
+        border: Border(bottom: BorderSide(color: DesignTokens.border)),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  when ?? "Ride #${ride["id"]}",
-                  style: const TextStyle(
-                    color: DesignTokens.text,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: statusColor.withAlpha(30),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  statusLabel,
-                  style: TextStyle(
-                    color: statusColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(icon, size: 20, color: color),
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Icon(Icons.person_rounded, size: 16, color: DesignTokens.muted),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  passengers > 1 ? "$passenger (+${passengers - 1} kasama)" : passenger,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: DesignTokens.text, fontSize: 13),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        placeLabel(ride["dropoff_address"]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: DesignTokens.text,
+                          fontSize: 14,
+                          fontWeight: DesignTokens.fw600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      isCompleted ? peso(fare) : note,
+                      style: TextStyle(
+                        color: isCompleted
+                            ? DesignTokens.green
+                            : DesignTokens.muted,
+                        fontSize: isCompleted ? 14 : 11,
+                        fontWeight: isCompleted
+                            ? DesignTokens.fw700
+                            : DesignTokens.fw500,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _RoutePoint(
-            icon: Icons.trip_origin_rounded,
-            color: DesignTokens.green,
-            text: placeLabel(ride["pickup_address"]),
-          ),
-          const SizedBox(height: 4),
-          _RoutePoint(
-            icon: Icons.location_on_rounded,
-            color: DesignTokens.red,
-            text: placeLabel(ride["dropoff_address"]),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Icon(Icons.location_on_outlined,
+                        size: 12, color: DesignTokens.muted),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        placeLabel(ride["pickup_address"]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            TextStyle(color: DesignTokens.muted, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
                   [
+                    passenger,
+                    if (passengers > 0) "$passengers pax",
                     if (distance != null) "${distance.toStringAsFixed(1)} km",
-                    "Ride #${ride["id"]}",
-                  ].join(" • "),
-                  maxLines: 1,
+                    if (when != null) when,
+                  ].join(" · "),
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: DesignTokens.muted, fontSize: 12),
+                  style: TextStyle(color: DesignTokens.muted, fontSize: 11),
                 ),
-              ),
-              const SizedBox(width: 8),
-              if (isCompleted)
-                Text(
-                  "+${peso(fare)}",
-                  style: const TextStyle(
-                    color: DesignTokens.green,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
+                if (isCompleted && rating != null) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      for (var i = 1; i <= 5; i++)
+                        Icon(
+                          i <= rating
+                              ? Icons.star_rounded
+                              : Icons.star_border_rounded,
+                          size: 14,
+                          color:
+                              i <= rating ? Colors.amber : DesignTokens.muted,
+                        ),
+                    ],
                   ),
-                )
-              else
-                Flexible(
-                  child: Text(
-                    cancelledBy == "driver"
-                        ? "Walang dumating na pasahero"
-                        : "Kinansela ng pasahero",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(color: DesignTokens.muted, fontSize: 12),
-                  ),
-                ),
-            ],
-          ),
-          if (isCompleted) ...[
-            const SizedBox(height: 8),
-            if (rating != null) ...[
-              Row(
-                children: [
-                  for (var i = 1; i <= 5; i++)
-                    Icon(
-                      i <= rating ? Icons.star_rounded : Icons.star_border_rounded,
-                      size: 18,
-                      color: Colors.amber,
+                  if (feedback != null && feedback.isNotEmpty)
+                    Text(
+                      "“$feedback”",
+                      style: TextStyle(
+                        color: DesignTokens.text,
+                        fontStyle: FontStyle.italic,
+                        fontSize: 12,
+                      ),
                     ),
-                  const SizedBox(width: 6),
-                  const Flexible(
-                    child: Text(
-                      "Rating ng pasahero",
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: DesignTokens.muted, fontSize: 12),
-                    ),
-                  ),
                 ],
-              ),
-              if (feedback != null && feedback.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  "“$feedback”",
-                  style: const TextStyle(
-                    color: DesignTokens.text,
-                    fontStyle: FontStyle.italic,
-                    fontSize: 13,
-                  ),
-                ),
               ],
-            ] else
-              const Text(
-                "Wala pang rating mula sa pasahero",
-                style: TextStyle(color: DesignTokens.muted, fontSize: 12),
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _RoutePoint extends StatelessWidget {
-  const _RoutePoint({required this.icon, required this.color, required this.text});
-
-  final IconData icon;
-  final Color color;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: text == kPinnedPlaceLabel ? DesignTokens.muted : DesignTokens.text,
-              fontSize: 13,
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

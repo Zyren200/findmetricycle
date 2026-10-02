@@ -15,8 +15,11 @@ class AppBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: DesignTokens.spacing10, vertical: DesignTokens.spacing7),
-      decoration: BoxDecoration(color: style.backgroundColor, borderRadius: BorderRadius.circular(DesignTokens.radiusLg)),
+      padding: const EdgeInsets.symmetric(
+          horizontal: DesignTokens.spacing10, vertical: DesignTokens.spacing7),
+      decoration: BoxDecoration(
+          color: style.backgroundColor,
+          borderRadius: BorderRadius.circular(DesignTokens.radiusLg)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

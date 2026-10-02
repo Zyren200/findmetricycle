@@ -118,6 +118,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
           address: address,
         );
     context.read<ValueNotifier<int>>().value = 0;
+    // Opened from Profile / Settings: go back to Home, where the trip is.
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   @override
@@ -162,7 +164,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.star_outline_rounded,
+                              Icon(Icons.star_outline_rounded,
                                   size: 48, color: DesignTokens.muted),
                               const SizedBox(height: 16),
                               Text(
@@ -246,7 +248,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                                           : null,
                                       child: Container(
                                         padding: const EdgeInsets.all(8),
-                                        child: const Icon(Icons.close_rounded,
+                                        child: Icon(Icons.close_rounded,
                                             color: DesignTokens.muted,
                                             size: 20),
                                       ),
@@ -264,7 +266,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
       floatingActionButton: FloatingActionButton(
         onPressed: _addFavorite,
         backgroundColor: DesignTokens.accent,
-        child: const Icon(Icons.add, color: Colors.black),
+        child: Icon(Icons.add, color: DesignTokens.bg),
       ),
     );
   }

@@ -111,7 +111,7 @@ class _ChangePasswordOtpPageState extends State<ChangePasswordOtpPage> {
                       textAlignVertical: TextAlignVertical.center,
                       keyboardType: TextInputType.number,
                       maxLength: 1,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: DesignTokens.text,
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -126,18 +126,15 @@ class _ChangePasswordOtpPageState extends State<ChangePasswordOtpPage> {
                         fillColor: DesignTokens.bg2,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: DesignTokens.border),
+                          borderSide: BorderSide(color: DesignTokens.border),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: DesignTokens.border),
+                          borderSide: BorderSide(color: DesignTokens.border),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: DesignTokens.accent),
+                          borderSide: BorderSide(color: DesignTokens.accent),
                         ),
                       ),
                       onChanged: (value) {

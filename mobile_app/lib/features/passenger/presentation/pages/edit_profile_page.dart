@@ -25,11 +25,16 @@ class _EditProfilePageState extends State<EditProfilePage> {
   @override
   void initState() {
     super.initState();
-    final profile = context.read<PassengerProfileController>().userProfile ?? {};
-    _nameCtrl = TextEditingController(text: profile["full_name"]?.toString() ?? "");
-    _emailCtrl = TextEditingController(text: profile["email"]?.toString() ?? "");
-    _phoneCtrl = TextEditingController(text: profile["phone"]?.toString() ?? "");
-    _addressCtrl = TextEditingController(text: profile["address"]?.toString() ?? "");
+    final profile =
+        context.read<PassengerProfileController>().userProfile ?? {};
+    _nameCtrl =
+        TextEditingController(text: profile["full_name"]?.toString() ?? "");
+    _emailCtrl =
+        TextEditingController(text: profile["email"]?.toString() ?? "");
+    _phoneCtrl =
+        TextEditingController(text: profile["phone"]?.toString() ?? "");
+    _addressCtrl =
+        TextEditingController(text: profile["address"]?.toString() ?? "");
   }
 
   @override
@@ -59,7 +64,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(ok ? "Profile updated." : (ctrl.profileError ?? "Failed to update profile.")),
+        content: Text(ok
+            ? "Profile updated."
+            : (ctrl.profileError ?? "Failed to update profile.")),
       ),
     );
   }
@@ -132,7 +139,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       const SizedBox(height: DesignTokens.spacing12),
                       Text(
                         ctrl.profileError!,
-                        style: const TextStyle(color: DesignTokens.red),
+                        style: TextStyle(color: DesignTokens.red),
                       ),
                     ],
                     const SizedBox(height: DesignTokens.spacing20),

@@ -115,8 +115,7 @@ class _RegisterOtpPageState extends State<RegisterOtpPage> {
 
     try {
       final repo = AuthRepository(context.read<ApiClient>());
-      final response =
-          await repo.verifyOtp(email: widget.email, code: code);
+      final response = await repo.verifyOtp(email: widget.email, code: code);
       if (response["success"] != true && response["verified"] != true) {
         throw Exception(
             response["message"]?.toString() ?? "OTP verification failed.");
@@ -191,7 +190,7 @@ class _RegisterOtpPageState extends State<RegisterOtpPage> {
                       keyboardType: TextInputType.number,
                       maxLength: 1,
                       inputFormatters: const [],
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: DesignTokens.text,
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -206,18 +205,15 @@ class _RegisterOtpPageState extends State<RegisterOtpPage> {
                         fillColor: DesignTokens.bg2,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: DesignTokens.border),
+                          borderSide: BorderSide(color: DesignTokens.border),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: DesignTokens.border),
+                          borderSide: BorderSide(color: DesignTokens.border),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: DesignTokens.accent),
+                          borderSide: BorderSide(color: DesignTokens.accent),
                         ),
                       ),
                       onChanged: (value) {
@@ -265,13 +261,13 @@ class _RegisterOtpPageState extends State<RegisterOtpPage> {
                 child: _countdown > 0
                     ? Text(
                         "Resend code in $_countdown s",
-                        style: const TextStyle(color: DesignTokens.muted),
+                        style: TextStyle(color: DesignTokens.muted),
                       )
                     : TextButton(
                         onPressed: _isResending ? null : _resendOtp,
                         child: Text(
                           _isResending ? "Resending…" : "Resend OTP",
-                          style: const TextStyle(color: DesignTokens.accent),
+                          style: TextStyle(color: DesignTokens.accent),
                         ),
                       ),
               ),

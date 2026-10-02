@@ -15,7 +15,8 @@ class ChangePasswordPage extends StatefulWidget {
     super.key,
   });
 
-  final Future<Map<String, dynamic>> Function(String currentPassword) requestOtp;
+  final Future<Map<String, dynamic>> Function(String currentPassword)
+      requestOtp;
   final Future<bool> Function(
     String currentPassword,
     String newPassword,
@@ -59,8 +60,8 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
       if (!mounted) return;
 
       if (result["success"] != true) {
-        setState(() => _error =
-            result["message"]?.toString() ?? "Failed to send verification code.");
+        setState(() => _error = result["message"]?.toString() ??
+            "Failed to send verification code.");
         return;
       }
 

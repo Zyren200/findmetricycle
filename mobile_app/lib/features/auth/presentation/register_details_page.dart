@@ -80,18 +80,18 @@ class _RegisterDetailsPageState extends State<RegisterDetailsPage> {
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: DesignTokens.bg2,
-        title: const Text(
+        title: Text(
           "Account created",
           style: TextStyle(color: DesignTokens.text),
         ),
-        content: const Text(
+        content: Text(
           "Your account was created successfully. You can now log in.",
           style: TextStyle(color: DesignTokens.muted),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text(
+            child: Text(
               "OK",
               style: TextStyle(color: DesignTokens.accent),
             ),

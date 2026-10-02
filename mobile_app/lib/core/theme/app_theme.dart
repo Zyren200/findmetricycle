@@ -2,50 +2,27 @@ import "package:flutter/material.dart";
 import "design_tokens.dart";
 
 class AppTheme {
-  /// A light counterpart to [build]. Note: most screens in this app render
-  /// with DesignTokens' fixed dark palette directly (not via Theme.of),
-  /// so switching to light mode currently affects default Material
-  /// widgets (dialogs, switches, snackbars) rather than every screen.
-  static ThemeData buildLight() {
-    final base = ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: DesignTokens.accent,
-        primary: DesignTokens.accent,
-        secondary: DesignTokens.accent2,
-        brightness: Brightness.light,
-      ),
-    );
-    return base.copyWith(
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          minimumSize: const Size.fromHeight(48),
-          backgroundColor: DesignTokens.accent,
-          foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
-          ),
-        ),
-      ),
-    );
-  }
-
+  /// The app theme for the palette currently selected in
+  /// [DesignTokens.isDark] — screens read DesignTokens directly, and the
+  /// Material widgets (dialogs, switches, snackbars, inputs) follow this.
   static ThemeData build() {
     final base = ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
         seedColor: DesignTokens.accent,
         primary: DesignTokens.accent,
+        onPrimary: DesignTokens.bg,
         secondary: DesignTokens.accent2,
         surface: DesignTokens.bg2,
+        onSurface: DesignTokens.text,
         error: DesignTokens.red,
-        brightness: Brightness.dark,
+        brightness: DesignTokens.isDark ? Brightness.dark : Brightness.light,
       ),
     );
 
     return base.copyWith(
       scaffoldBackgroundColor: DesignTokens.bg,
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         centerTitle: false,
         backgroundColor: DesignTokens.bg,
         foregroundColor: DesignTokens.text,
@@ -56,7 +33,7 @@ class AppTheme {
         color: DesignTokens.bg2,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
-          side: const BorderSide(
+          side: BorderSide(
             color: DesignTokens.border,
             width: 1,
           ),
@@ -81,23 +58,23 @@ class AppTheme {
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(DesignTokens.radius),
-          borderSide: const BorderSide(color: DesignTokens.border),
+          borderSide: BorderSide(color: DesignTokens.border),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(DesignTokens.radius),
-          borderSide: const BorderSide(color: DesignTokens.border),
+          borderSide: BorderSide(color: DesignTokens.border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(DesignTokens.radius),
-          borderSide: const BorderSide(color: DesignTokens.accent, width: 2),
+          borderSide: BorderSide(color: DesignTokens.accent, width: 2),
         ),
-        hintStyle: const TextStyle(
+        hintStyle: TextStyle(
           color: DesignTokens.muted,
           fontSize: DesignTokens.fontSize14,
           fontFamily: DesignTokens.fontDmSans,
         ),
       ),
-      textTheme: const TextTheme(
+      textTheme: TextTheme(
         headlineSmall: TextStyle(
           fontFamily: DesignTokens.fontSyne,
           fontSize: DesignTokens.fontSize24,

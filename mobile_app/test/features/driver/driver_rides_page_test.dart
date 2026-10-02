@@ -88,15 +88,15 @@ void main() {
   testWidgets("shows completed and cancelled trips readably", (tester) async {
     await pumpRides(tester);
 
-    expect(find.text("NATAPOS"), findsOneWidget);
-    expect(find.text("NO-SHOW"), findsOneWidget);
-    expect(find.text("KINANSELA"), findsOneWidget);
-    expect(find.text("+₱55.00"), findsOneWidget);
-    expect(find.text("₱55.00"), findsOneWidget); // total earned
-    expect(find.text("Armae Corpuz (+1 kasama)"), findsOneWidget);
+    // Completed trip: destination, fare (also the "Total earned" stat),
+    // passenger and count, and the passenger's feedback.
+    expect(find.text("Guiuan Public Market"), findsOneWidget);
+    expect(find.text("₱55.00"), findsNWidgets(2));
+    expect(find.textContaining("Armae Corpuz · 2 pax · 2.3 km"), findsOneWidget);
     expect(find.text("“Mabilis at maingat”"), findsOneWidget);
-    expect(find.text("Walang dumating na pasahero"), findsOneWidget);
-    expect(find.text("Kinansela ng pasahero"), findsOneWidget);
+    // Cancelled trips say who cancelled.
+    expect(find.text("Passenger no-show"), findsOneWidget);
+    expect(find.text("Cancelled by passenger"), findsOneWidget);
     expect(find.textContaining("11.10853"), findsNothing);
     expect(find.textContaining("T07:"), findsNothing);
     expect(tester.takeException(), isNull);
@@ -105,12 +105,12 @@ void main() {
   testWidgets("filters to completed trips", (tester) async {
     await pumpRides(tester);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, "Natapos"));
+    await tester.tap(find.widgetWithText(ChoiceChip, "Completed"));
     await tester.pumpAndSettle();
 
-    expect(find.text("NATAPOS"), findsOneWidget);
-    expect(find.text("KINANSELA"), findsNothing);
-    expect(find.text("NO-SHOW"), findsNothing);
+    expect(find.text("Guiuan Public Market"), findsOneWidget);
+    expect(find.text("Cancelled by passenger"), findsNothing);
+    expect(find.text("Passenger no-show"), findsNothing);
   });
 
   testWidgets("reloads when the Rides tab is opened again", (tester) async {

@@ -23,11 +23,14 @@ class AppButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isGhost = style == AppButtonStyle.ghost;
-    final backgroundColor = style.backgroundColor ?? (isGhost ? Colors.transparent : DesignTokens.bg3);
+    final backgroundColor = style.backgroundColor ??
+        (isGhost ? Colors.transparent : DesignTokens.bg3);
     final textColor = style.textColor;
     final borderSide = isGhost
-      ? const BorderSide(color: DesignTokens.border2, width: 1)
-      : (style == AppButtonStyle.accent ? BorderSide.none : const BorderSide(color: DesignTokens.border, width: 1));
+        ? BorderSide(color: DesignTokens.border2, width: 1)
+        : (style == AppButtonStyle.accent
+            ? BorderSide.none
+            : BorderSide(color: DesignTokens.border, width: 1));
 
     return SizedBox(
       width: width ?? double.infinity,

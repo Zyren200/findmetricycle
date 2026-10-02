@@ -67,7 +67,8 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
 
     if (lat == null || lng == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Walang naka-save na destinasyon ang biyaheng ito.")),
+        const SnackBar(
+            content: Text("Walang naka-save na destinasyon ang biyaheng ito.")),
       );
       return;
     }
@@ -93,7 +94,8 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
             child: const Text("Cancel"),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
             child: const Text("Save"),
           ),
         ],
@@ -116,7 +118,8 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
         content: Text(
           success
               ? "Na-save sa Favorites."
-              : (profileController.favoritesError ?? "Hindi na-save ang favorite."),
+              : (profileController.favoritesError ??
+                  "Hindi na-save ang favorite."),
         ),
       ),
     );
@@ -128,7 +131,8 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
 
     if (lat == null || lng == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Walang naka-save na destinasyon ang biyaheng ito.")),
+        const SnackBar(
+            content: Text("Walang naka-save na destinasyon ang biyaheng ito.")),
       );
       return;
     }
@@ -152,17 +156,53 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
       MaterialPageRoute(
         builder: (_) => Provider<BookingRepository>(
           create: (_) => BookingRepository(PassengerRepository(apiClient)),
-          child: RatingPage(bookingId: bookingId),
+          child: RatingPage(
+            bookingId: bookingId,
+            driverName: ride["driver_name"]?.toString(),
+            vehicle: ride["tricycle_number"] == null
+                ? null
+                : "Tricycle ${ride["tricycle_number"]}",
+          ),
         ),
       ),
     );
-    if (rated == true) await controller.loadBookingHistory();
+    if (rated == true) {
+      await controller.loadBookingHistory();
+      if (mounted) setState(() => _selectedId = null);
+    }
   }
+
+  /// The ride open in the details view (Figma "Ride Details"), by id so
+  /// it stays current across history reloads.
+  dynamic _selectedId;
 
   @override
   Widget build(BuildContext context) {
     final ctrl = context.watch<PassengerRideController>();
     final allRides = ctrl.bookingHistory;
+
+    final selected = _selectedId == null
+        ? null
+        : allRides.where((r) => r["id"] == _selectedId).firstOrNull;
+    if (selected != null) {
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) setState(() => _selectedId = null);
+        },
+        child: _RideDetails(
+          ride: selected,
+          onBack: () => setState(() => _selectedId = null),
+          onSaveFavorite: () => _saveAsFavorite(selected),
+          onBookAgain: () {
+            setState(() => _selectedId = null);
+            _bookAgain(selected);
+          },
+          onRate: () => _rate(selected),
+        ),
+      );
+    }
+
     final rides = switch (_filter) {
       _HistoryFilter.all => allRides,
       _HistoryFilter.completed =>
@@ -173,86 +213,94 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
     final stats = ctrl.historyStats;
 
     return Scaffold(
-      body: RefreshIndicator(
-        onRefresh: ctrl.loadBookingHistory,
-        child: Container(
-          color: DesignTokens.bg,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(DesignTokens.spacing16),
-            children: [
-              Text(
-                "Ride History",
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(color: DesignTokens.text),
-              ),
-              const SizedBox(height: DesignTokens.spacing12),
-              _SummaryCard(
-                completed: toInt(stats["completed"]),
-                cancelled: toInt(stats["cancelled"]),
-                totalSpent: toDouble(stats["totalSpent"]),
-              ),
-              const SizedBox(height: DesignTokens.spacing12),
-              Wrap(
-                spacing: 8,
+      backgroundColor: DesignTokens.bg,
+      body: Column(
+        children: [
+          const AppTopBar(title: "My Rides"),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: ctrl.loadBookingHistory,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                  for (final (filter, label) in const [
-                    (_HistoryFilter.all, "Lahat"),
-                    (_HistoryFilter.completed, "Natapos"),
-                    (_HistoryFilter.cancelled, "Kinansela"),
-                  ])
-                    ChoiceChip(
-                      label: Text(label),
-                      selected: _filter == filter,
-                      onSelected: (_) => setState(() => _filter = filter),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: _SummaryRow(
+                      completed: toInt(stats["completed"]),
+                      cancelled: toInt(stats["cancelled"]),
+                      totalSpent: toDouble(stats["totalSpent"]),
                     ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final (filter, label) in const [
+                          (_HistoryFilter.all, "All"),
+                          (_HistoryFilter.completed, "Completed"),
+                          (_HistoryFilter.cancelled, "Cancelled"),
+                        ])
+                          ChoiceChip(
+                            label: Text(label),
+                            selected: _filter == filter,
+                            onSelected: (_) => setState(() => _filter = filter),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (ctrl.historyError != null && allRides.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: ErrorBox(
+                        message: ctrl.historyError!,
+                        onRetry: ctrl.loadBookingHistory,
+                      ),
+                    )
+                  else if (ctrl.isLoadingHistory && allRides.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 60),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (rides.isEmpty)
+                    EmptyState(
+                      icon: Icons.schedule_rounded,
+                      message: switch (_filter) {
+                        _HistoryFilter.all => "No ride history yet",
+                        _HistoryFilter.completed => "No completed rides yet",
+                        _HistoryFilter.cancelled => "No cancelled rides",
+                      },
+                    )
+                  else ...[
+                    for (final ride in rides)
+                      _RideRow(
+                        ride: ride,
+                        onTap: () => setState(() => _selectedId = ride["id"]),
+                      ),
+                    if (ctrl.historyHasMore)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: OutlinedButton(
+                          onPressed: ctrl.isLoadingMoreHistory
+                              ? null
+                              : ctrl.loadMoreHistory,
+                          child: ctrl.isLoadingMoreHistory
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text("Show more"),
+                        ),
+                      ),
+                  ],
                 ],
               ),
-              const SizedBox(height: DesignTokens.spacing12),
-              if (ctrl.historyError != null && allRides.isEmpty)
-                AppCard(
-                  child: Column(
-                    children: [
-                      Text(ctrl.historyError!, style: Theme.of(context).textTheme.bodyMedium),
-                      const SizedBox(height: DesignTokens.spacing8),
-                      AppButton(label: "Subukan ulit", onPressed: ctrl.loadBookingHistory),
-                    ],
-                  ),
-                )
-              else if (ctrl.isLoadingHistory && allRides.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 40),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (rides.isEmpty)
-                _EmptyState(filter: _filter)
-              else ...[
-                ...rides.map((ride) => _RideHistoryCard(
-                      ride: ride,
-                      onSaveFavorite: () => _saveAsFavorite(ride),
-                      onBookAgain: () => _bookAgain(ride),
-                      onRate: () => _rate(ride),
-                    )),
-                if (ctrl.historyHasMore)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: OutlinedButton(
-                      onPressed: ctrl.isLoadingMoreHistory ? null : ctrl.loadMoreHistory,
-                      child: ctrl.isLoadingMoreHistory
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text("Ipakita pa"),
-                    ),
-                  ),
-              ],
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -261,17 +309,30 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
 // ── helpers ─────────────────────────────────────────────────────────────
 
 (String, Color) _statusStyle(String status) => switch (status) {
-      "completed" => ("NATAPOS", DesignTokens.green),
-      "cancelled" => ("KINANSELA", DesignTokens.red),
-      "ongoing" || "on_ride" => ("NASA BIYAHE", DesignTokens.blue),
-      "accepted" || "assigned" || "arriving" => ("PAPUNTA ANG RIDER", DesignTokens.blue),
-      _ => ("NAGHAHANAP", DesignTokens.warning),
+      "completed" => ("COMPLETED", DesignTokens.green),
+      "cancelled" => ("CANCELLED", DesignTokens.red),
+      "ongoing" || "on_ride" => ("IN PROGRESS", DesignTokens.blue),
+      "accepted" || "assigned" || "arriving" => (
+          "DRIVER ON THE WAY",
+          DesignTokens.blue
+        ),
+      _ => ("SEARCHING", DesignTokens.warning),
     };
+
+double? _rideFare(Map<String, dynamic> ride) =>
+    double.tryParse(ride["final_fare"]?.toString() ?? "") ??
+    double.tryParse(ride["estimated_fare"]?.toString() ?? "");
+
+String? _rideWhen(Map<String, dynamic> ride) => formatRideDateTime(
+      ride["status"] == "completed"
+          ? ride["completed_at"] ?? ride["requested_at"]
+          : ride["requested_at"],
+    );
 
 // ── widgets ─────────────────────────────────────────────────────────────
 
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow({
     required this.completed,
     required this.cancelled,
     required this.totalSpent,
@@ -284,259 +345,148 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget stat(String value, String label) => Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  value,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: DesignTokens.bg2,
+              borderRadius: BorderRadius.circular(DesignTokens.radius),
+              border: Border.all(color: DesignTokens.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(color: DesignTokens.muted, fontSize: 11)),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      color: DesignTokens.text,
+                      fontSize: 18,
+                      fontWeight: DesignTokens.fw700,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-            ],
+              ],
+            ),
           ),
         );
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF0E8C46), Color(0xFF136F3A)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
-      ),
-      child: Row(
-        children: [
-          stat("$completed", "Natapos"),
-          stat("$cancelled", "Kinansela"),
-          stat(peso(totalSpent), "Kabuuang gastos"),
-        ],
-      ),
+    return Row(
+      children: [
+        stat("$completed", "Completed"),
+        const SizedBox(width: 8),
+        stat("$cancelled", "Cancelled"),
+        const SizedBox(width: 8),
+        stat(peso(totalSpent), "Total spent"),
+      ],
     );
   }
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.filter});
-
-  final _HistoryFilter filter;
-
-  @override
-  Widget build(BuildContext context) {
-    final message = switch (filter) {
-      _HistoryFilter.all => "Wala ka pang biyahe. Mag-book mula sa mapa para makita ito rito.",
-      _HistoryFilter.completed => "Wala pang natapos na biyahe.",
-      _HistoryFilter.cancelled => "Walang kinanselang biyahe.",
-    };
-    return AppCard(
-      child: Column(
-        children: [
-          const Icon(Icons.history_rounded, size: 42, color: DesignTokens.muted),
-          const SizedBox(height: DesignTokens.spacing12),
-          Text(
-            message,
-            style: Theme.of(context).textTheme.bodyMedium,
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RideHistoryCard extends StatelessWidget {
-  const _RideHistoryCard({
-    required this.ride,
-    required this.onSaveFavorite,
-    required this.onBookAgain,
-    required this.onRate,
-  });
+/// One ride in the list: status icon, destination, fare, pickup, meta.
+class _RideRow extends StatelessWidget {
+  const _RideRow({required this.ride, required this.onTap});
 
   final Map<String, dynamic> ride;
-  final VoidCallback onSaveFavorite;
-  final VoidCallback onBookAgain;
-  final VoidCallback onRate;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final status = ride["status"]?.toString() ?? "";
-    final isCompleted = status == "completed";
-    final isCancelled = status == "cancelled";
     final (statusLabel, statusColor) = _statusStyle(status);
+    final fare = _rideFare(ride);
+    final pax = int.tryParse(ride["passenger_count"]?.toString() ?? "");
+    final icon = switch (status) {
+      "completed" => Icons.check_circle_outline_rounded,
+      "cancelled" => Icons.close_rounded,
+      _ => Icons.schedule_rounded,
+    };
 
-    final when = formatRideDateTime(
-      isCompleted ? ride["completed_at"] ?? ride["requested_at"] : ride["requested_at"],
-    );
-    final distance = double.tryParse(ride["distance_km"]?.toString() ?? "");
-    final finalFare = double.tryParse(ride["final_fare"]?.toString() ?? "");
-    final estimate = double.tryParse(ride["estimated_fare"]?.toString() ?? "");
-    final riderName = ride["driver_name"]?.toString();
-    final tricycle = ride["tricycle_number"]?.toString();
-    final rating = int.tryParse(ride["rating"]?.toString() ?? "");
-    final cancelledBy = ride["cancelled_by"]?.toString();
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: DesignTokens.spacing12),
-      child: AppCard(
-        child: Column(
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: DesignTokens.border)),
+        ),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    when ?? "Ride #${ride["id"]}",
-                    style: const TextStyle(
-                      color: DesignTokens.text,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: statusColor.withAlpha(30),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    statusLabel,
-                    style: TextStyle(
-                      color: statusColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ],
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(icon, size: 20, color: statusColor),
             ),
-            const SizedBox(height: 10),
-            _RoutePoint(
-              icon: Icons.trip_origin_rounded,
-              color: DesignTokens.green,
-              text: placeLabel(ride["pickup_address"]),
-            ),
-            const SizedBox(height: 4),
-            _RoutePoint(
-              icon: Icons.location_on_rounded,
-              color: DesignTokens.red,
-              text: placeLabel(ride["dropoff_address"]),
-            ),
-            if (riderName != null) ...[
-              const SizedBox(height: 8),
-              Row(
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.pedal_bike_rounded, size: 16, color: DesignTokens.muted),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      tricycle == null ? riderName : "$riderName • $tricycle",
-                      style: const TextStyle(color: DesignTokens.muted, fontSize: 13),
-                      overflow: TextOverflow.ellipsis,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          placeLabel(ride["dropoff_address"]),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: DesignTokens.text,
+                            fontSize: 14,
+                            fontWeight: DesignTokens.fw600,
+                          ),
+                        ),
+                      ),
+                      if (fare != null && status != "cancelled") ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          peso(fare),
+                          style: TextStyle(
+                            color: DesignTokens.text,
+                            fontSize: 14,
+                            fontWeight: DesignTokens.fw700,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Icon(Icons.location_on_outlined,
+                          size: 12, color: DesignTokens.muted),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          placeLabel(ride["pickup_address"]),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: DesignTokens.muted, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text.rich(
+                    TextSpan(
+                      style: TextStyle(color: DesignTokens.muted, fontSize: 11),
+                      children: [
+                        TextSpan(
+                            text: _rideWhen(ride) ?? "Ride #${ride["id"]}"),
+                        if (pax != null) TextSpan(text: "  ·  $pax pax"),
+                        const TextSpan(text: "  ·  "),
+                        TextSpan(
+                            text: statusLabel,
+                            style: TextStyle(color: statusColor)),
+                      ],
                     ),
                   ),
                 ],
               ),
-            ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    [
-                      if (distance != null) "${distance.toStringAsFixed(1)} km",
-                      "Ride #${ride["id"]}",
-                    ].join(" • "),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: DesignTokens.muted, fontSize: 12),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                if (isCompleted)
-                  Text(
-                    peso(finalFare ?? estimate ?? 0),
-                    style: const TextStyle(
-                      color: Color(0xFF0E8C46),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  )
-                else if (isCancelled)
-                  Flexible(
-                    child: Text(
-                      // Nothing was charged for a cancelled ride.
-                      cancelledBy == "driver" ? "Kinansela ng rider" : "Walang bayad",
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(color: DesignTokens.muted, fontSize: 12),
-                    ),
-                  )
-                else if (estimate != null)
-                  Text(
-                    "Tantiya ${peso(estimate)}",
-                    style: const TextStyle(color: DesignTokens.muted, fontSize: 12),
-                  ),
-              ],
             ),
-            if (isCompleted) ...[
-              const SizedBox(height: 8),
-              if (rating != null)
-                Row(
-                  children: [
-                    for (var i = 1; i <= 5; i++)
-                      Icon(
-                        i <= rating ? Icons.star_rounded : Icons.star_border_rounded,
-                        size: 18,
-                        color: Colors.amber,
-                      ),
-                    const SizedBox(width: 6),
-                    const Flexible(
-                      child: Text(
-                        "Na-rate mo na",
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: DesignTokens.muted, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                )
-              else
-                TextButton.icon(
-                  onPressed: onRate,
-                  icon: const Icon(Icons.star_outline_rounded, color: Colors.amber),
-                  label: const Text("I-rate ang rider"),
-                ),
-            ],
-            if (isCompleted || isCancelled) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  if (isCompleted) ...[
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: onSaveFavorite,
-                        icon: const Icon(Icons.star_border_rounded, size: 18),
-                        label: const Text("Favorite"),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  Expanded(
-                    child: AppButton(label: "Book Again", onPressed: onBookAgain),
-                  ),
-                ],
-              ),
-            ],
           ],
         ),
       ),
@@ -544,31 +494,155 @@ class _RideHistoryCard extends StatelessWidget {
   }
 }
 
-class _RoutePoint extends StatelessWidget {
-  const _RoutePoint({required this.icon, required this.color, required this.text});
+/// Figma "Ride Details": status chip, details box, and the ride's actions.
+class _RideDetails extends StatelessWidget {
+  const _RideDetails({
+    required this.ride,
+    required this.onBack,
+    required this.onSaveFavorite,
+    required this.onBookAgain,
+    required this.onRate,
+  });
 
-  final IconData icon;
-  final Color color;
-  final String text;
+  final Map<String, dynamic> ride;
+  final VoidCallback onBack;
+  final VoidCallback onSaveFavorite;
+  final VoidCallback onBookAgain;
+  final VoidCallback onRate;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: text == kPinnedPlaceLabel ? DesignTokens.muted : DesignTokens.text,
-              fontSize: 13,
+    final status = ride["status"]?.toString() ?? "";
+    final (statusLabel, statusColor) = _statusStyle(status);
+    final isCompleted = status == "completed";
+    final isCancelled = status == "cancelled";
+    final fare = _rideFare(ride);
+    final distance = double.tryParse(ride["distance_km"]?.toString() ?? "");
+    final pax = ride["passenger_count"]?.toString();
+    final riderName = ride["driver_name"]?.toString();
+    final tricycle = ride["tricycle_number"]?.toString();
+    final rating = int.tryParse(ride["rating"]?.toString() ?? "");
+    final cancelledBy = ride["cancelled_by"]?.toString();
+
+    return Scaffold(
+      backgroundColor: DesignTokens.bg,
+      body: Column(
+        children: [
+          AppTopBar(title: "Ride Details", showBack: true, onBack: onBack),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: statusColor.withAlpha(30),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 13,
+                        fontWeight: DesignTokens.fw600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                InfoBox(
+                  children: [
+                    InfoRow(label: "Date", value: _rideWhen(ride) ?? "-"),
+                    InfoRow(
+                        label: "Pickup",
+                        value: placeLabel(ride["pickup_address"])),
+                    InfoRow(
+                        label: "Destination",
+                        value: placeLabel(ride["dropoff_address"])),
+                    if (pax != null) InfoRow(label: "Passengers", value: pax),
+                    if (distance != null)
+                      InfoRow(
+                          label: "Distance",
+                          value: "${distance.toStringAsFixed(1)} km"),
+                    InfoRow(
+                      label: "Fare",
+                      value: isCancelled
+                          ? (cancelledBy == "driver"
+                              ? "Cancelled by rider"
+                              : "No charge")
+                          : "${peso(fare ?? 0)} (Cash)",
+                    ),
+                    InfoRow(label: "Ride #", value: "${ride["id"]}"),
+                    if (riderName != null) ...[
+                      const InfoDivider(),
+                      InfoRow(label: "Driver", value: riderName),
+                      if (tricycle != null)
+                        InfoRow(label: "Tricycle", value: tricycle),
+                    ],
+                    if (rating != null) ...[
+                      const InfoDivider(),
+                      Row(
+                        children: [
+                          Text("Your Rating:",
+                              style: TextStyle(
+                                  color: DesignTokens.muted, fontSize: 13)),
+                          const SizedBox(width: 8),
+                          for (var i = 1; i <= 5; i++)
+                            Icon(
+                              i <= rating
+                                  ? Icons.star_rounded
+                                  : Icons.star_border_rounded,
+                              size: 16,
+                              color: i <= rating
+                                  ? Colors.amber
+                                  : DesignTokens.muted,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+                if (isCompleted && rating == null) ...[
+                  const SizedBox(height: 16),
+                  PrimaryActionButton(
+                    label: "Rate Driver",
+                    icon: Icons.star_outline_rounded,
+                    onPressed: onRate,
+                  ),
+                ],
+                if (isCompleted || isCancelled) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      if (isCompleted) ...[
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: onSaveFavorite,
+                            icon:
+                                const Icon(Icons.star_border_rounded, size: 18),
+                            label: const Text("Save to Favorites"),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: onBookAgain,
+                          icon: const Icon(Icons.replay_rounded, size: 18),
+                          label: const Text("Book Again"),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -26,7 +26,8 @@ class UserSession {
   final String driverApprovalStatus;
 
   bool get canUseDriverMode =>
-      role == "driver" || (isDriverAccount && driverApprovalStatus == "approved");
+      role == "driver" ||
+      (isDriverAccount && driverApprovalStatus == "approved");
 
   // Falls back to Passenger Mode if the stored preference says "driver" but
   // this account isn't actually eligible (never approved, or approval was
@@ -59,8 +60,10 @@ class UserSession {
       phone: user["phone"]?.toString() ?? "",
       role: roleValue,
       activeRole: user["active_role"]?.toString() ?? roleValue,
-      isDriverAccount: user["is_driver_account"] == true || user["is_driver_account"] == 1,
-      driverApprovalStatus: user["driver_approval_status"]?.toString() ?? "none",
+      isDriverAccount:
+          user["is_driver_account"] == true || user["is_driver_account"] == 1,
+      driverApprovalStatus:
+          user["driver_approval_status"]?.toString() ?? "none",
     );
   }
 }

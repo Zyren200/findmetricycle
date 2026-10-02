@@ -130,7 +130,7 @@ class _DriverEditProfilePageState extends State<DriverEditProfilePage> {
                             backgroundColor: DesignTokens.driverAccent,
                             backgroundImage: avatarImage,
                             child: avatarImage == null
-                                ? const Icon(Icons.person,
+                                ? Icon(Icons.person,
                                     color: DesignTokens.bg, size: 42)
                                 : null,
                           ),
@@ -141,11 +141,11 @@ class _DriverEditProfilePageState extends State<DriverEditProfilePage> {
                               onTap: _pickProfileImage,
                               child: Container(
                                 padding: const EdgeInsets.all(8),
-                                decoration: const BoxDecoration(
+                                decoration: BoxDecoration(
                                   color: DesignTokens.driverAccent,
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Icon(
+                                child: Icon(
                                   Icons.camera_alt,
                                   color: DesignTokens.bg,
                                   size: 18,
@@ -214,7 +214,7 @@ class _DriverEditProfilePageState extends State<DriverEditProfilePage> {
                       const SizedBox(height: DesignTokens.spacing12),
                       Text(
                         ctrl.error!,
-                        style: const TextStyle(color: DesignTokens.red),
+                        style: TextStyle(color: DesignTokens.red),
                       ),
                     ],
                     const SizedBox(height: DesignTokens.spacing18),

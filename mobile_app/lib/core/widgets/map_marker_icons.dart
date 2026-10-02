@@ -80,8 +80,8 @@ class MapMarkerIcons {
             center.dx - radius, center.dy)
         ..arcToPoint(Offset(center.dx + radius, center.dy),
             radius: Radius.circular(radius))
-        ..quadraticBezierTo(center.dx + radius * 0.95, center.dy + radius * 0.9,
-            tip.dx, tip.dy)
+        ..quadraticBezierTo(
+            center.dx + radius * 0.95, center.dy + radius * 0.9, tip.dx, tip.dy)
         ..close();
 
       canvas.drawShadow(path, Colors.black, 2.5, false);
@@ -108,7 +108,8 @@ class MapMarkerIcons {
     return _render(size, size, pixelRatio, (canvas) {
       final center = Offset(size / 2, size / 2);
       final radius = diameter / 2 - 1.5;
-      final circle = Path()..addOval(Rect.fromCircle(center: center, radius: radius));
+      final circle = Path()
+        ..addOval(Rect.fromCircle(center: center, radius: radius));
       canvas.drawShadow(circle, Colors.black, 2.5, false);
       canvas.drawCircle(center, radius, Paint()..color = color);
       canvas.drawCircle(

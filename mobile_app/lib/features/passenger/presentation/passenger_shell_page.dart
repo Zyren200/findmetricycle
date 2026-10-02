@@ -8,12 +8,12 @@ import "../../../core/state/app_preferences.dart";
 import "../../../core/theme/design_tokens.dart";
 import "../repositories/passenger_repository.dart";
 import "../repositories/favorites_repository.dart";
-import "passenger_map_page.dart";
 import "passenger_ride_controller.dart";
 import "passenger_profile_controller.dart";
+import "pages/passenger_home_page.dart";
 import "pages/ride_history_page.dart";
-import "pages/favorites_page.dart";
 import "pages/profile_page.dart";
+import "../../shared/presentation/notifications_screen.dart";
 import "../../shared/state/notifications_controller.dart";
 
 class PassengerShellPage extends StatefulWidget {
@@ -54,7 +54,9 @@ class _PassengerShellPageState extends State<PassengerShellPage> {
           },
         ),
         ChangeNotifierProvider(
-          create: (_) => NotificationsController(apiClient, socketClient, role: "passenger")..load(),
+          create: (_) => NotificationsController(apiClient, socketClient,
+              role: "passenger")
+            ..load(),
         ),
         ChangeNotifierProvider(
           create: (_) {
@@ -68,51 +70,57 @@ class _PassengerShellPageState extends State<PassengerShellPage> {
           },
         ),
       ],
-      child: Scaffold(
-        body: Container(
-          color: DesignTokens.bg,
-          child: ValueListenableBuilder<int>(
-            valueListenable: _navIndex,
-            builder: (context, index, _) => IndexedStack(
-              index: index,
-              children: const [
-                PassengerMapPage(),
-                RideHistoryPage(),
-                FavoritesPage(),
-                ProfilePage(),
-              ],
+      child: Builder(
+        builder: (context) {
+          final notifications = context.read<NotificationsController>();
+          return Scaffold(
+            body: Container(
+              color: DesignTokens.bg,
+              child: ValueListenableBuilder<int>(
+                valueListenable: _navIndex,
+                builder: (context, index, _) => IndexedStack(
+                  index: index,
+                  children: [
+                    const PassengerHomePage(),
+                    const RideHistoryPage(),
+                    NotificationsScreen(controller: notifications, tabIndex: 2),
+                    const ProfilePage(),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ),
-        bottomNavigationBar: ValueListenableBuilder<int>(
-          valueListenable: _navIndex,
-          builder: (context, index, _) => AppBottomNav(
-            selectedIndex: index,
-            onIndexChanged: (value) => _navIndex.value = value,
-            items: [
-              BottomNavItem(
-                icon: Icons.map_outlined,
-                activeIcon: Icons.map,
-                label: "Home",
+            bottomNavigationBar: ListenableBuilder(
+              listenable: Listenable.merge([_navIndex, notifications]),
+              builder: (context, _) => AppBottomNav(
+                selectedIndex: _navIndex.value,
+                onIndexChanged: (value) => _navIndex.value = value,
+                items: [
+                  BottomNavItem(
+                    icon: Icons.home_outlined,
+                    activeIcon: Icons.home_rounded,
+                    label: "Home",
+                  ),
+                  BottomNavItem(
+                    icon: Icons.list_alt_outlined,
+                    activeIcon: Icons.list_alt_rounded,
+                    label: "Rides",
+                  ),
+                  BottomNavItem(
+                    icon: Icons.notifications_none_rounded,
+                    activeIcon: Icons.notifications_rounded,
+                    label: "Alerts",
+                    badgeCount: notifications.unread,
+                  ),
+                  BottomNavItem(
+                    icon: Icons.person_outline,
+                    activeIcon: Icons.person,
+                    label: "Profile",
+                  ),
+                ],
               ),
-              BottomNavItem(
-                icon: Icons.receipt_long_outlined,
-                activeIcon: Icons.receipt_long,
-                label: "History",
-              ),
-              BottomNavItem(
-                icon: Icons.star_border_rounded,
-                activeIcon: Icons.star,
-                label: "Favorites",
-              ),
-              BottomNavItem(
-                icon: Icons.person_outline,
-                activeIcon: Icons.person,
-                label: "Profile",
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }

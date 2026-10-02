@@ -175,7 +175,8 @@ class AppMapController {
         final t = i / steps;
         final curLat = _lerp(startLat, endLat, t);
         final curLng = _lerp(startLng, endLng, t);
-        await updateCircle(circle, ml.CircleOptions(geometry: ml.LatLng(curLat, curLng)));
+        await updateCircle(
+            circle, ml.CircleOptions(geometry: ml.LatLng(curLat, curLng)));
         await Future.delayed(
             Duration(milliseconds: (durationMs / steps).round()));
       }

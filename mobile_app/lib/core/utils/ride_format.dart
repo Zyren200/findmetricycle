@@ -20,8 +20,18 @@ String placeLabel(dynamic raw) {
 }
 
 const List<String> _months = [
-  "Ene", "Peb", "Mar", "Abr", "May", "Hun",
-  "Hul", "Ago", "Set", "Okt", "Nob", "Dis",
+  "Ene",
+  "Peb",
+  "Mar",
+  "Abr",
+  "May",
+  "Hun",
+  "Hul",
+  "Ago",
+  "Set",
+  "Okt",
+  "Nob",
+  "Dis",
 ];
 
 /// "Set 26, 2026 • 2:06 PM" in the phone's local time, or null.

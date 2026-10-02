@@ -21,7 +21,7 @@ class AppAppBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       title: Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: DesignTokens.fontSize20,
           fontWeight: DesignTokens.fw700,
           color: DesignTokens.accent,
@@ -35,7 +35,7 @@ class AppAppBar extends StatelessWidget implements PreferredSizeWidget {
       toolbarHeight: 64,
       actions: actions,
       automaticallyImplyLeading: showLeading,
-      iconTheme: const IconThemeData(color: DesignTokens.text),
+      iconTheme: IconThemeData(color: DesignTokens.text),
     );
   }
 
@@ -59,68 +59,62 @@ class AppBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: DesignTokens.bg2,
         border: Border(
           top: BorderSide(color: DesignTokens.border, width: 1),
         ),
       ),
-      padding: const EdgeInsets.only(bottom: 8, top: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: List.generate(
-          items.length,
-          (index) {
-            final item = items[index];
-            final isSelected = index == selectedIndex;
-            return GestureDetector(
-              onTap: () => onIndexChanged(index),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  vertical: DesignTokens.spacing12,
-                  horizontal: DesignTokens.spacing14,
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: List.generate(
+            items.length,
+            (index) {
+              final item = items[index];
+              final isSelected = index == selectedIndex;
+              final color =
+                  isSelected ? DesignTokens.accent : DesignTokens.muted;
+              final badge = item.badgeCount ?? 0;
+              return Expanded(
+                child: InkWell(
+                  onTap: () => onIndexChanged(index),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Badge(
+                          isLabelVisible: badge > 0,
+                          label: Text(badge > 9 ? "9+" : "$badge"),
+                          backgroundColor: DesignTokens.red,
+                          child: Icon(
+                            isSelected
+                                ? (item.activeIcon ?? item.icon)
+                                : item.icon,
+                            color: color,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          item.label,
+                          style: TextStyle(
+                            fontSize: DesignTokens.fontSize11,
+                            fontWeight: isSelected
+                                ? DesignTokens.fw600
+                                : DesignTokens.fw500,
+                            color: color,
+                            fontFamily: DesignTokens.fontDmSans,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: isSelected ? 24 : 0,
-                      height: 3,
-                      margin: const EdgeInsets.only(bottom: 6),
-                      decoration: BoxDecoration(
-                        color: DesignTokens.accent,
-                        borderRadius: BorderRadius.circular(3),
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                  color: DesignTokens.accent.withAlpha(140),
-                                  blurRadius: 8,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    ),
-                    Icon(
-                      isSelected ? item.activeIcon : item.icon,
-                      color: isSelected ? DesignTokens.accent : DesignTokens.muted,
-                      size: 26,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      item.label,
-                      style: TextStyle(
-                        fontSize: DesignTokens.fontSize12,
-                        fontWeight: DesignTokens.fw600,
-                        color: isSelected ? DesignTokens.accent : DesignTokens.muted,
-                        fontFamily: DesignTokens.fontDmSans,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
@@ -133,9 +127,13 @@ class BottomNavItem {
   final IconData? activeIcon;
   final String label;
 
+  /// Unread count shown as a red badge on the icon (e.g. Alerts).
+  final int? badgeCount;
+
   BottomNavItem({
     required this.icon,
     required this.label,
     this.activeIcon,
+    this.badgeCount,
   });
 }

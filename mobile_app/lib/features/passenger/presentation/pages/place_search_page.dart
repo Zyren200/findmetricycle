@@ -73,13 +73,13 @@ class _PlaceSearchPageState extends State<PlaceSearchPage> {
           controller: _queryController,
           autofocus: true,
           onChanged: _onQueryChanged,
-          style: const TextStyle(
+          style: TextStyle(
             color: DesignTokens.text,
             fontFamily: DesignTokens.fontDmSans,
           ),
           decoration: InputDecoration(
             hintText: widget.title,
-            hintStyle: const TextStyle(color: DesignTokens.muted),
+            hintStyle: TextStyle(color: DesignTokens.muted),
             border: InputBorder.none,
           ),
         ),
@@ -90,7 +90,7 @@ class _PlaceSearchPageState extends State<PlaceSearchPage> {
 
   Widget _buildBody() {
     if (_isSearching && _results.isEmpty) {
-      return const Center(
+      return Center(
         child: CircularProgressIndicator(color: DesignTokens.accent),
       );
     }
@@ -130,10 +130,10 @@ class _PlaceSearchPageState extends State<PlaceSearchPage> {
       itemBuilder: (context, index) {
         final place = _results[index];
         return ListTile(
-          leading: const Icon(Icons.place_outlined, color: DesignTokens.muted),
+          leading: Icon(Icons.place_outlined, color: DesignTokens.muted),
           title: Text(
             place.name,
-            style: const TextStyle(
+            style: TextStyle(
               color: DesignTokens.text,
               fontWeight: FontWeight.w600,
             ),
@@ -142,7 +142,7 @@ class _PlaceSearchPageState extends State<PlaceSearchPage> {
               ? null
               : Text(
                   place.secondaryLabel,
-                  style: const TextStyle(color: DesignTokens.muted),
+                  style: TextStyle(color: DesignTokens.muted),
                 ),
           onTap: () => Navigator.pop(context, place),
         );

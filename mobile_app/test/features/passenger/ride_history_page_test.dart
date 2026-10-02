@@ -1,5 +1,6 @@
 import "package:findme_tricycle_mobile/core/network/api_client.dart";
 import "package:findme_tricycle_mobile/core/network/socket_client.dart";
+import "package:findme_tricycle_mobile/core/utils/ride_format.dart";
 import "package:findme_tricycle_mobile/features/auth/repositories/auth_repository.dart";
 import "package:findme_tricycle_mobile/features/passenger/presentation/pages/ride_history_page.dart";
 import "package:findme_tricycle_mobile/features/passenger/presentation/passenger_profile_controller.dart";
@@ -94,28 +95,51 @@ void main() {
     await pumpHistory(tester);
 
     expect(find.text("₱45.50"), findsWidgets); // fare + total spent
-    expect(find.text("NATAPOS"), findsOneWidget);
-    expect(find.text("KINANSELA"), findsOneWidget);
+    expect(find.textContaining("COMPLETED", findRichText: true), findsOneWidget);
+    expect(find.textContaining("CANCELLED", findRichText: true), findsOneWidget);
+    expect(find.text("Guiuan Public Market"), findsOneWidget);
     expect(find.text("Guiuan Plaza"), findsOneWidget);
-    expect(find.textContaining("Renz Jay • AAJ-5974"), findsOneWidget);
-    expect(find.text("Walang bayad"), findsOneWidget); // cancelled isn't charged
-    expect(find.text("I-rate ang rider"), findsOneWidget); // completed, unrated
     // Raw coordinates and ISO timestamps are never shown.
     expect(find.textContaining("11.10853"), findsNothing);
-    expect(find.text("Naka-pin sa mapa"), findsNWidgets(2));
-    expect(find.textContaining("T06:"), findsNothing);
-    expect(find.textContaining("1.9 km"), findsOneWidget);
+    expect(find.text(kPinnedPlaceLabel), findsNWidgets(2));
+    expect(find.textContaining("T06:", findRichText: true), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets("a completed ride's details show the rider and offer a rating", (tester) async {
+    await pumpHistory(tester);
+
+    await tester.tap(find.text("Guiuan Public Market"));
+    await tester.pumpAndSettle();
+
+    expect(find.text("Ride Details"), findsOneWidget);
+    expect(find.text("Renz Jay"), findsOneWidget);
+    expect(find.text("AAJ-5974"), findsOneWidget);
+    expect(find.text("1.9 km"), findsOneWidget);
+    expect(find.text("₱45.50 (Cash)"), findsOneWidget);
+    await tester.scrollUntilVisible(find.text("Rate Driver"), 300);
+    expect(find.text("Rate Driver"), findsOneWidget); // completed, unrated
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets("a cancelled ride isn't charged", (tester) async {
+    await pumpHistory(tester);
+
+    await tester.tap(find.textContaining("CANCELLED", findRichText: true));
+    await tester.pumpAndSettle();
+
+    expect(find.text("No charge"), findsOneWidget);
+    expect(find.text("Rate Driver"), findsNothing);
   });
 
   testWidgets("filters by status", (tester) async {
     await pumpHistory(tester);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, "Kinansela"));
+    await tester.tap(find.widgetWithText(ChoiceChip, "Cancelled"));
     await tester.pumpAndSettle();
 
-    expect(find.text("KINANSELA"), findsOneWidget);
-    expect(find.text("NATAPOS"), findsNothing);
+    expect(find.textContaining("CANCELLED", findRichText: true), findsOneWidget);
+    expect(find.textContaining("COMPLETED", findRichText: true), findsNothing);
   });
 
   testWidgets("reloads when the passenger opens the History tab again", (tester) async {

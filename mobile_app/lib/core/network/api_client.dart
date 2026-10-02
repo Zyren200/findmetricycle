@@ -16,11 +16,20 @@ class ApiClient {
         validateStatus: (_) => true, // let us handle errors without throwing
       ),
     );
-    _dio.interceptors.add(QueuedInterceptorsWrapper(onResponse: _handleResponse));
+    // Not a QueuedInterceptorsWrapper: the refresh call and the retry go
+    // through this same Dio, and a queued interceptor holds their responses
+    // behind the 401 that is waiting on them — a deadlock that left every
+    // request after token expiry (e.g. Confirm & Book) hanging forever.
+    _dio.interceptors.add(InterceptorsWrapper(onResponse: _handleResponse));
   }
 
   late final Dio _dio;
   UnauthorizedHandler? onUnauthorized;
+
+  /// Shared by every request that gets a 401 at the same time. The backend
+  /// revokes a refresh token once it's used, so a second refresh with the
+  /// same token would fail and log the user out.
+  Future<String?>? _pendingRefresh;
 
   /// The access token dies after 15 minutes (see backend
   /// JWT_ACCESS_EXPIRES_IN); without this, every request after that just
@@ -30,15 +39,23 @@ class ApiClient {
     Response response,
     ResponseInterceptorHandler handler,
   ) async {
-    final isAuthEndpoint = response.requestOptions.path.contains("/auth/");
-    final alreadyRetried = response.requestOptions.extra["retriedAfterRefresh"] == true;
+    // Only the refresh call itself is skipped; other /auth/ routes such as
+    // /auth/me and /auth/v2/driver-status need a fresh token like any other.
+    final isRefreshCall =
+        response.requestOptions.path.endsWith("/auth/refresh");
+    final alreadyRetried =
+        response.requestOptions.extra["retriedAfterRefresh"] == true;
 
-    if (response.statusCode != 401 || isAuthEndpoint || alreadyRetried || onUnauthorized == null) {
+    if (response.statusCode != 401 ||
+        isRefreshCall ||
+        alreadyRetried ||
+        onUnauthorized == null) {
       handler.next(response);
       return;
     }
 
-    final newToken = await onUnauthorized!.call();
+    final newToken = await (_pendingRefresh ??=
+        onUnauthorized!().whenComplete(() => _pendingRefresh = null));
     if (newToken == null || newToken.isEmpty) {
       handler.next(response);
       return;

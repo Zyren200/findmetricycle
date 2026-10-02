@@ -1,3 +1,5 @@
+import "dart:async";
+
 import "package:flutter/material.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
@@ -12,6 +14,7 @@ class AppPreferences extends ChangeNotifier {
   static const _keyLanguage = "pref_language";
   static const _keyDefaultPassengerCount = "pref_default_passenger_count";
   static const _keyNotificationPrefix = "pref_notif_";
+  static const _keyDriverAutoOnline = "pref_driver_auto_online";
 
   static const int minPassengers = 1;
   static const int maxPassengers = 5;
@@ -35,8 +38,17 @@ class AppPreferences extends ChangeNotifier {
     for (final key in notificationKeys) key: true,
   };
 
+  /// Driver Mode: go Online automatically when Driver Mode opens. When off,
+  /// the driver always starts Offline and taps GO ONLINE themselves.
+  bool _driverAutoOnline = false;
+
   bool _loaded = false;
   SharedPreferences? _prefs;
+  final Completer<void> _ready = Completer<void>();
+
+  /// Completes once the saved preferences have been read.
+  Future<void> get ready => _ready.future;
+  bool get driverAutoOnline => _driverAutoOnline;
 
   ThemeMode get themeMode => _themeMode;
   bool get soundEnabled => _soundEnabled;
@@ -65,11 +77,21 @@ class AppPreferences extends ChangeNotifier {
         .clamp(minPassengers, maxPassengers);
 
     for (final key in notificationKeys) {
-      _notificationPrefs[key] = prefs.getBool("$_keyNotificationPrefix$key") ?? true;
+      _notificationPrefs[key] =
+          prefs.getBool("$_keyNotificationPrefix$key") ?? true;
     }
 
+    _driverAutoOnline = prefs.getBool(_keyDriverAutoOnline) ?? false;
+
     _loaded = true;
+    if (!_ready.isCompleted) _ready.complete();
     notifyListeners();
+  }
+
+  Future<void> setDriverAutoOnline(bool value) async {
+    _driverAutoOnline = value;
+    notifyListeners();
+    await _prefs?.setBool(_keyDriverAutoOnline, value);
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {

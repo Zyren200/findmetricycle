@@ -63,13 +63,14 @@ void main() {
     await pumpPage(tester, controller);
 
     expect(find.text("₱150.00"), findsOneWidget); // today
-    expect(find.text("3 natapos na biyahe"), findsOneWidget);
+    expect(find.text("3 rides completed"), findsOneWidget);
     expect(find.text("₱520.25"), findsOneWidget); // week
     expect(find.text("Kabuuan: ₱840.00"), findsOneWidget); // 7-day total (0+40+…+240)
 
-    await tester.scrollUntilVisible(find.text("+₱55.00"), 300);
-    expect(find.text("+₱55.00"), findsOneWidget);
-    expect(find.textContaining("Plaza → Palengke"), findsOneWidget);
+    // Completed ride: destination as the title, pickup and distance below.
+    await tester.scrollUntilVisible(find.text("Palengke"), 300);
+    expect(find.text("₱55.00"), findsOneWidget);
+    expect(find.textContaining("From Plaza · 2.4 km"), findsOneWidget);
     expect(tester.takeException(), isNull); // no layout overflow
   });
 
@@ -78,7 +79,7 @@ void main() {
     await pumpPage(tester, controller);
 
     expect(find.text("₱0.00"), findsWidgets);
-    await tester.scrollUntilVisible(find.textContaining("Wala pang natapos na biyahe"), 300);
+    await tester.scrollUntilVisible(find.text("No completed rides yet"), 300);
     expect(tester.takeException(), isNull);
   });
 }
