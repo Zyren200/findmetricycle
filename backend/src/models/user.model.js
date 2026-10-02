@@ -47,8 +47,16 @@ async function updatePasswordHash(userId, passwordHash, client = db) {
   await client.query("UPDATE users SET password_hash = ? WHERE id = ?", [passwordHash, userId]);
 }
 
-async function archiveUser(userId) {
-  await db.query("UPDATE users SET status = 'archived', deleted_at = NOW() WHERE id = ?", [userId]);
+// Frees the phone and email (both UNIQUE) so the same person can sign up
+// again later — otherwise login said "not registered" while registration
+// said "already registered".
+async function archiveUser(userId, client = db) {
+  await client.query(
+    `UPDATE users
+     SET status = 'archived', deleted_at = NOW(), email = NULL, phone = CONCAT('deleted-', id)
+     WHERE id = ?`,
+    [userId]
+  );
   return { id: userId, status: "archived" };
 }
 

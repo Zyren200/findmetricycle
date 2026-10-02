@@ -3,11 +3,9 @@ const bookingService = require("../services/booking.service");
 const fareModel = require("../models/fare.model");
 const notificationModel = require("../models/notification.model");
 const sosService = require("../services/sos.service");
-const userModel = require("../models/user.model");
+const passengerAccountService = require("../services/passenger-account.service");
 const { decorateBookingRecord } = require("../utils/ride-progress");
 const { getIO } = require("../sockets");
-const ApiError = require("../utils/api-error");
-const bcrypt = require("bcryptjs");
 const sanitizeUser = require("../utils/sanitize-user");
 
 async function findRide(req, res, next) {
@@ -198,7 +196,7 @@ async function updateProfile(req, res, next) {
     if (Object.prototype.hasOwnProperty.call(req.body, "address")) payload.address = req.body.address;
     if (req.file) payload.profileImageUrl = `/uploads/profile-images/${req.file.filename}`;
 
-    const updated = await userModel.updateProfile(req.user.id, payload);
+    const updated = await passengerAccountService.updateProfile(req.user.id, payload);
 
     res.json({
       success: true,
@@ -212,17 +210,14 @@ async function updateProfile(req, res, next) {
 
 async function deleteAccount(req, res, next) {
   try {
-    const user = await userModel.findById(req.user.id);
-    if (!user) {
-      throw new ApiError(404, "Account not found.");
+    await passengerAccountService.deleteAccount(req.user.id, req.body.password);
+    // Close any live connection too — sockets only check the account when
+    // they connect.
+    try {
+      getIO().in(`user:${req.user.id}`).disconnectSockets(true);
+    } catch (_) {
+      // Socket layer not initialized (tests/scripts).
     }
-
-    const valid = await bcrypt.compare(req.body.password, user.password_hash);
-    if (!valid) {
-      throw new ApiError(400, "Password is incorrect.");
-    }
-
-    await userModel.archiveUser(req.user.id);
     res.json({ success: true, message: "Account deleted." });
   } catch (error) {
     next(error);

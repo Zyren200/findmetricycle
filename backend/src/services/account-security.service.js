@@ -3,6 +3,8 @@
 // ever one password to change regardless of which mode the app is in).
 const bcrypt = require("bcryptjs");
 const userModel = require("../models/user.model");
+const refreshTokenModel = require("../models/refresh-token.model");
+const hashToken = require("../utils/token-hash");
 const authV2Service = require("./auth.v2.service");
 const ApiError = require("../utils/api-error");
 
@@ -45,7 +47,7 @@ async function requestPasswordChangeOtp(userId, currentPassword) {
 // someone else in the meantime) and the OTP before actually writing the
 // new password hash. The OTP check is the hard gate — a wrong/expired
 // code throws and the password is left untouched.
-async function confirmPasswordChange(userId, { currentPassword, newPassword, otp }) {
+async function confirmPasswordChange(userId, { currentPassword, newPassword, otp, keepRefreshToken }) {
   const user = await userModel.findById(userId);
   if (!user) {
     throw new ApiError(404, "Account not found.");
@@ -68,8 +70,12 @@ async function confirmPasswordChange(userId, { currentPassword, newPassword, otp
 
   const passwordHash = await bcrypt.hash(newPassword, 12);
   await userModel.updatePasswordHash(userId, passwordHash);
+  // Anyone else signed in to this account (e.g. on a lost phone) is logged
+  // out; the device making the change stays signed in. Their short-lived
+  // access token still works until it expires (minutes).
+  await refreshTokenModel.revokeOtherSessions(userId, keepRefreshToken ? hashToken(keepRefreshToken) : null);
 
-  return { success: true, message: "Password updated." };
+  return { success: true, message: "Password updated. Other devices have been signed out." };
 }
 
 module.exports = {

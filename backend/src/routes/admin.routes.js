@@ -92,6 +92,7 @@ router.get("/dashboard", adminController.getDashboard);
 router.get("/reports/ride-activity", adminController.getRideActivity);
 router.get("/bookings", adminController.getBookings);
 router.get("/bookings/:bookingId", adminController.getBookingDetail);
+router.post("/bookings/:bookingId/close", validate(adminSchema.bookingCloseSchema), adminController.postCloseBooking);
 router.get("/sos", adminController.getSosAlerts);
 router.post("/sos/:id/resolve", adminController.resolveSosAlert);
 router.get("/complaints", adminController.getComplaints);
@@ -99,21 +100,16 @@ router.post("/complaints/:id/resolve", adminController.resolveComplaint);
 router.get("/notifications", adminController.getNotifications);
 router.post("/notifications/:id/read", adminController.postMarkNotificationRead);
 router.post("/notifications/mark_all_read", adminController.postMarkAllNotificationsRead);
-router.post("/notifications", (req, res, next) => {
-  // allow server or admin to create custom notifications via API
-  const notificationService = require("../services/notification.service");
-  notificationService
-    .createNotification({ type: req.body.type, title: req.body.title, body: req.body.body, metadataJson: req.body.metadataJson })
-    .then((n) => res.json({ success: true, data: n }))
-    .catch(next);
-});
+// Announcements: broadcast to every passenger, every driver, or both.
+router.get("/announcements", adminController.getAnnouncements);
+router.post("/announcements", validate(adminSchema.announcementSchema), adminController.postAnnouncement);
 
 router.get("/activity-logs", adminController.getActivityLogs);
 
 router.get("/barangays", adminController.getBarangays);
-router.put("/barangays/:barangayId", adminController.putBarangay);
+router.put("/barangays/:barangayId", validate(adminSchema.barangayUpdateSchema), adminController.putBarangay);
 
 router.get("/settings", adminController.getSystemSettings);
-router.put("/settings", adminController.putSystemSettings);
+router.put("/settings", validate(adminSchema.systemSettingsSchema), adminController.putSystemSettings);
 
 module.exports = router;

@@ -1,4 +1,5 @@
 const notificationModel = require("../models/notification.model");
+const pushService = require("./push.service");
 
 function sanitize(n) {
   if (!n) return null;
@@ -44,7 +45,39 @@ async function createNotification(payload) {
     // Socket layer may not be initialized (e.g. in scripts/tests) — safe to ignore.
   }
 
+  // And to their phone when the app isn't open. Not awaited: a slow push
+  // must never hold up the ride flow (it never throws either).
+  if (payload.userId) pushService.notifyUser(payload.userId, sanitized);
+
   return sanitized;
+}
+
+// An admin announcement: one shared row (no user_id) that shows up in the
+// notification list of every passenger and/or driver, pushed live to
+// everyone connected — the apps keep only the ones for their mode.
+async function createAnnouncement({ title, body, audience = "everyone", sentBy = null }) {
+  const n = await notificationModel.createNotification({
+    type: "announcement",
+    title,
+    body,
+    userId: null,
+    recipientRole: audience,
+    sentBy,
+  });
+  const sanitized = sanitize(n);
+  try {
+    const { getIO } = require("../sockets");
+    getIO().emit("notification:created", sanitized);
+  } catch (err) {
+    // Socket layer may not be initialized (e.g. in scripts/tests) — safe to ignore.
+  }
+  pushService.notifyAudience(audience, sanitized);
+  return sanitized;
+}
+
+async function listAnnouncements({ limit = 50 } = {}) {
+  const rows = await notificationModel.listAnnouncements({ limit });
+  return rows.map(sanitize);
 }
 
 async function listNotifications(filters = {}) {
@@ -67,6 +100,8 @@ async function markAllRead() {
 }
 
 module.exports = {
+  createAnnouncement,
+  listAnnouncements,
   createNotification,
   listNotifications,
   markRead,

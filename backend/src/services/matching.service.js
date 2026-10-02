@@ -2,6 +2,10 @@ const bookingModel = require("../models/booking.model");
 const driverModel = require("../models/driver.model");
 const { haversineKm } = require("../utils/haversine");
 
+// Riders farther than this from the pickup aren't offered — a tricycle
+// across town (or on another island) isn't a real option for the passenger.
+const MAX_PICKUP_DISTANCE_KM = 5;
+
 async function listNearestAvailableDrivers(pickupLat, pickupLng, limit = 5, excludeDriverIds = []) {
   const onlineDrivers = await driverModel.getApprovedOnlineDriversWithLocation();
   const busyDriverIds = await bookingModel.listDriverIdsWithActiveRide();
@@ -20,6 +24,7 @@ async function listNearestAvailableDrivers(pickupLat, pickupLng, limit = 5, excl
         Number(pickupLng)
       ),
     }))
+    .filter((driver) => driver.distanceToPickupKm <= MAX_PICKUP_DISTANCE_KM)
     .sort((a, b) => a.distanceToPickupKm - b.distanceToPickupKm);
 
   return candidates.slice(0, limit);
@@ -31,6 +36,7 @@ async function findNearestAvailableDriver(pickupLat, pickupLng, excludeDriverIds
 }
 
 module.exports = {
+  MAX_PICKUP_DISTANCE_KM,
   listNearestAvailableDrivers,
   findNearestAvailableDriver,
 };

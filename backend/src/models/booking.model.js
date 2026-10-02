@@ -155,7 +155,9 @@ async function findActiveByDriver(driverId) {
       WHERE b.driver_id = ?
         AND b.status IN ('pending', 'searching', 'accepted', 'assigned', 'arriving', 'ongoing', 'on_ride')
         AND b.deleted_at IS NULL
-      ORDER BY b.id DESC
+      -- The ride a driver is on always wins over a leftover pending offer,
+      -- or arrive/start/complete would look up the wrong booking.
+      ORDER BY b.status = 'pending', b.id DESC
       LIMIT 1
     `,
     [driverId]
@@ -163,24 +165,60 @@ async function findActiveByDriver(driverId) {
   return withoutPin(rows[0]) || null;
 }
 
-// Atomic: only succeeds if the booking is still pending and unassigned, so
-// two near-simultaneous assignment attempts (passenger picking a driver
-// while the auto-matcher also fires, or two reassignment paths racing
-// after a decline) can never both win. Callers MUST check `assigned` and
-// treat `false` as "someone else got there first" rather than assuming
-// success.
-async function assignDriver(bookingId, driverId) {
-  const result = await db.query(
-    `
-      UPDATE bookings
-      SET driver_id = ?, decline_reason = NULL,
-          offer_expires_at = DATE_ADD(NOW(), INTERVAL ${OFFER_TTL_SECONDS} SECOND)
-      WHERE id = ? AND driver_id IS NULL AND status = 'pending'
-    `,
+// Every status in which a booking holds its driver (an offer waiting for an
+// answer counts — the driver can only weigh one request at a time).
+const DRIVER_HOLDING_STATUSES = ["pending", "searching", "accepted", "assigned", "arriving", "ongoing", "on_ride"];
+const DRIVER_ON_RIDE_STATUSES = ["accepted", "assigned", "arriving", "ongoing", "on_ride"];
+
+function inList(statuses) {
+  return statuses.map((status) => `'${status}'`).join(", ");
+}
+
+// Takes the driver's row lock for the rest of the transaction, so two
+// requests deciding about the same driver run one after the other instead
+// of both seeing them as free.
+async function lockDriver(client, driverId) {
+  const rows = await client.query("SELECT id FROM drivers WHERE id = ? FOR UPDATE", [driverId]);
+  return rows.length > 0;
+}
+
+async function driverHasOtherBooking(client, driverId, bookingId, statuses) {
+  const rows = await client.query(
+    `SELECT id FROM bookings
+     WHERE driver_id = ? AND id <> ? AND status IN (${inList(statuses)}) AND deleted_at IS NULL
+     LIMIT 1`,
     [driverId, bookingId]
   );
-  const assigned = result.affectedRows > 0;
-  return { assigned, booking: await findById(bookingId) };
+  return rows.length > 0;
+}
+
+// Atomic for both sides: the booking must still be pending and unassigned,
+// and the driver must not already hold another booking. Two passengers
+// picking the same rider at the same instant used to both win (the old
+// check only covered the booking), leaving the rider with two requests.
+// `assigned: false` comes with a reason — "driver_busy" (someone else got
+// this rider) or "booking_taken" (this booking already moved on).
+async function assignDriver(bookingId, driverId) {
+  const outcome = await db.withTransaction(async (client) => {
+    if (!(await lockDriver(client, driverId))) return { assigned: false, reason: "driver_busy" };
+    if (await driverHasOtherBooking(client, driverId, bookingId, DRIVER_HOLDING_STATUSES)) {
+      return { assigned: false, reason: "driver_busy" };
+    }
+
+    const result = await client.query(
+      `
+        UPDATE bookings
+        SET driver_id = ?, decline_reason = NULL,
+            offer_expires_at = DATE_ADD(NOW(), INTERVAL ${OFFER_TTL_SECONDS} SECOND)
+        WHERE id = ? AND driver_id IS NULL AND status = 'pending'
+      `,
+      [driverId, bookingId]
+    );
+    return result.affectedRows > 0
+      ? { assigned: true, reason: null }
+      : { assigned: false, reason: "booking_taken" };
+  });
+  return { ...outcome, booking: await findById(bookingId) };
 }
 
 // Only un-assigns while the offer is still pending and still held by
@@ -272,16 +310,28 @@ async function verifyPickupPin(bookingId, code) {
 
 // Guarded on driver_id so a driver whose offer already expired and was
 // handed to someone else can't still accept it.
+// A driver can only be on one ride: accepting is refused (reason
+// "driver_busy") while they already have an accepted / ongoing booking.
 async function markAccepted(bookingId, driverId) {
-  const result = await db.query(
-    `
-      UPDATE bookings
-      SET status = 'accepted', accepted_at = NOW(), offer_expires_at = NULL
-      WHERE id = ? AND driver_id = ? AND status = 'pending'
-    `,
-    [bookingId, driverId]
-  );
-  return { changed: result.affectedRows > 0, booking: await findById(bookingId) };
+  const outcome = await db.withTransaction(async (client) => {
+    await lockDriver(client, driverId);
+    if (await driverHasOtherBooking(client, driverId, bookingId, DRIVER_ON_RIDE_STATUSES)) {
+      return { changed: false, reason: "driver_busy" };
+    }
+
+    const result = await client.query(
+      `
+        UPDATE bookings
+        SET status = 'accepted', accepted_at = NOW(), offer_expires_at = NULL
+        WHERE id = ? AND driver_id = ? AND status = 'pending'
+      `,
+      [bookingId, driverId]
+    );
+    return result.affectedRows > 0
+      ? { changed: true, reason: null }
+      : { changed: false, reason: "offer_gone" };
+  });
+  return { ...outcome, booking: await findById(bookingId) };
 }
 
 async function markArriving(bookingId) {
@@ -323,17 +373,57 @@ async function markCompleted(bookingId, finalFare, client = db) {
   return { changed: result.affectedRows > 0 };
 }
 
-async function markCancelled(bookingId, cancelledBy) {
-  // 'arriving' is included so a driver-reported no-show (see
-  // booking.service.js markNoShow) can close out a ride they've already
-  // reached pickup for, not just pending/accepted ones.
+// 'arriving' is included so a passenger can still back out once the driver
+// is at pickup, and a driver-reported no-show (booking.service.js
+// markNoShow) can close out a ride they've already reached pickup for.
+const CANCELLABLE_STATUSES = ["pending", "accepted", "arriving"];
+
+// `fromStatuses` widens what can be cancelled — only the admin's
+// force-close passes every active status, including a ride in progress.
+async function markCancelled(bookingId, cancelledBy, { reason = null, fromStatuses = CANCELLABLE_STATUSES } = {}) {
   const result = await db.query(
     `
       UPDATE bookings
-      SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = ?
-      WHERE id = ? AND status IN ('pending', 'accepted', 'arriving')
+      SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = ?${reason ? ", cancel_reason = ?" : ""}
+      WHERE id = ? AND status IN (${inList(fromStatuses)})
     `,
-    [cancelledBy, bookingId]
+    reason ? [cancelledBy, reason, bookingId] : [cancelledBy, bookingId]
+  );
+  return { changed: result.affectedRows > 0, booking: await findById(bookingId) };
+}
+
+// Rides waiting for a driver who has gone silent: accepted/arriving for at
+// least `minutes`, with no location from the driver for as long. A ride in
+// progress is never returned — a dead zone mid-trip is normal, and only the
+// admin closes those.
+async function findRidesWithUnreachableDriver(minutes) {
+  const rows = await db.query(
+    `
+      SELECT b.id, b.driver_id, b.passenger_id, d.user_id AS driver_user_id
+      FROM bookings b
+      JOIN drivers d ON d.id = b.driver_id
+      WHERE b.status IN ('accepted', 'arriving')
+        AND b.deleted_at IS NULL
+        AND (b.accepted_at IS NULL OR b.accepted_at < DATE_SUB(NOW(), INTERVAL ${Number(minutes)} MINUTE))
+        AND (d.last_location_update IS NULL
+             OR d.last_location_update < DATE_SUB(NOW(), INTERVAL ${Number(minutes)} MINUTE))
+    `
+  );
+  return rows;
+}
+
+// A driver backing out before the trip starts: the booking goes back to
+// "waiting for a rider" so the passenger can pick someone else instead of
+// booking all over again.
+async function releaseDriver(bookingId, driverId, reason) {
+  const result = await db.query(
+    `
+      UPDATE bookings
+      SET status = 'pending', driver_id = NULL, accepted_at = NULL,
+          offer_expires_at = NULL, decline_reason = ?
+      WHERE id = ? AND driver_id = ? AND status IN ('accepted', 'arriving')
+    `,
+    [reason, bookingId, driverId]
   );
   return { changed: result.affectedRows > 0, booking: await findById(bookingId) };
 }
@@ -622,6 +712,8 @@ module.exports = {
   markOngoing,
   markCompleted,
   markCancelled,
+  releaseDriver,
+  findRidesWithUnreachableDriver,
   listActiveRidesForAdmin,
   listRideHistory,
   listCompletedByDriver,

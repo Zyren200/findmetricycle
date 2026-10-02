@@ -18,6 +18,7 @@ async function confirmPasswordChange(req, res, next) {
       currentPassword: req.body.currentPassword,
       newPassword: req.body.newPassword,
       otp: req.body.otp,
+      keepRefreshToken: req.body.keepRefreshToken,
     });
     res.json(result);
   } catch (error) {

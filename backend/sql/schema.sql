@@ -121,7 +121,8 @@ CREATE TABLE IF NOT EXISTS bookings (
   completed_at DATETIME NULL,
   cancelled_at DATETIME NULL,
   archived_at DATETIME NULL,
-  cancelled_by ENUM('passenger', 'driver', 'system') NULL,
+  cancelled_by ENUM('passenger', 'driver', 'admin', 'system') NULL,
+  cancel_reason VARCHAR(255) NULL,
   decline_reason VARCHAR(255) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -374,6 +375,8 @@ CREATE TABLE IF NOT EXISTS barangays (
   name VARCHAR(120) NOT NULL UNIQUE,
   is_enabled TINYINT(1) NOT NULL DEFAULT 1,
   service_notes VARCHAR(255) NULL,
+  lat DECIMAL(10, 7) NULL,
+  lng DECIMAL(10, 7) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at DATETIME NULL,
@@ -394,6 +397,22 @@ CREATE TABLE IF NOT EXISTS system_settings (
     ON DELETE SET NULL
     ON UPDATE CASCADE,
   INDEX idx_system_settings_deleted (deleted_at)
+);
+
+-- Firebase Cloud Messaging tokens, one row per device (see push.service.js).
+CREATE TABLE IF NOT EXISTS push_tokens (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  token VARCHAR(255) CHARACTER SET ascii NOT NULL,
+  platform VARCHAR(20) NOT NULL DEFAULT 'android',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_push_tokens_token (token),
+  INDEX idx_push_tokens_user (user_id),
+  CONSTRAINT fk_push_tokens_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS activity_logs (
@@ -417,8 +436,8 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 
 INSERT INTO system_settings (setting_key, setting_value, value_type)
 VALUES
-  ('app_name', 'FindMeTricycle', 'string'),
-  ('support_email', 'support@findmetricycle.local', 'string'),
-  ('contact_number', '09990000000', 'string'),
-  ('operating_hours', '{"start":"05:00","end":"22:00"}', 'json')
+  ('appName', 'FindMeTricycle', 'string'),
+  ('operatingHoursStart', '05:00', 'string'),
+  ('operatingHoursEnd', '22:00', 'string'),
+  ('enforceOperatingHours', 'false', 'boolean')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);

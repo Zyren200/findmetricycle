@@ -16,6 +16,8 @@ const { MIN_PASSENGERS, MAX_PASSENGERS } = require("../constants/fare");
 const { toPublicDriver } = require("../utils/public-driver");
 const geocodingService = require("./geocoding.service");
 const notificationTextService = require("./notification-text.service");
+const barangayService = require("./barangay.service");
+const systemSettingsService = require("./system-settings.service");
 
 // When the app couldn't name a pickup / drop-off (it sent raw coordinates),
 // look the place up afterwards so admins and ride history show a real
@@ -132,6 +134,16 @@ async function createBookingAndFindDriver(payload) {
     };
   }
 
+  // After the active-booking check, so a ride already under way can always
+  // be resumed even if the admin has since closed its area or hours.
+  await systemSettingsService.assertOpenForBooking();
+  await barangayService.assertBookableLocations({
+    pickupLat: coords[0],
+    pickupLng: coords[1],
+    dropoffLat: coords[2],
+    dropoffLng: coords[3],
+  });
+
   const passengerCount = payload.passengerCount ? Number(payload.passengerCount) : 1;
   if (
     !Number.isInteger(passengerCount) ||
@@ -244,9 +256,16 @@ async function passengerChooseDriver(payload) {
     throw new ApiError(409, "This rider is no longer available. Please choose another rider.");
   }
 
-  const { assigned, booking: updated } = await bookingModel.assignDriver(booking.id, chosen.id);
+  // The live list above can't see another passenger choosing this rider at
+  // the same instant — assignDriver settles that under a lock.
+  const { assigned, reason, booking: updated } = await bookingModel.assignDriver(booking.id, chosen.id);
   if (!assigned) {
-    throw new ApiError(409, "This booking was already assigned to another driver.");
+    throw new ApiError(
+      409,
+      reason === "driver_busy"
+        ? "This rider is no longer available. Please choose another rider."
+        : "This booking was already assigned to another driver."
+    );
   }
 
   // In-app notification for the rider, so the request also shows up in
@@ -327,12 +346,17 @@ async function driverRespond(payload) {
   }
 
   if (payload.action === "accept") {
-    const { changed, booking: accepted } = await bookingModel.markAccepted(
+    const { changed, reason, booking: accepted } = await bookingModel.markAccepted(
       payload.bookingId,
       payload.driverId
     );
     if (!changed) {
-      throw new ApiError(409, "This ride request is no longer available.");
+      throw new ApiError(
+        409,
+        reason === "driver_busy"
+          ? "Finish your current ride before accepting another request."
+          : "This ride request is no longer available."
+      );
     }
     forgetBooking(accepted.id);
     await notifySafe({
@@ -595,7 +619,9 @@ async function cancelRide(payload) {
     throw new ApiError(403, "Booking does not belong to this passenger.");
   }
 
-  if (![bookingStatus.PENDING, bookingStatus.ACCEPTED].includes(booking.status)) {
+  // Up to the driver arriving at pickup — once the trip starts, only the
+  // admin can close it (see adminCloseRide).
+  if (![bookingStatus.PENDING, bookingStatus.ACCEPTED, bookingStatus.ARRIVING].includes(booking.status)) {
     throw new ApiError(400, "Booking can no longer be cancelled.");
   }
 
@@ -627,6 +653,194 @@ async function cancelRide(payload) {
   return withRideProgress(cancelled);
 }
 
+// A driver who can't make it (breakdown, emergency) backs out before the
+// trip starts. The passenger keeps their booking and picks another rider,
+// the same as when a rider declines.
+async function driverCancelRide(payload) {
+  const driverActive = await bookingModel.findActiveByDriver(payload.driverId);
+  if (!driverActive || Number(driverActive.id) !== Number(payload.bookingId)) {
+    throw new ApiError(404, "No matching active booking for this driver.");
+  }
+  if (![bookingStatus.ACCEPTED, bookingStatus.ARRIVING].includes(driverActive.status)) {
+    throw new ApiError(400, "A ride can only be cancelled before the trip starts.");
+  }
+
+  const reason = String(payload.reason || "").trim();
+  const { changed, booking: released } = await bookingModel.releaseDriver(
+    payload.bookingId,
+    payload.driverId,
+    `Driver cancelled${reason ? `: ${reason}` : "."}`.slice(0, 255)
+  );
+  if (!changed) {
+    throw new ApiError(409, "This ride is no longer active.");
+  }
+
+  rememberDeclinedDriver(payload.bookingId, payload.driverId);
+  await notifySafe({
+    type: "booking_declined",
+    title: "Rider cancelled",
+    body: `${driverActive.driver_name || "Your rider"} cancelled the ride. Please choose another rider.`,
+    userId: released.passenger_id,
+    recipientRole: "passenger",
+    metadataJson: { bookingId: released.id, reason: reason || null },
+  });
+
+  return {
+    booking: withRideProgress(released),
+    nearbyDrivers: await listChoosableDrivers(released),
+    reason: "driver_cancelled",
+  };
+}
+
+// How long a driver with an accepted ride can go without sending a location
+// (phone died, app killed, no signal) before the ride is handed back to the
+// passenger. The driver app sends one every few seconds while online.
+const UNREACHABLE_DRIVER_MINUTES = 5;
+
+// Called periodically by ride-offer-scheduler.service.js. Same outcome as
+// the driver cancelling: the passenger keeps the booking and picks another
+// rider. The silent driver is set Offline so they aren't matched again
+// until they come back and go Online themselves.
+async function releaseUnreachableDrivers() {
+  const stuck = await bookingModel.findRidesWithUnreachableDriver(UNREACHABLE_DRIVER_MINUTES);
+  const results = [];
+
+  for (const ride of stuck) {
+    const { changed, booking: released } = await bookingModel.releaseDriver(
+      ride.id,
+      ride.driver_id,
+      `Driver unreachable for ${UNREACHABLE_DRIVER_MINUTES} minutes.`
+    );
+    // The driver came back (or acted) between the SELECT and now.
+    if (!changed) continue;
+
+    rememberDeclinedDriver(ride.id, ride.driver_id);
+    await driverModel.setOnlineStatus(ride.driver_id, false);
+
+    await notifySafe({
+      type: "booking_declined",
+      title: "Rider unreachable",
+      body: "We lost contact with your rider, so your ride was released. Please choose another rider.",
+      userId: released.passenger_id,
+      recipientRole: "passenger",
+      metadataJson: { bookingId: released.id, reason: "driver_unreachable" },
+    });
+    await notifySafe({
+      type: "booking_cancelled",
+      title: "Ride released",
+      body: `Ride #${released.id} was given to another rider because we couldn't reach your phone for ${UNREACHABLE_DRIVER_MINUTES} minutes. Go Online again when you're ready.`,
+      userId: ride.driver_user_id,
+      recipientRole: "driver",
+      metadataJson: { bookingId: released.id, reason: "driver_unreachable" },
+    });
+
+    results.push({
+      booking: withRideProgress(released),
+      nearbyDrivers: await listChoosableDrivers(released),
+      staleDriverId: ride.driver_id,
+      staleDriverUserId: ride.driver_user_id,
+      reason: "driver_unreachable",
+      minutes: UNREACHABLE_DRIVER_MINUTES,
+    });
+  }
+
+  return results;
+}
+
+// The ride a driver is on (accepted → ongoing), so the app can bring the
+// Active Ride screen back after a restart. Pending offers are served by
+// getIncomingOfferForDriver instead.
+async function getActiveRideForDriver(driverId) {
+  const booking = await bookingModel.findActiveByDriver(driverId);
+  if (!booking || booking.status === bookingStatus.PENDING) return null;
+  return withRideProgress(booking);
+}
+
+// Every state a ride can be stuck in.
+const ADMIN_CLOSABLE_STATUSES = ["pending", "searching", "accepted", "assigned", "arriving", "ongoing", "on_ride"];
+
+// Admin force-close for a ride nobody can finish — e.g. the driver's phone
+// died mid-trip, which used to leave the passenger unable to ever book
+// again. "completed" is for a trip that did happen (the driver is credited
+// the estimated fare); "cancelled" works from any active state.
+async function adminCloseRide({ bookingId, outcome, reason }) {
+  const booking = await bookingModel.findById(bookingId);
+  if (!booking) {
+    throw new ApiError(404, "Booking not found.");
+  }
+  if (!ADMIN_CLOSABLE_STATUSES.includes(booking.status)) {
+    throw new ApiError(409, `This ride is already ${booking.status}.`);
+  }
+
+  if (outcome === "completed") {
+    if (![bookingStatus.ONGOING, "on_ride"].includes(booking.status)) {
+      throw new ApiError(400, "Only a ride in progress can be marked completed. Cancel it instead.");
+    }
+    const fare = Number(booking.estimated_fare) || 0;
+    const changed = await db.withTransaction(async (client) => {
+      const result = await bookingModel.markCompleted(bookingId, fare, client);
+      if (result.changed && booking.driver_id) {
+        await driverModel.addEarningsAndRideCount(booking.driver_id, fare, client);
+      }
+      return result.changed;
+    });
+    if (!changed) {
+      throw new ApiError(409, "This ride changed while you were closing it. Refresh and try again.");
+    }
+    forgetBooking(bookingId);
+    const completed = await bookingModel.findById(bookingId);
+
+    await notifySafe({
+      type: "ride_completed",
+      title: "Trip completed",
+      body: `Your ride was closed by the admin. Total fare: PHP ${fare.toFixed(2)}.`,
+      userId: completed.passenger_id,
+      recipientRole: "passenger",
+      metadataJson: { bookingId, finalFare: fare, closedByAdmin: true },
+    });
+    if (completed.driver_user_id) {
+      await notifySafe({
+        type: "ride_completed",
+        title: "Ride closed by admin",
+        body: `Ride #${bookingId} was marked completed by the admin. PHP ${fare.toFixed(2)} was added to your earnings.`,
+        userId: completed.driver_user_id,
+        recipientRole: "driver",
+        metadataJson: { bookingId, finalFare: fare, reason },
+      });
+    }
+    return { booking: withRideProgress(completed), outcome };
+  }
+
+  const { changed, booking: cancelled } = await bookingModel.markCancelled(bookingId, "admin", {
+    reason,
+    fromStatuses: ADMIN_CLOSABLE_STATUSES,
+  });
+  if (!changed) {
+    throw new ApiError(409, "This ride changed while you were closing it. Refresh and try again.");
+  }
+  forgetBooking(bookingId);
+
+  await notifySafe({
+    type: "booking_cancelled",
+    title: "Ride cancelled",
+    body: `Your ride was cancelled by the admin. Reason: ${reason}`,
+    userId: cancelled.passenger_id,
+    recipientRole: "passenger",
+    metadataJson: { bookingId, reason, cancelledBy: "admin" },
+  });
+  if (cancelled.driver_user_id) {
+    await notifySafe({
+      type: "booking_cancelled",
+      title: "Ride cancelled by admin",
+      body: `Ride #${bookingId} was cancelled by the admin. Reason: ${reason}`,
+      userId: cancelled.driver_user_id,
+      recipientRole: "driver",
+      metadataJson: { bookingId, reason, cancelledBy: "admin" },
+    });
+  }
+  return { booking: withRideProgress(cancelled), outcome };
+}
+
 async function rateCompletedRide(payload) {
   if (!Number.isInteger(payload.stars) || payload.stars < 1 || payload.stars > 5) {
     throw new ApiError(400, "stars must be an integer from 1 to 5.");
@@ -647,6 +861,11 @@ async function rateCompletedRide(payload) {
 
   if (!booking.driver_id) {
     throw new ApiError(400, "Booking has no driver to rate.");
+  }
+
+  // One rating per ride (the table enforces it too).
+  if (await ratingModel.findByBookingId(payload.bookingId)) {
+    throw new ApiError(409, "You already rated this ride.");
   }
 
   const rating = await ratingModel.createRating({
@@ -685,6 +904,10 @@ module.exports = {
   markNoShow,
   completeRide,
   cancelRide,
+  driverCancelRide,
+  adminCloseRide,
+  releaseUnreachableDrivers,
+  getActiveRideForDriver,
   rateCompletedRide,
   expireStaleOffers,
 };

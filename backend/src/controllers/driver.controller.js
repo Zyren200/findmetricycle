@@ -86,6 +86,18 @@ async function getIncomingBooking(req, res, next) {
   }
 }
 
+// The ride the driver is on, so a restarted app can reopen it (null when
+// there isn't one — e.g. it was closed while the phone was off).
+async function getActiveBooking(req, res, next) {
+  try {
+    const driver = await driverService.getDriverByUserIdOrFail(req.user.id);
+    const booking = await bookingService.getActiveRideForDriver(driver.id);
+    res.json({ success: true, data: booking });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function respondBooking(req, res, next) {
   try {
     const driver = await driverService.getDriverByUserIdOrFail(req.user.id);
@@ -173,6 +185,36 @@ async function markNoShow(req, res, next) {
       success: true,
       message: "Marked as no-show.",
       data: booking,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Driver backs out before the trip starts; the passenger is handed a fresh
+// rider list to choose from (same event as a decline).
+async function cancelRide(req, res, next) {
+  try {
+    const driver = await driverService.getDriverByUserIdOrFail(req.user.id);
+    const result = await bookingService.driverCancelRide({
+      bookingId: Number(req.params.bookingId),
+      driverId: driver.id,
+      reason: req.body.reason,
+    });
+
+    getIO()
+      .to(`passenger:${result.booking.passenger_id}`)
+      .to(`user:${result.booking.passenger_id}`)
+      .emit("passenger:booking_update", {
+        booking: result.booking,
+        nearbyDrivers: result.nearbyDrivers,
+        reason: result.reason,
+      });
+
+    res.json({
+      success: true,
+      message: "Ride cancelled. The passenger will choose another rider.",
+      data: result.booking,
     });
   } catch (error) {
     next(error);
@@ -422,10 +464,12 @@ async function reportIssue(req, res, next) {
 }
 
 module.exports = {
+  cancelRide,
   setOnlineStatus,
   updateLocation,
   respondBooking,
   getIncomingBooking,
+  getActiveBooking,
   getRideHistory,
   arriveAtPickup,
   startRide,

@@ -6,9 +6,13 @@ const bookingService = require("./booking.service");
 const { getIO } = require("../sockets");
 
 const POLL_INTERVAL_MS = 5000;
+// Unreachable drivers are measured in minutes, so a slower check is plenty.
+const UNREACHABLE_CHECK_MS = 30 * 1000;
 
 let timer = null;
+let unreachableTimer = null;
 let running = false;
+let checkingUnreachable = false;
 
 async function tick() {
   if (running) return; // don't overlap a slow run with the next tick
@@ -55,11 +59,54 @@ async function tick() {
   }
 }
 
+// Accepted rides whose driver went silent (phone died, no signal) go back
+// to the passenger to choose another rider — see
+// bookingService.releaseUnreachableDrivers.
+async function releaseUnreachableTick() {
+  if (checkingUnreachable) return;
+  checkingUnreachable = true;
+  try {
+    const results = await bookingService.releaseUnreachableDrivers();
+    if (!results.length) return;
+
+    let io;
+    try {
+      io = getIO();
+    } catch (_) {
+      return;
+    }
+
+    for (const { booking, nearbyDrivers, staleDriverId, staleDriverUserId, reason, minutes } of results) {
+      io.to(`passenger:${booking.passenger_id}`)
+        .to(`user:${booking.passenger_id}`)
+        .emit("passenger:booking_update", { booking, nearbyDrivers, reason });
+
+      // Reaches the driver only if their app is still connected (e.g. GPS
+      // stopped but data still works); otherwise the app catches up when
+      // it reconnects and finds no active ride.
+      io.to(`driver:${staleDriverId}`)
+        .to(`user:${staleDriverUserId}`)
+        .emit("driver:booking_closed", {
+          bookingId: booking.id,
+          status: "released",
+          wentOffline: true,
+          message: `We couldn't reach your phone for ${minutes} minutes, so this ride was given back to the passenger. You've been set to Offline.`,
+        });
+    }
+  } catch (error) {
+    console.error("unreachable-driver check failed:", error.message);
+  } finally {
+    checkingUnreachable = false;
+  }
+}
+
 function start() {
   if (timer) return;
   timer = setInterval(tick, POLL_INTERVAL_MS);
-  if (typeof timer.unref === "function") {
-    timer.unref(); // never keep the process alive on its own (tests, shutdown)
+  unreachableTimer = setInterval(releaseUnreachableTick, UNREACHABLE_CHECK_MS);
+  // Never keep the process alive on their own (tests, shutdown).
+  for (const handle of [timer, unreachableTimer]) {
+    if (typeof handle.unref === "function") handle.unref();
   }
 }
 
@@ -68,6 +115,10 @@ function stop() {
     clearInterval(timer);
     timer = null;
   }
+  if (unreachableTimer) {
+    clearInterval(unreachableTimer);
+    unreachableTimer = null;
+  }
 }
 
-module.exports = { start, stop };
+module.exports = { start, stop, releaseUnreachableTick };

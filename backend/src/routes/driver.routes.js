@@ -42,12 +42,18 @@ router.post(
   driverController.markNoShow
 );
 router.post(
+  "/bookings/:bookingId/cancel",
+  validate(driverSchema.driverCancelRideSchema),
+  driverController.cancelRide
+);
+router.post(
   "/bookings/:bookingId/complete",
   validate(driverSchema.completeRideSchema),
   driverController.completeRide
 );
 router.get("/profile", driverController.getProfile);
 router.get("/bookings/incoming", driverController.getIncomingBooking);
+router.get("/bookings/active", driverController.getActiveBooking);
 router.get("/bookings/history", driverController.getRideHistory);
 router.get("/bookings/completed", driverController.getCompletedHistory);
 router.get("/earnings", driverController.getEarnings);

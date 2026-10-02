@@ -49,9 +49,30 @@ async function revokeAllByUserId(userId, client = db) {
   );
 }
 
+// Signs every other device out, keeping the session whose refresh token
+// hashes to `keepTokenHash` (the device that made the change). Without one,
+// every session goes.
+async function revokeOtherSessions(userId, keepTokenHash, client = db) {
+  if (!keepTokenHash) {
+    await revokeAllByUserId(userId, client);
+    return;
+  }
+  await client.query(
+    `
+      UPDATE refresh_tokens
+      SET revoked_at = NOW()
+      WHERE user_id = ?
+        AND revoked_at IS NULL
+        AND token_hash <> ?
+    `,
+    [userId, keepTokenHash]
+  );
+}
+
 module.exports = {
   createToken,
   findActiveTokenByHash,
   revokeTokenByHash,
   revokeAllByUserId,
+  revokeOtherSessions,
 };

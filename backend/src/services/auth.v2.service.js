@@ -8,6 +8,7 @@ const statusHistoryModel = require("../models/application-status-history.model")
 const refreshTokenModel = require("../models/refresh-token.model");
 const ApiError = require("../utils/api-error");
 const escapeHtml = require("../utils/escape-html");
+const { checkLicenseIdentity } = require("../utils/license-identity");
 
 const PASSWORD_RESET_PURPOSE = "password_reset";
 // How long a verified registration code stays usable for the follow-up
@@ -284,10 +285,12 @@ async function verifyOTP(email, code, purpose = null) {
 
 // Request a password reset code
 async function requestPasswordReset(email) {
-  const users = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+  const users = await db.query("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL", [email]);
   if (users.length === 0) {
-    // Don't reveal whether the email is registered.
-    return { success: true, message: "If that email is registered, a reset code has been sent." };
+    // Login already says when an email isn't registered, so hiding it here
+    // protects nothing — it would only leave the user waiting for a code
+    // that never arrives.
+    throw new ApiError(404, "This email is not registered.", { field: "email" });
   }
 
   const otp = generateOTP();
@@ -306,7 +309,7 @@ async function requestPasswordReset(email) {
   );
 
   await sendPasswordResetEmail(email, otp);
-  return { success: true, message: "If that email is registered, a reset code has been sent." };
+  return { success: true, message: "A reset code has been sent to your email." };
 }
 
 // Verify the reset code and update the password. Wrong guesses count
@@ -418,6 +421,36 @@ function buildOcrFields(ocrText) {
   }
 }
 
+// The license photo must be a readable Philippine LTO license in the
+// applicant's own name — someone else's license (or a different ID) is
+// refused before anything is saved. The website runs the same check first
+// (driver_apply/src/utils/licenseIdentity.js) and asks for a new photo.
+function assertLicenseBelongsToApplicant(licenseOcrText, accountName) {
+  const identity = checkLicenseIdentity(licenseOcrText, accountName);
+  if (!identity.readable) {
+    throw new ApiError(
+      400,
+      "Hindi mabasa ang driver's license sa litrato. Mag-upload ng malinaw at hindi malabong litrato ng buong license.",
+      { code: "LICENSE_UNREADABLE" }
+    );
+  }
+  if (!identity.licenseNumber) {
+    throw new ApiError(
+      400,
+      "Walang nakitang LTO license number (hal. A12-34-567890). Mag-upload ng malinaw na litrato ng Philippine driver's license mo.",
+      { code: "LICENSE_NOT_PH_FORMAT" }
+    );
+  }
+  if (identity.nameStatus !== "match") {
+    throw new ApiError(
+      400,
+      `Hindi tugma ang pangalan sa license sa pangalan ng account mo (${accountName}). Sariling driver's license mo ang dapat i-upload.`,
+      { code: "LICENSE_NAME_MISMATCH", missingNames: identity.missingNames }
+    );
+  }
+  return identity;
+}
+
 // Merge the applicant's confirmed license details (from the review step —
 // what they typed after checking the OCR read against the physical card)
 // over the raw OCR signals. Confirmed values are authoritative: the
@@ -461,7 +494,9 @@ async function applyAsDriver(
 
   const userData = user[0];
   await assertDriverApplicationOtp(userData.email);
+  const identity = assertLicenseBelongsToApplicant(licenseOcrText, userData.full_name);
   const ocr = applyConfirmedLicenseOverrides(buildOcrFields(licenseOcrText), confirmedLicense);
+  ocr.licenseNumber = ocr.licenseNumber || identity.licenseNumber;
 
   const result = await db.query(
     `INSERT INTO driver_applications
@@ -569,6 +604,9 @@ async function resubmitDriverApplication(
   }
   const userData = user[0];
   await assertDriverApplicationOtp(userData.email);
+  // Before archiving anything: a rejected photo must not cost them their
+  // current application.
+  const identity = assertLicenseBelongsToApplicant(licenseOcrText, userData.full_name);
 
   // Archive old application
   await db.query(
@@ -584,6 +622,7 @@ async function resubmitDriverApplication(
   const prev = prevApp[0] || {};
   const plateNumber = prev.plate_number || "TBD";
   const ocr = applyConfirmedLicenseOverrides(buildOcrFields(licenseOcrText), confirmedLicense);
+  ocr.licenseNumber = ocr.licenseNumber || identity.licenseNumber;
 
   const result = await db.query(
     `INSERT INTO driver_applications

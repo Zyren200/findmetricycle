@@ -116,6 +116,43 @@ describe("passenger chooses a rider", () => {
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(bookingModel.assignDriver).not.toHaveBeenCalled();
   });
+
+  it("tells the slower passenger the rider was just taken", async () => {
+    // Both passengers saw the rider as free; the other request locked and
+    // assigned them first.
+    bookingModel.findById.mockResolvedValue(pendingBooking());
+    bookingModel.assignDriver.mockResolvedValue({
+      assigned: false,
+      reason: "driver_busy",
+      booking: pendingBooking(),
+    });
+
+    await expect(
+      bookingService.passengerChooseDriver({ bookingId: 10, passengerId: PASSENGER_ID, driverId: 2 })
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: "This rider is no longer available. Please choose another rider.",
+    });
+    expect(notificationService.createNotification).not.toHaveBeenCalled();
+  });
+});
+
+describe("rider accepts", () => {
+  it("is refused while the rider is already on another ride", async () => {
+    bookingModel.findById.mockResolvedValue(pendingBooking({ id: 30, driver_id: 1 }));
+    bookingModel.markAccepted.mockResolvedValue({
+      changed: false,
+      reason: "driver_busy",
+      booking: pendingBooking({ id: 30, driver_id: 1 }),
+    });
+
+    await expect(
+      bookingService.driverRespond({ bookingId: 30, driverId: 1, action: "accept" })
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: "Finish your current ride before accepting another request.",
+    });
+  });
 });
 
 describe("rider declines", () => {

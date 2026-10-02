@@ -57,3 +57,6 @@ mobile_app/platform-tools/
 
 # tesseract.js language data cache (server-side document OCR)
 backend/.ocr-cache/
+
+# Firebase service-account key (full access to the Firebase project)
+backend/firebase-service-account*.json

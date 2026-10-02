@@ -251,14 +251,20 @@ async function login({ email, phone, password }) {
     throw new ApiError(400, "email or phone and password are required.");
   }
 
+  // Login forms show these under the matching input (details.field), so the
+  // user knows whether to fix the email/phone or just retype the password.
   const user = email ? await userModel.findByEmail(identifier) : await userModel.findByPhone(identifier);
   if (!user) {
-    throw new ApiError(401, "Invalid credentials.");
+    throw new ApiError(
+      401,
+      email ? "This email is not registered." : "This mobile number is not registered.",
+      { field: email ? "email" : "phone" }
+    );
   }
 
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) {
-    throw new ApiError(401, "Invalid credentials.");
+    throw new ApiError(401, "Invalid password. Please try again.", { field: "password" });
   }
 
   if (user.role === roles.DRIVER && user.status === "pending") {

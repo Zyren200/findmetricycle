@@ -1,6 +1,14 @@
 const adminService = require("../services/admin.service");
+const bookingService = require("../services/booking.service");
 const { getIO } = require("../sockets");
 const notificationService = require("../services/notification.service");
+
+// Paging input goes straight into LIMIT/OFFSET: "abc" or a huge number used
+// to break the query (server error) or pull the whole table.
+function clampInt(value, fallback, min, max) {
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : fallback;
+}
 
 async function getPendingDrivers(req, res, next) {
   try {
@@ -249,7 +257,7 @@ async function postReinstatePassenger(req, res, next) {
 
 async function getRideHistory(req, res, next) {
   try {
-    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const limit = clampInt(req.query.limit, 50, 1, 500);
     const rides = await adminService.getRideHistory(limit);
     res.json({ success: true, data: rides });
   } catch (error) {
@@ -310,7 +318,7 @@ async function getDriverLicenseExpirations(req, res, next) {
 
 async function getBookings(req, res, next) {
   try {
-    const limit = req.query.limit ? Number(req.query.limit) : 100;
+    const limit = clampInt(req.query.limit, 100, 1, 500);
     const data = await adminService.listBookings(limit);
     res.json({ success: true, data });
   } catch (error) {
@@ -322,6 +330,47 @@ async function getBookingDetail(req, res, next) {
   try {
     const data = await adminService.getBookingDetail(Number(req.params.bookingId));
     res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Force-close a stuck ride and tell both apps right away, so neither the
+// passenger nor the driver is left looking at a ride that no longer exists.
+async function postCloseBooking(req, res, next) {
+  try {
+    const bookingId = Number(req.params.bookingId);
+    const { outcome, reason } = req.body;
+    const { booking } = await bookingService.adminCloseRide({ bookingId, outcome, reason });
+    const io = getIO();
+    const message =
+      outcome === "completed"
+        ? `The admin marked this ride completed. Reason: ${reason}`
+        : `The admin cancelled this ride. Reason: ${reason}`;
+
+    const passengerRooms = io.to(`passenger:${booking.passenger_id}`).to(`user:${booking.passenger_id}`);
+    if (outcome === "completed") {
+      passengerRooms.emit("passenger:ride_completed", {
+        bookingId,
+        finalFare: booking.final_fare,
+        booking,
+        message,
+      });
+    } else {
+      passengerRooms.emit("passenger:booking_update", { booking, reason: "admin_cancelled", message });
+    }
+
+    if (booking.driver_id) {
+      io.to(`driver:${booking.driver_id}`)
+        .to(`user:${booking.driver_user_id}`)
+        .emit("driver:booking_closed", { bookingId, status: booking.status, message });
+    }
+
+    res.json({
+      success: true,
+      message: outcome === "completed" ? "Ride marked completed." : "Ride cancelled.",
+      data: await adminService.getBookingDetail(bookingId),
+    });
   } catch (error) {
     next(error);
   }
@@ -365,8 +414,8 @@ async function resolveSosAlert(req, res, next) {
 
 async function getActivityLogs(req, res, next) {
   try {
-    const limit = req.query.limit ? Number(req.query.limit) : 100;
-    const offset = req.query.offset ? Number(req.query.offset) : 0;
+    const limit = clampInt(req.query.limit, 100, 1, 500);
+    const offset = clampInt(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
     const data = await adminService.getActivityLogs(limit, offset);
     res.json({ success: true, data });
   } catch (error) {
@@ -386,7 +435,7 @@ async function getBarangays(req, res, next) {
 async function putBarangay(req, res, next) {
   try {
     const barangayId = Number(req.params.barangayId);
-    const data = await adminService.updateBarangay(barangayId, req.body.is_enabled, req.user.id);
+    const data = await adminService.updateBarangay(barangayId, req.body, req.user.id);
     res.json({ success: true, message: "Barangay updated.", data });
   } catch (error) {
     next(error);
@@ -411,7 +460,35 @@ async function putSystemSettings(req, res, next) {
   }
 }
 
+async function getAnnouncements(req, res, next) {
+  try {
+    const data = await notificationService.listAnnouncements({
+      limit: Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 50, 1), 200),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function postAnnouncement(req, res, next) {
+  try {
+    const { title, body, audience } = req.body;
+    const data = await notificationService.createAnnouncement({
+      title,
+      body,
+      audience,
+      sentBy: req.user.id,
+    });
+    res.status(201).json({ success: true, data, message: "Announcement sent." });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
+  getAnnouncements,
+  postAnnouncement,
   getPendingDrivers,
   getDriverApplication,
   getDriverApplicationTimeline,
@@ -438,6 +515,7 @@ module.exports = {
   getPendingApprovals,
   getBookings,
   getBookingDetail,
+  postCloseBooking,
   getComplaints,
   getSosAlerts,
   resolveComplaint,

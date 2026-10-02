@@ -4,6 +4,7 @@ const env = require("./config/env");
 const { initSocket } = require("./sockets");
 const db = require("./config/db");
 const rideOfferScheduler = require("./services/ride-offer-scheduler.service");
+const barangayService = require("./services/barangay.service");
 
 const server = http.createServer(app);
 initSocket(server);
@@ -13,6 +14,7 @@ async function bootstrap() {
     await db.ensureDatabaseAndSchema();
     await db.initPool();
     await db.query("SELECT 1");
+    await barangayService.syncDefaultBarangays();
     server.listen(env.port, () => {
       console.log(`FindMeTricycle API running on http://localhost:${env.port}`);
     });

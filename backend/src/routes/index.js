@@ -6,10 +6,13 @@ const driverRoutes = require("./driver.routes");
 const adminRoutes = require("./admin.routes");
 const favoritesRoutes = require("./favorites.routes");
 const documentsRoutes = require("./documents.routes");
+const devicesRoutes = require("./devices.routes");
 
 const router = express.Router();
 
 const db = require("../config/db");
+const systemSettingsService = require("../services/system-settings.service");
+const barangayService = require("../services/barangay.service");
 
 router.get("/health", (_req, res) => {
   res.json({
@@ -28,6 +31,18 @@ router.get("/health/db", async (_req, res) => {
   }
 });
 
+// Public: support contacts, service hours and disabled barangays, which the
+// apps show before (and without) a login.
+router.get("/app-config", async (_req, res, next) => {
+  try {
+    const config = await systemSettingsService.getPublicConfig();
+    config.disabledBarangays = await barangayService.listDisabledBarangayNames();
+    res.json({ success: true, data: config });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.use("/auth", authRoutes);
 router.use("/auth/v2", authV2Routes);
 router.use("/passenger", passengerRoutes);
@@ -35,5 +50,6 @@ router.use("/passenger/favorites", favoritesRoutes);
 router.use("/driver", driverRoutes);
 router.use("/admin", adminRoutes);
 router.use("/documents", documentsRoutes);
+router.use("/devices", devicesRoutes);
 
 module.exports = router;

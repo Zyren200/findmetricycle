@@ -87,6 +87,15 @@ const noShowSchema = z.object({
   }),
 });
 
+const driverCancelRideSchema = z.object({
+  params: z.object({
+    bookingId: z.coerce.number().int().positive(),
+  }),
+  body: z.object({
+    reason: z.string().trim().max(200).optional(),
+  }),
+});
+
 const completeRideSchema = z.object({
   params: z.object({
     bookingId: z.coerce.number().int().positive(),
@@ -108,6 +117,7 @@ const profileUpdateSchema = z.object({
 });
 
 module.exports = {
+  driverCancelRideSchema,
   statusSchema,
   locationSchema,
   bookingResponseSchema,

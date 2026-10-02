@@ -11,6 +11,8 @@ const mailService = require("./mail.service");
 const statusHistoryModel = require("../models/application-status-history.model");
 const db = require("../config/db");
 const ApiError = require("../utils/api-error");
+const barangayService = require("./barangay.service");
+const systemSettingsService = require("./system-settings.service");
 
 async function listPendingDrivers(status = "pending") {
   const [applications, counts] = await Promise.all([
@@ -597,6 +599,7 @@ async function getBookingDetail(bookingId) {
     completedAt: booking.completed_at,
     cancelledAt: booking.cancelled_at,
     cancelledBy: booking.cancelled_by,
+    cancelReason: booking.cancel_reason || null,
     declineReason: booking.decline_reason,
     paymentMethod: "cash",
   };
@@ -653,93 +656,54 @@ async function getActivityLogs(limit = 100, offset = 0) {
 }
 
 async function listBarangays() {
-  const query = `SELECT id, name, is_enabled FROM barangays ORDER BY name ASC`;
-  return await db.query(query);
+  return db.query(
+    "SELECT id, name, is_enabled, lat, lng FROM barangays WHERE deleted_at IS NULL ORDER BY name ASC"
+  );
 }
 
-async function updateBarangay(barangayId, isEnabled, adminUserId) {
-  const query = `UPDATE barangays SET is_enabled = ? WHERE id = ?`;
-  await db.query(query, [isEnabled ? 1 : 0, barangayId]);
-  
-  // Log activity
-  const rows = await db.query(`SELECT name FROM barangays WHERE id = ?`, [barangayId]);
-  const barangay = rows[0];
-  const action = isEnabled ? "Barangay Enabled" : "Barangay Disabled";
-  await db.query(
-    `INSERT INTO activity_logs (admin_id, action, target_type, target_id, metadata_json) 
-     VALUES (?, ?, ?, ?, ?)`,
-    [adminUserId, action, "barangay", barangayId, JSON.stringify({ barangayId, isEnabled, barangayName: barangay?.name })]
+// Enable/disable a barangay and/or move its pin. Pickups and drop-offs are
+// matched to the nearest pin, so a pin in the wrong place blocks (or lets
+// through) the wrong area.
+async function updateBarangay(barangayId, changes, adminUserId) {
+  const [existing] = await db.query(
+    "SELECT id, name, is_enabled, lat, lng FROM barangays WHERE id = ? AND deleted_at IS NULL",
+    [barangayId]
   );
+  if (!existing) throw new ApiError(404, "Barangay not found.");
 
-  return { id: barangayId, name: barangay?.name, is_enabled: isEnabled };
+  const isEnabled = changes.is_enabled ?? Boolean(existing.is_enabled);
+  const lat = changes.lat ?? existing.lat;
+  const lng = changes.lng ?? existing.lng;
+  await db.query("UPDATE barangays SET is_enabled = ?, lat = ?, lng = ? WHERE id = ?", [
+    isEnabled ? 1 : 0,
+    lat,
+    lng,
+    barangayId,
+  ]);
+  barangayService.invalidateCache();
+
+  const actions = [];
+  if (changes.is_enabled !== undefined && changes.is_enabled !== Boolean(existing.is_enabled)) {
+    actions.push(isEnabled ? "Barangay Enabled" : "Barangay Disabled");
+  }
+  if (changes.lat !== undefined || changes.lng !== undefined) actions.push("Barangay Pin Moved");
+  for (const action of actions) {
+    await db.query(
+      `INSERT INTO activity_logs (admin_id, action, target_type, target_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      [adminUserId, action, "barangay", barangayId, JSON.stringify({ barangayName: existing.name, isEnabled, lat, lng })]
+    );
+  }
+
+  return { id: barangayId, name: existing.name, is_enabled: isEnabled ? 1 : 0, lat, lng };
 }
 
 async function getSystemSettings() {
-  const query = `
-    SELECT setting_key, setting_value, value_type 
-    FROM system_settings 
-    WHERE deleted_at IS NULL
-  `;
-  const rows = await db.query(query);
-  
-  // Convert from key-value rows to object
-  const settings = {};
-  rows.forEach((row) => {
-    let value = row.setting_value;
-    if (row.value_type === "number") {
-      value = parseFloat(value);
-    } else if (row.value_type === "boolean") {
-      value = value === "true" || value === "1";
-    } else if (row.value_type === "json") {
-      try {
-        value = JSON.parse(value);
-      } catch (_e) {
-        // keep the raw string when it isn't valid JSON
-      }
-    }
-    settings[row.setting_key] = value;
-  });
-
-  // Return with defaults if missing
-  return {
-    appName: settings.appName || "FindMeTricycle",
-    supportEmail: settings.supportEmail || "support@findme.local",
-    contactNumber: settings.contactNumber || "+63 9XX XXX XXXX",
-    operatingHours: settings.operatingHours || "5:00 AM - 10:00 PM",
-  };
+  return systemSettingsService.getSettings();
 }
 
 async function updateSystemSettings(settings, adminUserId) {
-  const { appName, supportEmail, contactNumber, operatingHours } = settings;
-  
-  // Update each setting individually using INSERT...ON DUPLICATE KEY UPDATE
-  const settingsToUpdate = [
-    { key: "appName", value: appName, type: "string" },
-    { key: "supportEmail", value: supportEmail, type: "string" },
-    { key: "contactNumber", value: contactNumber, type: "string" },
-    { key: "operatingHours", value: operatingHours, type: "string" },
-  ];
-
-  for (const setting of settingsToUpdate) {
-    await db.query(
-      `INSERT INTO system_settings (setting_key, setting_value, value_type, updated_by)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         setting_value = VALUES(setting_value),
-         updated_by = VALUES(updated_by),
-         updated_at = NOW()`,
-      [setting.key, String(setting.value), setting.type, adminUserId]
-    );
-  }
-  
-  // Log activity
-  await db.query(
-    `INSERT INTO activity_logs (admin_id, action, target_type, metadata_json) 
-     VALUES (?, ?, ?, ?)`,
-    [adminUserId, "System Settings Updated", "settings", JSON.stringify(settings)]
-  );
-
-  return { appName, supportEmail, contactNumber, operatingHours };
+  return systemSettingsService.updateSettings(settings, adminUserId);
 }
 
 module.exports = {

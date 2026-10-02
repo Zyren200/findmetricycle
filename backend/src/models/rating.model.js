@@ -35,7 +35,13 @@ async function listRatingsByDriver(driverId, limit = 100) {
   );
 }
 
+async function findByBookingId(bookingId) {
+  const rows = await db.query("SELECT id FROM ratings WHERE booking_id = ? AND deleted_at IS NULL LIMIT 1", [bookingId]);
+  return rows[0] || null;
+}
+
 module.exports = {
+  findByBookingId,
   createRating,
   listRatingsByDriver,
 };
