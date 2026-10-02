@@ -16,8 +16,20 @@ async function createNotification(
 }
 
 // The admin feed: notifications addressed to admins (or everyone) — never
-// the personal ones sent to a specific passenger or driver.
-const ADMIN_SCOPE = "user_id IS NULL AND recipient_role IN ('admin', 'everyone')";
+// the personal ones sent to a specific passenger or driver, and not the
+// announcements admins themselves broadcast to users.
+const ADMIN_SCOPE =
+  "user_id IS NULL AND recipient_role IN ('admin', 'everyone') AND type <> 'announcement'";
+
+async function listAnnouncements({ limit = 50 } = {}, client = db) {
+  return client.query(
+    `SELECT * FROM notifications
+      WHERE deleted_at IS NULL AND type = 'announcement' AND user_id IS NULL
+      ORDER BY created_at DESC
+      LIMIT ?`,
+    [Number(limit)]
+  );
+}
 
 async function listNotifications({ search = "", limit = 50, offset = 0 } = {}, client = db) {
   const term = `%${String(search || "").trim()}%`;
@@ -109,6 +121,7 @@ async function markAllRead(client = db) {
 }
 
 module.exports = {
+  listAnnouncements,
   createNotification,
   listNotifications,
   listForUser,

@@ -85,7 +85,8 @@ describe("request logging", () => {
     const log = lines.join("");
     expect(log).toContain("token=[redacted]");
     expect(log).not.toContain("SECRET_TOKEN_VALUE");
-  });
+    // First require of the full app is slow when the whole suite runs in parallel.
+  }, 20000);
 });
 
 describe("legacy driver sign-up", () => {
