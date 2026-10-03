@@ -6,6 +6,8 @@ import PendingDriversTable, { APPLICATION_STATUS } from "../components/PendingDr
 import ConfirmDialog from "../components/ConfirmDialog";
 import StatusPill from "../components/StatusPill";
 import { formatDateTime, resolveDriverDocumentUrl } from "../utils/admin-formatters";
+import { useAuth } from "../context/AuthContext";
+import { PERMISSIONS as P } from "../utils/admin-access";
 
 const TABS = [
   ["pending", "Pending"],
@@ -58,6 +60,8 @@ function DocumentPreview({ label, url, check }) {
 }
 
 export default function PendingPage() {
+  const { can } = useAuth();
+  const canReview = can(P.DRIVER_APPLICATIONS_REVIEW);
   const [tab, setTab] = useState("pending");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -280,7 +284,7 @@ export default function PendingPage() {
               ) : null}
             </div>
             <div className="modal-footer">
-              {selected.approvalStatus === "pending" ? (
+              {canReview && selected.approvalStatus === "pending" ? (
                 <>
                   <button className="btn btn-danger" type="button" disabled={busy} onClick={() => setDialog("reject")}>
                     Reject

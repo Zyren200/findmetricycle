@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { apiClient } from "../api/client";
 
-export default function ForgotPasswordModal({ onClose }) {
+// Each admin resets their own password: the code goes to the email of the
+// admin account typed in here.
+export default function ForgotPasswordModal({ onClose, initialEmail = "" }) {
   const [step, setStep] = useState("request"); // "request" | "otp" | "password" | "done"
+  const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -10,12 +13,24 @@ export default function ForgotPasswordModal({ onClose }) {
   const [error, setError] = useState(null);
   const [info, setInfo] = useState(null);
 
-  async function handleRequestCode() {
-    setLoading(true);
+  async function handleRequestCode(e) {
+    e?.preventDefault();
     setError(null);
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError("Enter the email of your admin account.");
+      return;
+    }
+
+    setLoading(true);
     try {
-      await apiClient.post("/auth/admin/forgot-password/request", {}, { skipAuthRedirect: true });
-      setInfo("A 6-digit code was sent to the registered admin email. It expires in 5 minutes.");
+      await apiClient.post(
+        "/auth/admin/forgot-password/request",
+        { email: trimmedEmail },
+        { skipAuthRedirect: true }
+      );
+      setInfo(`A 6-digit code was sent to ${trimmedEmail}. It expires in 5 minutes.`);
       setStep("otp");
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to send reset code. Please try again.");
@@ -35,7 +50,11 @@ export default function ForgotPasswordModal({ onClose }) {
 
     setLoading(true);
     try {
-      await apiClient.post("/auth/admin/forgot-password/verify-otp", { code }, { skipAuthRedirect: true });
+      await apiClient.post(
+        "/auth/admin/forgot-password/verify-otp",
+        { email: email.trim(), code },
+        { skipAuthRedirect: true }
+      );
       setInfo(null);
       setStep("password");
     } catch (err) {
@@ -62,7 +81,7 @@ export default function ForgotPasswordModal({ onClose }) {
     try {
       await apiClient.post(
         "/auth/admin/forgot-password/reset",
-        { newPassword },
+        { email: email.trim(), code, newPassword },
         { skipAuthRedirect: true }
       );
       setStep("done");
@@ -85,15 +104,27 @@ export default function ForgotPasswordModal({ onClose }) {
 
         <div className="modal-body">
         {step === "request" ? (
-          <div className="login-form">
+          <form onSubmit={handleRequestCode} className="login-form">
             <p className="muted" style={{ fontSize: 13, marginBottom: 4 }}>
-              We'll send a 6-digit code to the registered admin email to reset your password.
+              Enter the email of your admin account. We'll send a 6-digit code there to reset your password.
             </p>
+            <label>
+              <span className="field-label-text">Admin email</span>
+              <input
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+                autoComplete="email"
+              />
+            </label>
             {error ? <p className="error-text">{error}</p> : null}
-            <button type="button" className="btn-primary" onClick={handleRequestCode} disabled={loading}>
+            <button type="submit" className="btn-primary" disabled={loading}>
               {loading ? "Sending…" : "Send Reset Code"}
             </button>
-          </div>
+          </form>
         ) : null}
 
         {step === "otp" ? (

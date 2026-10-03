@@ -5,6 +5,8 @@ import StatusPill from "../components/StatusPill";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DocumentCheckBadge, { hasDocumentWarning } from "../components/DocumentCheckBadge";
 import { formatDateTime, formatMoney, resolveDriverDocumentUrl as resolveAssetUrl } from "../utils/admin-formatters";
+import { useAuth } from "../context/AuthContext";
+import { PERMISSIONS as P } from "../utils/admin-access";
 
 const STATUS_STYLE = {
   Online: ["rgba(62,207,120,0.2)", "var(--green)"],
@@ -23,6 +25,10 @@ function StatusBadge({ status }) {
 }
 
 export default function DriversPage() {
+  const { can } = useAuth();
+  const canManage = can(P.DRIVERS_MANAGE);
+  // License and permit photos are for admins who review driver applications.
+  const canSeeDocuments = can(P.DRIVER_APPLICATIONS_VIEW);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [drivers, setDrivers] = useState([]);
@@ -385,7 +391,7 @@ export default function DriversPage() {
                         >
                           View
                         </button>
-                        {driver.status !== "Suspended" && (
+                        {canManage && driver.status !== "Suspended" && (
                           <button
                             className="btn btn-danger btn-sm"
                             type="button"
@@ -395,7 +401,7 @@ export default function DriversPage() {
                             {actionLoadingId === driver.id ? "..." : "Suspend"}
                           </button>
                         )}
-                        {driver.status === "Suspended" && (
+                        {canManage && driver.status === "Suspended" && (
                           <button
                             className="btn btn-success btn-sm"
                             type="button"
@@ -507,6 +513,7 @@ export default function DriversPage() {
                 </div>
               </div>
 
+              {canSeeDocuments ? (
               <div className="doc-preview-grid" style={{ marginTop: 16 }}>
                 {[
                   ["Driver's license", selectedDriver.license_image_url],
@@ -524,20 +531,25 @@ export default function DriversPage() {
                   </figure>
                 ))}
               </div>
+              ) : null}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-danger" type="button" onClick={() => setDialog({ type: "revoke", driver: selectedDriver })}>
-                Revoke approval
-              </button>
-              {selectedDriver.status === "Suspended" ? (
-                <button className="btn btn-success" type="button" onClick={() => setDialog({ type: "reinstate", driver: selectedDriver })}>
-                  Reinstate
-                </button>
-              ) : (
-                <button className="btn btn-warning" type="button" onClick={() => setDialog({ type: "suspend", driver: selectedDriver })}>
-                  Suspend
-                </button>
-              )}
+              {canManage ? (
+                <>
+                  <button className="btn btn-danger" type="button" onClick={() => setDialog({ type: "revoke", driver: selectedDriver })}>
+                    Revoke approval
+                  </button>
+                  {selectedDriver.status === "Suspended" ? (
+                    <button className="btn btn-success" type="button" onClick={() => setDialog({ type: "reinstate", driver: selectedDriver })}>
+                      Reinstate
+                    </button>
+                  ) : (
+                    <button className="btn btn-warning" type="button" onClick={() => setDialog({ type: "suspend", driver: selectedDriver })}>
+                      Suspend
+                    </button>
+                  )}
+                </>
+              ) : null}
               <button className="btn btn-ghost" type="button" onClick={closeModal}>
                 Close
               </button>

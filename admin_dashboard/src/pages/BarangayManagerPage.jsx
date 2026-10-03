@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "../api/client";
 import PageHero from "../components/PageHero";
+import ServiceAreaMap from "../components/ServiceAreaMap";
+import { isInsideServiceArea, useServiceArea } from "../utils/service-area";
+
+const OUTSIDE_PIN_MESSAGE = "That spot is outside Guiuan's boundary — a barangay pin must be inside Guiuan.";
 
 // "11.0736, 125.7276" → { lat, lng }, or null.
 function parsePin(text) {
@@ -26,6 +30,8 @@ export default function BarangayManagerPage() {
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [pinDraft, setPinDraft] = useState("");
+  const area = useServiceArea();
+  const mapPanelRef = useRef(null);
 
   const loadBarangays = useCallback(async () => {
     try {
@@ -66,6 +72,8 @@ export default function BarangayManagerPage() {
   function startEditingPin(barangay) {
     setEditingId(barangay.id);
     setPinDraft(formatPin(barangay));
+    // The map is above the list: bring it into view to place the pin.
+    mapPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function savePin(barangayId) {
@@ -74,8 +82,47 @@ export default function BarangayManagerPage() {
       setError("Enter the pin as latitude, longitude — e.g. 11.0311, 125.7235.");
       return;
     }
+    // The server checks this too; this just says so straight away.
+    if (isInsideServiceArea(area, pin.lat, pin.lng, { bufferMeters: 0 }) === false) {
+      setError(OUTSIDE_PIN_MESSAGE);
+      return;
+    }
     if (await saveBarangay(barangayId, pin)) setEditingId(null);
   }
+
+  // While a pin is being moved, a click on the map places it — never
+  // outside Guiuan.
+  function placePinFromMap(lat, lng) {
+    if (editingId == null) return;
+    if (isInsideServiceArea(area, lat, lng, { bufferMeters: 0 }) === false) {
+      setError(OUTSIDE_PIN_MESSAGE);
+      return;
+    }
+    setError(null);
+    setPinDraft(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+  }
+
+  const editing = barangays.find((b) => b.id === editingId) || null;
+  const draftPin = editing ? parsePin(pinDraft) : null;
+
+  const mapPoints = useMemo(
+    () =>
+      barangays
+        .filter((b) => b.lat != null && b.lng != null)
+        .map((b) => {
+          const isEditing = b.id === editingId;
+          const point = isEditing && draftPin ? draftPin : { lat: b.lat, lng: b.lng };
+          return {
+            id: b.id,
+            lat: point.lat,
+            lng: point.lng,
+            label: isEditing ? b.name : "",
+            color: isEditing ? "#D97706" : b.is_enabled ? "#16A34A" : "#DC2626",
+            highlight: isEditing,
+          };
+        }),
+    [barangays, editingId, draftPin?.lat, draftPin?.lng]
+  );
 
   const enabledCount = barangays.filter((b) => b.is_enabled).length;
 
@@ -94,6 +141,31 @@ export default function BarangayManagerPage() {
 
       {error ? <div className="error-banner">{error}</div> : null}
       {loading ? <div className="state-block">Loading barangay coverage...</div> : null}
+
+      {!loading ? (
+        <section className="panel" ref={mapPanelRef}>
+          <div className="panel-header">
+            <h3>Coverage map</h3>
+            <span className="muted small-text">
+              <span style={{ color: "#16A34A" }}>●</span> enabled &nbsp;
+              <span style={{ color: "#DC2626" }}>●</span> disabled &nbsp;
+              <span style={{ color: "#0E8C46" }}>- -</span> Guiuan&apos;s boundary
+            </span>
+          </div>
+          <p className="muted small-text" style={{ margin: "0 0 10px" }}>
+            {editing
+              ? `Click the map to place the pin for ${editing.name}, then press Save pin.`
+              : "Press Move pin on a barangay below, then click the map to place its pin. Pins must be inside Guiuan's boundary."}
+          </p>
+          <ServiceAreaMap
+            points={mapPoints}
+            focus={editing && editing.lat != null ? { lat: editing.lat, lng: editing.lng } : null}
+            onMapClick={editing ? placePinFromMap : null}
+            height={340}
+            ariaLabel="Barangay coverage map"
+          />
+        </section>
+      ) : null}
 
       {!loading ? (
         <section className="panel">

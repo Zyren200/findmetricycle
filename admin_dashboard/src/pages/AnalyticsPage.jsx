@@ -2,8 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../api/client";
 import PageHero from "../components/PageHero";
 import { exportCsv, exportExcel, exportPdf } from "../utils/export";
+import { useAuth } from "../context/AuthContext";
+import { PERMISSIONS as P } from "../utils/admin-access";
 
 export default function AnalyticsPage() {
+  const { can } = useAuth();
+  // Earnings figures and the export are for admins with earnings access;
+  // the server leaves earnings out of the data for everyone else.
+  const canEarnings = can(P.EARNINGS_VIEW);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [analytics, setAnalytics] = useState(null);
@@ -162,11 +168,13 @@ export default function AnalyticsPage() {
                 <h3 className="metric-value">{completedToday}</h3>
                 <p className="metric-delta accent">Active service</p>
               </div>
-              <div className="metric-card">
-                <p className="metric-label">Avg Ride Value</p>
-                <h3 className="metric-value">PHP {avgRideValue}</h3>
-                <p className="metric-delta">Cash only</p>
-              </div>
+              {canEarnings ? (
+                <div className="metric-card">
+                  <p className="metric-label">Avg Ride Value</p>
+                  <h3 className="metric-value">PHP {avgRideValue}</h3>
+                  <p className="metric-delta">Cash only</p>
+                </div>
+              ) : null}
               <div className="metric-card">
                 <p className="metric-label">Active Drivers</p>
                 <h3 className="metric-value">{analytics?.activeDrivers || 0}</h3>
@@ -203,37 +211,46 @@ export default function AnalyticsPage() {
               <h3>Operational Summary</h3>
             </div>
             <div className="summary-items">
-              <div className="summary-item">
-                <div className="summary-icon">👥</div>
-                <div className="summary-content">
-                  <p className="summary-label">Total Passengers</p>
-                  <p className="summary-value">{analytics?.totalPassengers || 0}</p>
+              {can(P.USERS_VIEW) ? (
+                <div className="summary-item">
+                  <div className="summary-icon">👥</div>
+                  <div className="summary-content">
+                    <p className="summary-label">Total Passengers</p>
+                    <p className="summary-value">{analytics?.totalPassengers || 0}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="summary-item">
-                <div className="summary-icon">🚨</div>
-                <div className="summary-content">
-                  <p className="summary-label">SOS Alerts</p>
-                  <p className="summary-value">{analytics?.sosAlerts || 0}</p>
+              ) : null}
+              {can(P.SOS_VIEW) ? (
+                <div className="summary-item">
+                  <div className="summary-icon">🚨</div>
+                  <div className="summary-content">
+                    <p className="summary-label">SOS Alerts</p>
+                    <p className="summary-value">{analytics?.sosAlerts || 0}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="summary-item">
-                <div className="summary-icon">⏳</div>
-                <div className="summary-content">
-                  <p className="summary-label">Pending Applications</p>
-                  <p className="summary-value">{analytics?.pendingApplications || 0}</p>
+              ) : null}
+              {can(P.DRIVER_APPLICATIONS_VIEW) ? (
+                <div className="summary-item">
+                  <div className="summary-icon">⏳</div>
+                  <div className="summary-content">
+                    <p className="summary-label">Pending Applications</p>
+                    <p className="summary-value">{analytics?.pendingApplications || 0}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="summary-item">
-                <div className="summary-icon">💰</div>
-                <div className="summary-content">
-                  <p className="summary-label">Daily Earnings</p>
-                  <p className="summary-value">PHP {analytics?.dailyEarnings || 0}</p>
+              ) : null}
+              {can(P.EARNINGS_VIEW) ? (
+                <div className="summary-item">
+                  <div className="summary-icon">💰</div>
+                  <div className="summary-content">
+                    <p className="summary-label">Daily Earnings</p>
+                    <p className="summary-value">PHP {analytics?.dailyEarnings || 0}</p>
+                  </div>
                 </div>
-              </div>
+              ) : null}
             </div>
           </section>
 
+          {canEarnings ? (
           <section className="panel">
             <div className="panel-header">
               <h3>Export Data</h3>
@@ -262,6 +279,7 @@ export default function AnalyticsPage() {
               💡 Includes key metrics, the last 30 days of ride activity and the latest 500 rides.
             </p>
           </section>
+          ) : null}
         </>
       ) : null}
 

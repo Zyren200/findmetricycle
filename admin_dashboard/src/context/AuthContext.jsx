@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   apiClient,
   setAuthToken,
@@ -7,11 +7,19 @@ import {
   REFRESH_TOKEN_KEY,
   USER_KEY,
   TOKEN_REFRESHED_EVENT,
+  SIGN_OUT_NOTICE_KEY,
 } from "../api/client";
 
 const AuthContext = createContext(null);
 
 const REMEMBER_KEY = "fmt_admin_remember";
+// Set by a fresh sign-in, so the dashboard opens the first page the admin
+// may use instead of a page left in the URL by someone else.
+export const FRESH_LOGIN_KEY = "fmt_admin_fresh_login";
+
+function storeWithUser() {
+  return localStorage.getItem(USER_KEY) ? localStorage : sessionStorage;
+}
 
 const initialToken = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
 if (initialToken) {
@@ -51,6 +59,8 @@ export function AuthProvider({ children }) {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const userRef = useRef(user);
+  userRef.current = user;
 
   useEffect(() => {
     setAuthToken(token);
@@ -91,6 +101,8 @@ export function AuthProvider({ children }) {
       store.setItem(REFRESH_TOKEN_KEY, authData.refreshToken || "");
       store.setItem(USER_KEY, JSON.stringify(adminUser));
       localStorage.setItem(REMEMBER_KEY, remember ? "true" : "false");
+      sessionStorage.setItem(FRESH_LOGIN_KEY, "1");
+      sessionStorage.removeItem(SIGN_OUT_NOTICE_KEY);
       setToken(jwt);
       setUser(adminUser);
       setRememberMe(Boolean(remember));
@@ -161,7 +173,7 @@ export function AuthProvider({ children }) {
     }
   }
 
-  function logout() {
+  const logout = useCallback(() => {
     // Revoke the refresh token server-side (best effort) so it can't be
     // reused from this browser's storage after logging out.
     const refreshToken =
@@ -178,7 +190,47 @@ export function AuthProvider({ children }) {
     setRememberMe(false);
     setError(null);
     setAuthToken(null);
-  }
+  }, []);
+
+  // Signs out and tells the admin why on the sign-in page.
+  const signOutWithNotice = useCallback(
+    (message) => {
+      sessionStorage.setItem(SIGN_OUT_NOTICE_KEY, message);
+      logout();
+    },
+    [logout]
+  );
+
+  // Re-reads the admin's role and permissions from the server. A changed
+  // role means a Super Admin changed it: the server has already ended this
+  // session's refresh token, so sign out now with an explanation. A
+  // disabled admin gets 401 here, which the API client turns into a
+  // sign-out.
+  const refreshMe = useCallback(async () => {
+    const { data } = await apiClient.get("/auth/me");
+    const me = data?.data;
+    if (!me?.admin) return null;
+
+    const current = userRef.current || {};
+    if (current.admin?.role && current.admin.role !== me.admin.role) {
+      signOutWithNotice(`Your admin role was changed to ${me.admin.roleLabel}. Please sign in again.`);
+      return null;
+    }
+
+    const next = { ...current, full_name: me.fullName ?? current.full_name, email: me.email ?? current.email, admin: me.admin };
+    if (JSON.stringify(next) !== JSON.stringify(current)) {
+      storeWithUser().setItem(USER_KEY, JSON.stringify(next));
+      setUser(next);
+    }
+    return next;
+  }, [signOutWithNotice]);
+
+  const permissionList = user?.admin?.permissions;
+  const permissionKey = Array.isArray(permissionList) ? permissionList.join(",") : "";
+  const can = useCallback(
+    (permission) => permissionKey.split(",").includes(permission),
+    [permissionKey]
+  );
 
   const value = useMemo(
     () => ({
@@ -188,13 +240,17 @@ export function AuthProvider({ children }) {
       loading,
       error,
       isAuthenticated: Boolean(token),
+      can,
+      permissionKey,
+      refreshMe,
+      signOutWithNotice,
       login,
       sendAdminOtp,
       verifyAdminOtp,
       registerAdmin,
       logout,
     }),
-    [token, user, loading, error]
+    [token, user, loading, error, can, permissionKey, refreshMe, signOutWithNotice, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -5,7 +5,6 @@ import {
   BookOpen,
   ChevronDown,
   ClipboardList,
-  DollarSign,
   FileText,
   History,
   LayoutDashboard,
@@ -15,27 +14,44 @@ import {
   Megaphone,
   Menu,
   MessageSquareWarning,
+  PhilippinePeso,
   ScrollText,
   Search,
   Settings as SettingsIcon,
   Shield,
   Siren,
   UserCheck,
+  UserCog,
   Users,
   Wifi,
   Wrench,
   X,
 } from "lucide-react";
 import { apiClient } from "../api/client";
-import { useAuth } from "../context/AuthContext";
+import { FRESH_LOGIN_KEY, useAuth } from "../context/AuthContext";
 import { useSocket } from "../hooks/useSocket";
 import ConfirmDialog from "../components/ConfirmDialog";
 import LiveMapCard from "../components/LiveMapCard";
+import NoAccessPage from "../components/NoAccessPage";
+import ServiceAreaMap from "../components/ServiceAreaMap";
+import NotificationsInbox from "../components/NotificationsInbox";
 import NotificationsPanel from "../components/NotificationsPanel";
+import ReportsInbox from "../components/ReportsInbox";
 import SummaryCards from "../components/SummaryCards";
 import PageHero from "../components/PageHero";
 import { asText, formatDateTime, formatMoney, statusTone, formatPlace } from "../utils/admin-formatters";
+import { PERMISSIONS as P, canOpenSection } from "../utils/admin-access";
+import { isOutsideServiceArea, useServiceArea } from "../utils/service-area";
+import {
+  browserAlertPermission,
+  installAlarmUnlock,
+  playSosAlarm,
+  requestBrowserAlerts,
+  showBrowserAlert,
+} from "../utils/sos-alerts";
+import { useToasts } from "../context/ToastContext";
 import ActivityLogsPage from "./ActivityLogsPage";
+import AdminAccountsPage from "./AdminAccountsPage";
 import AnalyticsPage from "./AnalyticsPage";
 import BarangayManagerPage from "./BarangayManagerPage";
 import EarningsPage from "./EarningsPage";
@@ -62,12 +78,68 @@ const sections = [
   { key: "notifications", title: "Notifications", icon: Bell, group: "Operations" },
   { key: "announcements", title: "Announcements", icon: Megaphone, group: "Operations" },
   { key: "reports", title: "Reports", icon: BarChart3, group: "Insights" },
-  { key: "earnings", title: "Earnings", icon: DollarSign, group: "Insights" },
+  { key: "earnings", title: "Earnings", icon: PhilippinePeso, group: "Insights" },
   { key: "activity", title: "Activity Logs", icon: ScrollText, group: "System" },
   { key: "barangays", title: "Barangay Coverage", icon: MapPin, group: "System" },
   { key: "fares", title: "Fare Settings", icon: FileText, group: "System" },
   { key: "settings", title: "Settings", icon: Wrench, group: "System" },
+  { key: "admins", title: "Admin Accounts", icon: UserCog, group: "System" },
 ];
+
+const SECTION_KEYS = sections.map((s) => s.key);
+// The page last opened in this browser, reopened after signing in when the
+// admin may still use it.
+const LAST_SECTION_KEY = "fmt_admin_last_section";
+// Set once the admin has answered the "turn on SOS alerts" prompt.
+const SOS_ALERTS_ASKED_KEY = "fmt_admin_sos_alerts_asked";
+
+const SOS_STATUS_LABEL = {
+  active: ["open", "danger"],
+  acknowledged: ["acknowledged", "warning"],
+  resolved: ["resolved", "success"],
+};
+
+// An SOS alert's status, with who is handling it or who resolved it.
+function SosStatus({ alert, compact = false }) {
+  const [label, tone] = SOS_STATUS_LABEL[alert.status] || [alert.status, "neutral"];
+  return (
+    <div>
+      <span className={`status-pill status-${tone}`}>{label}</span>
+      {alert.status === "active" && alert.escalatedAt ? (
+        <span className="status-pill status-danger" style={{ marginLeft: 4 }} title="Sent to the Super Admins">
+          escalated
+        </span>
+      ) : null}
+      {alert.status === "acknowledged" && alert.acknowledgedBy ? (
+        <small className="sos-handler">
+          Handled by <b>{alert.acknowledgedBy.name}</b>
+          {compact ? null : ` · ${formatDateTime(alert.acknowledgedAt)}`}
+        </small>
+      ) : null}
+      {alert.status === "resolved" && alert.resolvedBy && !compact ? (
+        <small className="sos-handler">
+          By <b>{alert.resolvedBy.name}</b> · {formatDateTime(alert.resolvedAt)}
+          {alert.resolutionNote ? <span className="sos-note">“{alert.resolutionNote}”</span> : null}
+        </small>
+      ) : null}
+    </div>
+  );
+}
+
+// Pages live in the URL (#/bookings), so a refresh or a shared link opens
+// the same page and Back/Forward move between pages.
+function sectionFromHash() {
+  const key = window.location.hash.replace(/^#\/?/, "").split(/[/?]/)[0];
+  return SECTION_KEYS.includes(key) ? key : null;
+}
+
+function readLastSection() {
+  try {
+    return localStorage.getItem(LAST_SECTION_KEY);
+  } catch (_) {
+    return null;
+  }
+}
 
 const BOOKING_STATUSES = ["pending", "accepted", "arriving", "ongoing", "completed", "cancelled"];
 
@@ -115,12 +187,17 @@ function SimpleTable({ columns, rows, renderRow, emptyLabel = "No records found.
 }
 
 export default function DashboardShell() {
-  const { user, logout, token } = useAuth();
-  const [activeSectionKey, setActiveSectionKey] = useState("dashboard");
+  const { user, logout, token, can, refreshMe, signOutWithNotice } = useAuth();
+  const [activeSectionKey, setSectionState] = useState(() => sectionFromHash() || "dashboard");
+  // True once the admin's current role and permissions have been read from
+  // the server (the stored copy may be stale or from before roles existed).
+  const [accessReady, setAccessReady] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  // The notification open in the inbox (Notifications page).
+  const [selectedNotificationId, setSelectedNotificationId] = useState(null);
   // Real numbers only — until the first load succeeds the cards show 0.
   const [summary, setSummary] = useState({});
   const [searchTerm, setSearchTerm] = useState("");
@@ -135,7 +212,6 @@ export default function DashboardShell() {
   const [userSearch, setUserSearch] = useState("");
   const [userStatusFilter, setUserStatusFilter] = useState("all");
   const [driverList, setDriverList] = useState([]);
-  const [fare, setFare] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [selectedBookingLoading, setSelectedBookingLoading] = useState(false);
   // Force-closing a stuck ride from the booking modal: { outcome } while the
@@ -152,11 +228,83 @@ export default function DashboardShell() {
   const [barangaysCovered, setBarangaysCovered] = useState(null);
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatus, setBookingStatus] = useState("all");
-  const [complaintSearch, setComplaintSearch] = useState("");
-  const [complaintStatus, setComplaintStatus] = useState("all");
+  // The report open in the Complaints inbox.
+  const [selectedComplaintId, setSelectedComplaintId] = useState(null);
   const [sosFilter, setSosFilter] = useState("all");
+  // The SOS alert whose "Resolve" note dialog is open.
+  const [resolveSosTarget, setResolveSosTarget] = useState(null);
+  // The SOS alert whose location map is open.
+  const [sosMapTarget, setSosMapTarget] = useState(null);
+  const serviceArea = useServiceArea();
+  const { addToast } = useToasts();
+
+  // Pages the signed-in admin may open, in sidebar order.
+  const visibleSections = useMemo(() => sections.filter((s) => canOpenSection(can, s.key)), [can]);
+  const homeSection = visibleSections[0] || null;
+
+  const setActiveSectionKey = useCallback((key) => {
+    if (!key) return;
+    if (window.location.hash !== `#/${key}`) window.location.hash = `/${key}`;
+    setSectionState(key);
+  }, []);
+
+  // Typing a page into the URL, or Back/Forward.
+  useEffect(() => {
+    const onHashChange = () => {
+      const key = sectionFromHash();
+      if (key) setSectionState(key);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   useEffect(() => {
+    if (accessReady && canOpenSection(can, activeSectionKey)) {
+      try {
+        localStorage.setItem(LAST_SECTION_KEY, activeSectionKey);
+      } catch (_) {
+        // Storage blocked — the page just isn't remembered.
+      }
+    }
+  }, [accessReady, activeSectionKey, can]);
+
+  // Current role and permissions first, then everything else.
+  useEffect(() => {
+    let cancelled = false;
+    refreshMe()
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) setAccessReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshMe]);
+
+  // Which page to show once access is known. A page named in the URL opens
+  // as is — a forbidden one shows "No access" — except right after signing
+  // in, when the URL may be left over from another admin: then the last
+  // page this admin may use, or their first page, opens instead.
+  useEffect(() => {
+    if (!accessReady) return;
+    const freshLogin = sessionStorage.getItem(FRESH_LOGIN_KEY) === "1";
+    sessionStorage.removeItem(FRESH_LOGIN_KEY);
+    const fromHash = sectionFromHash();
+    if (fromHash && (!freshLogin || canOpenSection(can, fromHash))) {
+      setSectionState(fromHash);
+      return;
+    }
+    const last = readLastSection();
+    const target = last && canOpenSection(can, last) ? last : homeSection?.key;
+    if (target) {
+      window.history.replaceState(null, "", `#/${target}`);
+      setSectionState(target);
+    }
+    // Decided once, when access first becomes known.
+  }, [accessReady]);
+
+  useEffect(() => {
+    if (!accessReady || !can(P.BARANGAYS_MANAGE)) return;
     apiClient
       .get("/admin/barangays")
       .then(({ data }) => {
@@ -164,54 +312,142 @@ export default function DashboardShell() {
         setBarangaysCovered(list.filter((b) => b.is_enabled === true || b.is_enabled === 1).length);
       })
       .catch(() => {});
-  }, []);
+  }, [accessReady, can]);
 
+  // Only what this admin's permissions cover is requested; one failing
+  // request no longer blanks the whole dashboard.
   const loadData = useCallback(async () => {
+    const requests = [
+      ["summary", P.DASHBOARD_VIEW, "/admin/dashboard"],
+      ["map", P.LIVE_MAP_VIEW, "/admin/live-map"],
+      ["pending", P.DRIVER_APPLICATIONS_VIEW, "/admin/drivers/pending"],
+      ["bookings", P.BOOKINGS_VIEW, "/admin/bookings"],
+      ["sos", P.SOS_VIEW, "/admin/sos"],
+      ["complaints", P.COMPLAINTS_VIEW, "/admin/complaints"],
+      ["notifications", P.NOTIFICATIONS_VIEW, "/admin/notifications"],
+      ["drivers", P.DRIVERS_VIEW, "/admin/drivers"],
+      ["passengers", P.USERS_VIEW, "/admin/passengers"],
+    ].filter(([, permission]) => can(permission));
+
     try {
       setError(null);
-      const [summaryRes, mapRes, pendingRes, bookingsRes, sosRes, complaintsRes, notifRes, driversRes, passengersRes, fareRes] =
-        await Promise.all([
-          apiClient.get("/admin/dashboard"),
-          apiClient.get("/admin/live-map"),
-          apiClient.get("/admin/drivers/pending"),
-          apiClient.get("/admin/bookings"),
-          apiClient.get("/admin/sos"),
-          apiClient.get("/admin/complaints"),
-          apiClient.get("/admin/notifications"),
-          apiClient.get("/admin/drivers"),
-          apiClient.get("/admin/passengers"),
-          apiClient.get("/admin/fare"),
-        ]);
+      const settled = await Promise.allSettled(requests.map(([, , url]) => apiClient.get(url)));
+      const got = {};
+      let failure = null;
+      settled.forEach((result, i) => {
+        if (result.status === "fulfilled") got[requests[i][0]] = result.value.data;
+        else failure = failure || result.reason;
+      });
 
-      setSummary(summaryRes.data?.data || {});
-      setOnlineDrivers(mapRes.data?.data?.onlineDrivers || []);
-      setActiveRides(mapRes.data?.data?.activeRides || []);
-      setPendingDrivers(pendingRes.data?.data || []);
-      setBookings(bookingsRes.data?.data || []);
-      setSosAlerts(sosRes.data?.data || []);
-      setComplaints(complaintsRes.data?.data || []);
-      const notificationList = notifRes.data?.data || [];
-      setNotifications(notificationList);
-      setUnreadCount(notifRes.data?.meta?.unread ?? notificationList.filter((n) => !n.isRead).length);
-      setDriverList(driversRes.data?.data || []);
-      setPassengers(passengersRes.data?.data || []);
-      setFare(fareRes.data?.data || null);
-    } catch (err) {
-      setError(err?.response?.data?.message || "Failed to load dashboard.");
+      if (got.summary) setSummary(got.summary.data || {});
+      if (got.map) {
+        setOnlineDrivers(got.map.data?.onlineDrivers || []);
+        setActiveRides(got.map.data?.activeRides || []);
+      }
+      if (got.pending) setPendingDrivers(got.pending.data || []);
+      if (got.bookings) setBookings(got.bookings.data || []);
+      if (got.sos) setSosAlerts(got.sos.data || []);
+      if (got.complaints) setComplaints(got.complaints.data || []);
+      if (got.notifications) {
+        const notificationList = got.notifications.data || [];
+        setNotifications(notificationList);
+        setUnreadCount(got.notifications.meta?.unread ?? notificationList.filter((n) => !n.isRead).length);
+      }
+      if (got.drivers) setDriverList(got.drivers.data || []);
+      if (got.passengers) setPassengers(got.passengers.data || []);
+      if (failure) setError(failure?.response?.data?.message || "Failed to load dashboard.");
     } finally {
       setLoading(false);
     }
-  }, []);
+
+    // Catches a role change even if the live notice was missed.
+    refreshMe().catch(() => null);
+  }, [can, refreshMe]);
 
   useEffect(() => {
+    if (!accessReady) return undefined;
     loadData();
     const timer = setInterval(loadData, 15000);
     return () => clearInterval(timer);
-  }, [loadData]);
+  }, [accessReady, loadData]);
 
-  const onSosAlert = useCallback((alert) => {
-    setSosAlerts((prev) => [alert, ...prev.filter((item) => item.id !== alert.id)]);
+  // A new emergency: alarm, desktop notification and an in-page notice.
+  // (Only admins with SOS access receive these events.)
+  const onSosAlert = useCallback(
+    (alert) => {
+      setSosAlerts((prev) => [alert, ...prev.filter((item) => item.id !== alert.id)]);
+      const from = alert.senderName || alert.passengerName || "a passenger";
+      playSosAlarm();
+      showBrowserAlert({
+        title: "🚨 SOS Alert",
+        body: alert.body || `Emergency alert from ${from}.`,
+        tag: `sos-${alert.id}`,
+        onClick: () => setActiveSectionKey("sos"),
+      });
+      addToast(`🚨 SOS from ${from} — open SOS to respond.`, { type: "sos", duration: 12000 });
+    },
+    [addToast, setActiveSectionKey]
+  );
+
+  // Someone acknowledged, resolved or escalated an alert: everyone sees who
+  // is handling it right away.
+  const onSosUpdated = useCallback((alert) => {
+    if (!alert?.id) return;
+    setSosAlerts((prev) =>
+      prev.some((item) => item.id === alert.id)
+        ? prev.map((item) => (item.id === alert.id ? alert : item))
+        : [alert, ...prev]
+    );
   }, []);
+
+  // Nobody acknowledged an SOS in time (sent to Super Admins).
+  const onSosEscalation = useCallback(
+    (alert) => {
+      onSosUpdated(alert);
+      const from = alert.senderName || alert.passengerName || "a passenger";
+      playSosAlarm({ cycles: 5 });
+      showBrowserAlert({
+        title: "⏰ SOS not acknowledged",
+        body: `No one is handling the SOS from ${from} yet.`,
+        tag: `sos-escalation-${alert.id}`,
+        onClick: () => setActiveSectionKey("sos"),
+      });
+      addToast(`⏰ No one is handling the SOS from ${from} yet.`, { type: "sos", duration: 15000 });
+    },
+    [addToast, onSosUpdated, setActiveSectionKey]
+  );
+
+  // Sound needs one click or key press on the page before it may play.
+  useEffect(() => installAlarmUnlock(), []);
+
+  // Asked once: desktop notifications for new SOS alerts.
+  const [sosAlertsPromptOpen, setSosAlertsPromptOpen] = useState(() => {
+    try {
+      return browserAlertPermission() === "default" && !localStorage.getItem(SOS_ALERTS_ASKED_KEY);
+    } catch (_) {
+      return false;
+    }
+  });
+
+  function closeSosAlertsPrompt() {
+    setSosAlertsPromptOpen(false);
+    try {
+      localStorage.setItem(SOS_ALERTS_ASKED_KEY, "1");
+    } catch (_) {
+      // Storage blocked — the prompt may show again next time.
+    }
+  }
+
+  async function enableSosAlerts() {
+    closeSosAlertsPrompt();
+    const permission = await requestBrowserAlerts();
+    addToast(
+      permission === "granted"
+        ? "SOS alerts are on: you'll hear an alarm and get a desktop notification."
+        : "Desktop notifications are blocked in this browser. The alarm still plays while this page is open.",
+      { type: permission === "granted" ? "success" : "warning", duration: 7000 }
+    );
+  }
 
   // New admin notifications arrive live instead of on the next 15s poll.
   const onNotification = useCallback((notification) => {
@@ -220,7 +456,35 @@ export default function DashboardShell() {
     if (!notification.isRead) setUnreadCount((count) => count + 1);
   }, []);
 
-  useSocket({ token, onSosAlert, onNotification });
+  // A Super Admin disabled this account or changed its role: the server has
+  // already ended the session, so sign out now and say why.
+  const onAccessChanged = useCallback(
+    async (payload) => {
+      if (payload?.reason === "role_changed") {
+        // refreshMe signs out itself, naming the new role (null = done).
+        const me = await refreshMe().catch(() => null);
+        if (me === null) return;
+      }
+      signOutWithNotice(
+        payload?.reason === "disabled"
+          ? "Your admin account was disabled by a Super Admin."
+          : "A Super Admin changed your admin access. Please sign in again."
+      );
+    },
+    [refreshMe, signOutWithNotice]
+  );
+
+  const onServerDisconnect = useCallback(() => refreshMe(), [refreshMe]);
+
+  useSocket({
+    token,
+    onSosAlert,
+    onSosUpdated,
+    onSosEscalation,
+    onNotification,
+    onAccessChanged,
+    onServerDisconnect,
+  });
 
   // Read state is saved on the server (it used to only change in the
   // browser, so everything came back unread after a refresh).
@@ -246,49 +510,47 @@ export default function DashboardShell() {
     }
   }
 
-  // Clicking a notification opens the page where it can be acted on.
-  const NOTIFICATION_SECTIONS = {
-    driver_application: "applications",
-    driver_document_resubmission: "applications",
-    driver_documents_flagged: "applications",
-    sos_alert: "sos",
-    driver_report: "complaints",
-    new_booking: "bookings",
-    booking_cancelled: "bookings",
-  };
-
+  // Opening a notification (from the bell or the inbox) shows it in full on
+  // the Notifications page, Gmail-style, and marks it read; the page it's
+  // about is one click away from there.
   function openNotification(notification) {
-    markNotificationRead(notification.id);
-    const section = NOTIFICATION_SECTIONS[notification.type];
-    if (section) {
-      setActiveSectionKey(section);
-      setShowNotifications(false);
+    if (!notification) {
+      setSelectedNotificationId(null);
+      return;
     }
+    markNotificationRead(notification.id);
+    setSelectedNotificationId(notification.id);
+    setActiveSectionKey("notifications");
+    setShowNotifications(false);
   }
 
-  // Top-bar search: pages, users, drivers and bookings already loaded by
-  // the dashboard. Picking a result opens the right page.
+  // Top-bar search: the pages, users, drivers and bookings this admin may
+  // open, from what the dashboard already loaded. Picking a result opens the
+  // right page.
+  const canSearchUsers = can(P.USERS_VIEW);
+  const canSearchDrivers = can(P.DRIVERS_VIEW);
+  const canSearchBookings = can(P.BOOKINGS_VIEW);
   const searchResults = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return [];
     const has = (...values) => values.some((v) => String(v ?? "").toLowerCase().includes(term));
     const results = [];
-    sections
+    visibleSections
       .filter((s) => has(s.title))
       .forEach((s) => results.push({ id: `page-${s.key}`, kind: "Page", label: s.title, action: { type: "section", key: s.key } }));
-    passengers
+    (canSearchUsers ? passengers : [])
       .filter((p) => has(p.full_name, p.phone, p.email))
       .slice(0, 5)
       .forEach((p) =>
         results.push({ id: `user-${p.id}`, kind: "User", label: p.full_name, sub: p.phone || p.email, action: { type: "user", term: p.full_name } })
       );
-    driverList
+    (canSearchDrivers ? driverList : [])
       .filter((d) => has(d.full_name, d.phone, d.tricycle_number))
       .slice(0, 5)
       .forEach((d) =>
         results.push({ id: `driver-${d.id}`, kind: "Driver", label: d.full_name, sub: d.tricycle_number, action: { type: "section", key: "drivers" } })
       );
-    bookings
+    (canSearchBookings ? bookings : [])
       .filter((b) => has(`#${b.id}`, String(b.id), b.passengerName || b.passenger_name, b.driverName || b.driver_name))
       .slice(0, 5)
       .forEach((b) =>
@@ -301,7 +563,16 @@ export default function DashboardShell() {
         })
       );
     return results.slice(0, 15);
-  }, [searchTerm, passengers, driverList, bookings]);
+  }, [searchTerm, visibleSections, canSearchUsers, canSearchDrivers, canSearchBookings, passengers, driverList, bookings]);
+
+  const searchPlaceholder = `Search pages${[
+    canSearchUsers ? "users" : null,
+    canSearchDrivers ? "drivers" : null,
+    canSearchBookings ? "bookings" : null,
+  ]
+    .filter(Boolean)
+    .map((kind) => `, ${kind}`)
+    .join("")}…`;
 
   function openSearchResult(result) {
     const { action } = result;
@@ -324,7 +595,7 @@ export default function DashboardShell() {
   const opsSummary = useMemo(() => ({
     pendingApplications: pendingDrivers.length || summary.pendingApplications,
     ongoingRides: activeRides.filter((ride) => ["pending", "accepted", "ongoing"].includes(String(ride.status || "").toLowerCase())).length || summary.ongoingRides,
-    sosAlerts: sosAlerts.filter((alert) => alert.status !== "resolved").length || summary.sosAlerts,
+    sosAlerts: sosAlerts.filter((alert) => alert.status === "active").length || summary.sosAlerts,
     totalPassengers: passengers.length || summary.totalPassengers,
   }), [activeRides, passengers.length, pendingDrivers.length, sosAlerts, summary]);
 
@@ -362,25 +633,37 @@ export default function DashboardShell() {
     }
   }
 
-  async function resolveSos(id) {
-    setOperationsBusyId(`sos-${id}`);
+  // "I'm handling this". If someone else got there first, the server says
+  // who, and the list refreshes to show it.
+  async function acknowledgeSos(alert) {
+    setOperationsBusyId(`sos-${alert.id}`);
     try {
-      await apiClient.post(`/admin/sos/${id}/resolve`);
-      await loadData();
+      const { data } = await apiClient.post(`/admin/sos/${alert.id}/acknowledge`);
+      if (data?.data) onSosUpdated(data.data);
+      addToast("You're handling this alert. Resolve it with a note when it's done.", { type: "success" });
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to resolve SOS.");
+      addToast(err?.response?.data?.message || "Failed to acknowledge the alert.", { type: "error", duration: 7000 });
+      await loadData();
     } finally {
       setOperationsBusyId(null);
     }
   }
 
-  async function resolveComplaint(id) {
-    setOperationsBusyId(`complaint-${id}`);
+  async function resolveSos(note) {
+    const alert = resolveSosTarget;
+    setResolveSosTarget(null);
+    if (!alert) return;
+    setOperationsBusyId(`sos-${alert.id}`);
     try {
-      await apiClient.post(`/admin/complaints/${id}/resolve`);
-      await loadData();
+      const { data } = await apiClient.post(`/admin/sos/${alert.id}/resolve`, { note });
+      if (data?.data) onSosUpdated(data.data);
+      addToast("SOS resolved.", { type: "success" });
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to resolve complaint.");
+      addToast(
+        err?.response?.data?.details?.issues?.[0]?.message || err?.response?.data?.message || "Failed to resolve SOS.",
+        { type: "error", duration: 7000 }
+      );
+      await loadData();
     } finally {
       setOperationsBusyId(null);
     }
@@ -424,6 +707,17 @@ export default function DashboardShell() {
   }
 
   function renderSection() {
+    if (!canOpenSection(can, activeSectionKey)) {
+      return (
+        <NoAccessPage
+          pageTitle={sections.find((s) => s.key === activeSectionKey)?.title}
+          roleLabel={user?.admin?.roleLabel}
+          homeTitle={homeSection?.title}
+          onGoHome={homeSection ? () => setActiveSectionKey(homeSection.key) : null}
+        />
+      );
+    }
+
     if (activeSectionKey === "dashboard") {
       const hour = new Date().getHours();
       const greeting = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
@@ -451,147 +745,163 @@ export default function DashboardShell() {
             summary={{ ...summary, ...opsSummary }}
             barangaysCovered={barangaysCovered}
             onNavigate={setActiveSectionKey}
+            can={can}
+            canOpen={(key) => canOpenSection(can, key)}
           />
 
+          {/* Each widget only when the admin may see its data. */}
           <div className="adm-grid-3">
-            <section className="adm-card adm-span-2">
-              <div className="adm-card-head">
-                <h3>Today at a Glance</h3>
-                <small>Hourly bookings</small>
-              </div>
-              <div className="adm-hourly">
-                {hourly.map((h) => (
-                  <div key={h.hour} title={`${String(h.hour).padStart(2, "0")}:00 — ${h.rides} bookings`}>
-                    <div className="bar" style={{ height: `${(h.rides / maxHourly) * 100}%` }} />
-                    <span>{String(h.hour).padStart(2, "0")}</span>
+            {can(P.BOOKINGS_VIEW) ? (
+              <section className="adm-card adm-span-2">
+                <div className="adm-card-head">
+                  <h3>Today at a Glance</h3>
+                  <small>Hourly bookings</small>
+                </div>
+                <div className="adm-hourly">
+                  {hourly.map((h) => (
+                    <div key={h.hour} title={`${String(h.hour).padStart(2, "0")}:00 — ${h.rides} bookings`}>
+                      <div className="bar" style={{ height: `${(h.rides / maxHourly) * 100}%` }} />
+                      <span>{String(h.hour).padStart(2, "0")}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {can(P.SOS_VIEW) ? (
+              <section className="adm-card">
+                <div className="adm-card-head">
+                  <h3><Siren size={14} color="var(--red)" /> SOS Alerts</h3>
+                  <button type="button" className="adm-link" onClick={() => setActiveSectionKey("sos")}>View all</button>
+                </div>
+                {openSos.length === 0 ? (
+                  <p className="adm-empty">No active SOS alerts</p>
+                ) : (
+                  <div className="adm-list">
+                    {openSos.slice(0, 4).map((alert) => (
+                      <div key={alert.id} className="adm-sos-item">
+                        <div>
+                          <b>{alert.senderName || alert.passengerName || alert.driverName || asText(alert.title) || "SOS Alert"}</b>
+                          <p>{alert.body}</p>
+                          <small>{formatDateTime(alert.createdAt)}</small>
+                          <SosStatus alert={alert} compact />
+                        </div>
+                        {alert.status === "active" ? <i /> : null}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </section>
+                )}
+              </section>
+            ) : null}
 
-            <section className="adm-card">
-              <div className="adm-card-head">
-                <h3><Siren size={14} color="var(--red)" /> SOS Alerts</h3>
-                <button type="button" className="adm-link" onClick={() => setActiveSectionKey("sos")}>View all</button>
-              </div>
-              {openSos.length === 0 ? (
-                <p className="adm-empty">No active SOS alerts</p>
-              ) : (
-                <div className="adm-list">
-                  {openSos.slice(0, 4).map((alert) => (
-                    <div key={alert.id} className="adm-sos-item">
-                      <div>
-                        <b>{alert.passengerName || alert.driverName || asText(alert.title) || "SOS Alert"}</b>
-                        <p>{alert.body}</p>
-                        <small>{formatDateTime(alert.createdAt)}</small>
-                      </div>
-                      <i />
-                    </div>
-                  ))}
+            {can(P.LIVE_MAP_VIEW) ? (
+              <section className="adm-card">
+                <div className="adm-card-head">
+                  <h3><Wifi size={14} color="var(--accent)" /> Online Drivers</h3>
+                  <button type="button" className="adm-link" onClick={() => setActiveSectionKey("live")}>Live map</button>
                 </div>
-              )}
-            </section>
+                {onlineDrivers.length === 0 ? (
+                  <p className="adm-empty">No drivers online right now</p>
+                ) : (
+                  <div className="adm-list">
+                    {onlineDrivers.slice(0, 6).map((d) => (
+                      <div key={d.id} className="adm-row">
+                        <div className="adm-avatar">{(d.full_name || "?")[0]}</div>
+                        <div className="grow">
+                          <b>{d.full_name}</b>
+                          <small>{d.tricycle_number || "—"}</small>
+                        </div>
+                        <small style={{ color: "var(--green)" }}>ONLINE</small>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : null}
 
-            <section className="adm-card">
-              <div className="adm-card-head">
-                <h3><Wifi size={14} color="var(--accent)" /> Online Drivers</h3>
-                <button type="button" className="adm-link" onClick={() => setActiveSectionKey("live")}>Live map</button>
-              </div>
-              {onlineDrivers.length === 0 ? (
-                <p className="adm-empty">No drivers online right now</p>
-              ) : (
-                <div className="adm-list">
-                  {onlineDrivers.slice(0, 6).map((d) => (
-                    <div key={d.id} className="adm-row">
-                      <div className="adm-avatar">{(d.full_name || "?")[0]}</div>
-                      <div className="grow">
-                        <b>{d.full_name}</b>
-                        <small>{d.tricycle_number || "—"}</small>
-                      </div>
-                      <small style={{ color: "var(--green)" }}>ONLINE</small>
-                    </div>
-                  ))}
+            {can(P.DRIVER_APPLICATIONS_VIEW) ? (
+              <section className="adm-card">
+                <div className="adm-card-head">
+                  <h3>Recent Registrations</h3>
+                  <button type="button" className="adm-link" onClick={() => setActiveSectionKey("applications")}>Review all</button>
                 </div>
-              )}
-            </section>
+                {pendingDrivers.length === 0 ? (
+                  <p className="adm-empty">No applications waiting</p>
+                ) : (
+                  <div className="adm-list">
+                    {pendingDrivers.slice(0, 4).map((d) => (
+                      <div key={d.id} className="adm-row">
+                        <div className="adm-avatar" style={{ background: "rgba(217,119,6,0.2)", color: "#fbbf24" }}>
+                          {(d.name || d.full_name || "?")[0]}
+                        </div>
+                        <div className="grow">
+                          <b>{d.name || d.full_name}</b>
+                          <small>{formatDateTime(d.appliedDate || d.submitted_at)}</small>
+                        </div>
+                        <Pill value={d.status || "pending"} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : null}
 
-            <section className="adm-card">
-              <div className="adm-card-head">
-                <h3>Recent Registrations</h3>
-                <button type="button" className="adm-link" onClick={() => setActiveSectionKey("applications")}>Review all</button>
-              </div>
-              {pendingDrivers.length === 0 ? (
-                <p className="adm-empty">No applications waiting</p>
-              ) : (
-                <div className="adm-list">
-                  {pendingDrivers.slice(0, 4).map((d) => (
-                    <div key={d.id} className="adm-row">
-                      <div className="adm-avatar" style={{ background: "rgba(217,119,6,0.2)", color: "#fbbf24" }}>
-                        {(d.name || d.full_name || "?")[0]}
-                      </div>
-                      <div className="grow">
-                        <b>{d.name || d.full_name}</b>
-                        <small>{formatDateTime(d.appliedDate || d.submitted_at)}</small>
-                      </div>
-                      <Pill value={d.status || "pending"} />
-                    </div>
-                  ))}
+            {can(P.BOOKINGS_VIEW) ? (
+              <section className="adm-card">
+                <div className="adm-card-head">
+                  <h3>Recent Bookings</h3>
+                  <button type="button" className="adm-link" onClick={() => setActiveSectionKey("bookings")}>View all</button>
                 </div>
-              )}
-            </section>
-
-            <section className="adm-card">
-              <div className="adm-card-head">
-                <h3>Recent Bookings</h3>
-                <button type="button" className="adm-link" onClick={() => setActiveSectionKey("bookings")}>View all</button>
-              </div>
-              {bookings.length === 0 ? (
-                <p className="adm-empty">No bookings yet</p>
-              ) : (
-                <div className="adm-list">
-                  {bookings.slice(0, 5).map((b) => (
-                    <button
-                      type="button"
-                      key={b.id}
-                      className="adm-row"
-                      style={{ background: "none", border: 0, padding: 0, cursor: "pointer", textAlign: "left", color: "inherit" }}
-                      onClick={() => openBookingDetail(b.id)}
-                    >
-                      <div className="grow">
-                        <b>
-                          {b.passengerName || b.passenger_name} <Pill value={b.status} />
-                        </b>
-                        <small>
-                          {formatPlace(b.pickupAddress || b.pickup)} → {formatPlace(b.dropoffAddress || b.destination)}
-                        </small>
-                      </div>
-                      <small style={{ color: "var(--green)" }}>₱{b.finalFare || b.estimatedFare || b.fare || 0}</small>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
+                {bookings.length === 0 ? (
+                  <p className="adm-empty">No bookings yet</p>
+                ) : (
+                  <div className="adm-list">
+                    {bookings.slice(0, 5).map((b) => (
+                      <button
+                        type="button"
+                        key={b.id}
+                        className="adm-row"
+                        style={{ background: "none", border: 0, padding: 0, cursor: "pointer", textAlign: "left", color: "inherit" }}
+                        onClick={() => openBookingDetail(b.id)}
+                      >
+                        <div className="grow">
+                          <b>
+                            {b.passengerName || b.passenger_name} <Pill value={b.status} />
+                          </b>
+                          <small>
+                            {formatPlace(b.pickupAddress || b.pickup)} → {formatPlace(b.dropoffAddress || b.destination)}
+                          </small>
+                        </div>
+                        <small style={{ color: "var(--green)" }}>₱{b.finalFare || b.estimatedFare || b.fare || 0}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : null}
           </div>
 
-          <LiveMapCard onlineDrivers={onlineDrivers} activeRides={activeRides} />
+          {can(P.LIVE_MAP_VIEW) ? <LiveMapCard onlineDrivers={onlineDrivers} activeRides={activeRides} sosAlerts={sosAlerts} /> : null}
 
-          <SectionCard
-            title="Approved Drivers"
-            action={<button type="button" className="adm-link" onClick={() => setActiveSectionKey("drivers")}>Manage</button>}
-          >
-            <SimpleTable
-              columns={["Name", "Plate", "Rating", "License"]}
-              rows={driverList}
-              renderRow={(driver) => (
-                <tr key={driver.id}>
-                  <td>{driver.full_name}</td>
-                  <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{driver.tricycle_number}</td>
-                  <td>{Number(driver.rating_avg || driver.rating || 0).toFixed(1)}</td>
-                  <td><Pill value={new Date(driver.license_expires_at) < new Date() ? "expired" : "active"} /></td>
-                </tr>
-              )}
-            />
-          </SectionCard>
+          {can(P.DRIVERS_VIEW) ? (
+            <SectionCard
+              title="Approved Drivers"
+              action={<button type="button" className="adm-link" onClick={() => setActiveSectionKey("drivers")}>Manage</button>}
+            >
+              <SimpleTable
+                columns={["Name", "Plate", "Rating", "License"]}
+                rows={driverList}
+                renderRow={(driver) => (
+                  <tr key={driver.id}>
+                    <td>{driver.full_name}</td>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{driver.tricycle_number}</td>
+                    <td>{Number(driver.rating_avg || driver.rating || 0).toFixed(1)}</td>
+                    <td><Pill value={new Date(driver.license_expires_at) < new Date() ? "expired" : "active"} /></td>
+                  </tr>
+                )}
+              />
+            </SectionCard>
+          ) : null}
         </div>
       );
     }
@@ -603,12 +913,13 @@ export default function DashboardShell() {
             title="Live Map"
             description={`${onlineDrivers.length} drivers online · ${activeRides.length} active rides`}
           />
-          <LiveMapCard onlineDrivers={onlineDrivers} activeRides={activeRides} />
+          <LiveMapCard onlineDrivers={onlineDrivers} activeRides={activeRides} sosAlerts={sosAlerts} />
         </div>
       );
     }
 
     if (activeSectionKey === "users") {
+      const canManageUsers = can(P.USERS_MANAGE);
       const term = userSearch.trim().toLowerCase();
       const visibleUsers = passengers.filter((row) => {
         if (userStatusFilter !== "all" && row.status !== userStatusFilter) return false;
@@ -630,7 +941,7 @@ export default function DashboardShell() {
           </div>
         <section className="panel" style={{ padding: 0 }}>
           <SimpleTable
-            columns={["User", "Phone", "Joined", "Rides", "Spent", "Status", "Actions"]}
+            columns={["User", "Phone", "Joined", "Rides", "Spent", "Status", ...(canManageUsers ? ["Actions"] : [])]}
             rows={visibleUsers}
             emptyLabel={passengers.length ? "No users match this search or filter." : "No users yet."}
             renderRow={(row) => {
@@ -660,27 +971,29 @@ export default function DashboardShell() {
                   </td>
                   <td>{formatMoney(row.total_spent || 0)}</td>
                   <td><Pill value={row.status} /></td>
-                  <td>
-                    {isSuspended ? (
-                      <button
-                        type="button"
-                        className="btn btn-success btn-sm"
-                        disabled={busy}
-                        onClick={() => reinstatePassenger(row.id)}
-                      >
-                        {busy ? "..." : "Reinstate"}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm"
-                        disabled={busy}
-                        onClick={() => suspendPassenger(row.id)}
-                      >
-                        {busy ? "..." : "Suspend"}
-                      </button>
-                    )}
-                  </td>
+                  {canManageUsers ? (
+                    <td>
+                      {isSuspended ? (
+                        <button
+                          type="button"
+                          className="btn btn-success btn-sm"
+                          disabled={busy}
+                          onClick={() => reinstatePassenger(row.id)}
+                        >
+                          {busy ? "..." : "Reinstate"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          disabled={busy}
+                          onClick={() => suspendPassenger(row.id)}
+                        >
+                          {busy ? "..." : "Suspend"}
+                        </button>
+                      )}
+                    </td>
+                  ) : null}
                 </tr>
               );
             }}
@@ -758,44 +1071,106 @@ export default function DashboardShell() {
     }
 
     if (activeSectionKey === "sos") {
-      const openCount = sosAlerts.filter((a) => a.status !== "resolved").length;
-      const visibleSos = sosAlerts.filter((a) =>
-        sosFilter === "all" ? true : sosFilter === "resolved" ? a.status === "resolved" : a.status !== "resolved"
-      );
+      const canRespond = can(P.SOS_RESPOND);
+      // Open = nobody has acknowledged it yet.
+      const openCount = sosAlerts.filter((a) => a.status === "active").length;
+      const handlingCount = sosAlerts.filter((a) => a.status === "acknowledged").length;
+      const visibleSos = sosAlerts.filter((a) => sosFilter === "all" || a.status === sosFilter);
       return (
         <div className="page-stack">
-          <PageHero title="SOS Emergency Center" description="Emergency alerts from passengers and drivers" />
+          <PageHero
+            title="SOS Emergency Center"
+            description="Emergency alerts from passengers and drivers. Acknowledge one to show everyone you're handling it."
+          />
           {openCount > 0 ? (
             <div className="error-banner" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <Siren size={16} /> <b>{openCount} active SOS alert{openCount > 1 ? "s" : ""}</b> — respond immediately.
+              <Siren size={16} /> <b>{openCount} open SOS alert{openCount > 1 ? "s" : ""}</b> — no one is handling{" "}
+              {openCount > 1 ? "them" : "it"} yet.
             </div>
           ) : null}
           <div className="filter-bar" style={{ marginBottom: 0 }}>
             <select className="input" value={sosFilter} onChange={(e) => setSosFilter(e.target.value)}>
               <option value="all">All alerts</option>
-              <option value="active">Active</option>
+              <option value="active">Open ({openCount})</option>
+              <option value="acknowledged">Being handled ({handlingCount})</option>
               <option value="resolved">Resolved</option>
             </select>
             <span className="adm-count">{visibleSos.length} alerts</span>
           </div>
           <section className="panel" style={{ padding: 0 }}>
             <SimpleTable
-              columns={["Passenger", "Driver", "Ride ID", "Contact", "Timestamp", "Status", "Action"]}
+              columns={["Sent by", "Passenger", "Driver", "Ride ID", "Location", "Contact", "Timestamp", "Status", ...(canRespond ? ["Action"] : [])]}
               rows={visibleSos}
               emptyLabel="No SOS alerts."
               renderRow={(row) => (
-                <tr key={row.id} style={row.status !== "resolved" ? { background: "rgba(239,68,68,0.05)" } : undefined}>
-                  <td style={{ fontWeight: 500, color: "var(--text)" }}>{row.passengerName || "-"}</td>
+                <tr
+                  key={row.id}
+                  style={
+                    row.status === "active"
+                      ? { background: "rgba(239,68,68,0.08)" }
+                      : row.status === "acknowledged"
+                        ? { background: "rgba(245,158,11,0.05)" }
+                        : undefined
+                  }
+                >
+                  <td style={{ fontWeight: 500, color: "var(--text)" }}>
+                    {row.senderName || row.passengerName || "-"}
+                    {row.sentBy ? <div><small className="muted">{row.sentBy}</small></div> : null}
+                    {row.body ? <small className="sos-note" style={{ maxWidth: 260 }}>{row.body}</small> : null}
+                  </td>
+                  <td>{row.passengerName || "-"}</td>
                   <td>{row.driverName || "-"}</td>
-                  <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{row.bookingId ? `#${row.bookingId}` : "-"}</td>
+                  <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
+                    {row.bookingId ? (
+                      // Anyone who sees SOS alerts may open the ride it was raised on.
+                      <button type="button" className="adm-link" onClick={() => openBookingDetail(row.bookingId)}>
+                        #{row.bookingId}
+                      </button>
+                    ) : "-"}
+                  </td>
+                  <td>
+                    {row.lat != null && row.lng != null ? (
+                      <>
+                        <button type="button" className="adm-link" onClick={() => setSosMapTarget(row)}>
+                          View map
+                        </button>
+                        {isOutsideServiceArea(serviceArea, row.lat, row.lng) ? (
+                          <div><span className="status-pill status-warning">outside service area</span></div>
+                        ) : null}
+                      </>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
                   <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{row.contact || "-"}</td>
                   <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{formatDateTime(row.createdAt)}</td>
-                  <td><Pill value={row.status} /></td>
-                  <td>
-                    <button type="button" className="btn btn-success btn-sm" disabled={operationsBusyId === `sos-${row.id}` || row.status === "resolved"} onClick={() => resolveSos(row.id)}>
-                      {operationsBusyId === `sos-${row.id}` ? "..." : row.status === "resolved" ? "Resolved" : "Resolve"}
-                    </button>
-                  </td>
+                  <td style={{ minWidth: 170 }}><SosStatus alert={row} /></td>
+                  {canRespond ? (
+                    <td>
+                      {row.status === "active" ? (
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          disabled={operationsBusyId === `sos-${row.id}`}
+                          onClick={() => acknowledgeSos(row)}
+                        >
+                          {operationsBusyId === `sos-${row.id}` ? "..." : "I'm handling this"}
+                        </button>
+                      ) : row.status === "acknowledged" ? (
+                        <button
+                          type="button"
+                          className={row.acknowledgedBy?.id === user?.id ? "btn btn-success btn-sm" : "btn btn-ghost btn-sm"}
+                          title={row.acknowledgedBy?.id === user?.id ? undefined : `${row.acknowledgedBy?.name || "Another admin"} is handling this`}
+                          disabled={operationsBusyId === `sos-${row.id}`}
+                          onClick={() => setResolveSosTarget(row)}
+                        >
+                          {operationsBusyId === `sos-${row.id}` ? "..." : "Resolve"}
+                        </button>
+                      ) : (
+                        <small className="muted">Done</small>
+                      )}
+                    </td>
+                  ) : null}
                 </tr>
               )}
             />
@@ -805,66 +1180,21 @@ export default function DashboardShell() {
     }
 
     if (activeSectionKey === "complaints") {
-      const term = complaintSearch.trim().toLowerCase();
-      const visibleComplaints = complaints.filter((c) => {
-        const resolved = c.status === "resolved";
-        if (complaintStatus === "open" && resolved) return false;
-        if (complaintStatus === "resolved" && !resolved) return false;
-        if (!term) return true;
-        return [c.reporter, c.reportedUser, c.category, c.description].some((v) => String(v ?? "").toLowerCase().includes(term));
-      });
+      const openReports = complaints.filter((c) => c.status === "open").length;
       return (
         <div className="page-stack">
-          <PageHero title="Complaint Center" description="Passenger and driver reports and dispute resolution" />
-          <div className="filter-bar" style={{ marginBottom: 0 }}>
-            <SearchField value={complaintSearch} onChange={setComplaintSearch} placeholder="Reporter, category or details…" />
-            <select className="input" value={complaintStatus} onChange={(e) => setComplaintStatus(e.target.value)}>
-              <option value="all">All</option>
-              <option value="open">Open</option>
-              <option value="resolved">Resolved</option>
-            </select>
-            <span className="adm-count">{visibleComplaints.length} complaints</span>
-          </div>
-          {visibleComplaints.length === 0 ? (
-            <div className="state-block">
-              <MessageSquareWarning size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <div>No complaints found</div>
-            </div>
-          ) : (
-            <div className="adm-list" style={{ gap: 12 }}>
-              {visibleComplaints.map((c) => {
-                const resolved = c.status === "resolved";
-                const busy = operationsBusyId === `complaint-${c.id}`;
-                return (
-                  <article key={c.id} className="adm-card" style={{ padding: 20, opacity: resolved ? 0.7 : 1 }}>
-                    <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
-                      <span className="adm-metric-ico" style={{ padding: 8, borderRadius: 8, background: "rgba(139,92,246,0.2)", color: "var(--purple)", display: "grid" }}>
-                        <MessageSquareWarning size={16} />
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-                          <b style={{ color: "var(--text-strong)", fontSize: 14 }}>{c.reporter}</b>
-                          {c.category ? <span className="status-pill status-neutral">{String(c.category).replace(/_/g, " ")}</span> : null}
-                          <Pill value={c.status} />
-                        </div>
-                        {c.description ? <p style={{ fontSize: 14, color: "#cbd5e1", margin: 0 }}>{c.description}</p> : null}
-                        <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12, color: "var(--muted2)", fontFamily: "var(--font-mono)", flexWrap: "wrap" }}>
-                          {c.reportedUser ? <span>Reported: {c.reportedUser}</span> : null}
-                          {c.rideId ? <span>Booking: #{c.rideId}</span> : null}
-                          {c.createdAt ? <span>{formatDateTime(c.createdAt)}</span> : null}
-                        </div>
-                      </div>
-                      {!resolved ? (
-                        <button type="button" className="btn btn-success btn-sm" disabled={busy} onClick={() => resolveComplaint(c.id)}>
-                          {busy ? "..." : "Resolve"}
-                        </button>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
+          <PageHero
+            title="Complaint Center"
+            description={openReports ? `${openReports} open report${openReports === 1 ? "" : "s"}` : "No open reports"}
+          />
+          <ReportsInbox
+            complaints={complaints}
+            selectedId={selectedComplaintId}
+            onSelect={(report) => setSelectedComplaintId(report?.id ?? null)}
+            onOpenBooking={can(P.BOOKINGS_VIEW) ? openBookingDetail : null}
+            canResolve={can(P.COMPLAINTS_RESOLVE)}
+            onChanged={loadData}
+          />
         </div>
       );
     }
@@ -875,36 +1205,29 @@ export default function DashboardShell() {
         <PageHero
           title="Notifications"
           description={unreadCount ? `${unreadCount} unread` : "You're all caught up"}
-          actions={
-            unreadCount ? (
-              <button type="button" className="btn btn-ghost btn-sm" onClick={markAllNotificationsRead}>
-                Mark all as read
-              </button>
-            ) : null
-          }
         />
-        <section className="panel" style={{ padding: 0 }}>
-          <SimpleTable
-            columns={["Title", "Message", "Date", "Status", "Actions"]}
-            rows={notifications}
-            renderRow={(row) => (
-              <tr key={row.id} style={row.isRead ? { opacity: 0.7 } : { fontWeight: 600 }}>
-                <td>{row.title}</td>
-                <td>{row.body}</td>
-                <td>{formatDateTime(row.createdAt)}</td>
-                <td><Pill value={row.isRead ? "read" : "unread"} /></td>
-                <td style={{ whiteSpace: "nowrap" }}>
-                  {NOTIFICATION_SECTIONS[row.type] ? (
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => openNotification(row)}>Open</button>
-                  ) : null}
-                  {!row.isRead ? (
-                    <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} onClick={() => markNotificationRead(row.id)}>Mark read</button>
-                  ) : null}
-                </td>
-              </tr>
-            )}
-          />
-        </section>
+        <NotificationsInbox
+          notifications={notifications}
+          unreadCount={unreadCount}
+          selectedId={selectedNotificationId}
+          onSelect={openNotification}
+          onMarkAllRead={markAllNotificationsRead}
+          sosAlerts={sosAlerts}
+          complaints={complaints}
+          // An SOS responder's notifications only point at bookings an SOS
+          // was raised on, which they may open.
+          onOpenBooking={can(P.BOOKINGS_VIEW) || can(P.SOS_VIEW) ? openBookingDetail : null}
+          onOpenReport={
+            can(P.COMPLAINTS_VIEW)
+              ? (complaintId) => {
+                  setSelectedComplaintId(complaintId);
+                  setActiveSectionKey("complaints");
+                }
+              : null
+          }
+          onOpenSection={setActiveSectionKey}
+          canOpenSection={(key) => canOpenSection(can, key)}
+        />
         </div>
       );
     }
@@ -930,7 +1253,11 @@ export default function DashboardShell() {
     }
 
     if (activeSectionKey === "settings") {
-      return <SettingsPage onOpenFares={() => setActiveSectionKey("fares")} />;
+      return <SettingsPage onOpenFares={can(P.FARES_MANAGE) ? () => setActiveSectionKey("fares") : null} />;
+    }
+
+    if (activeSectionKey === "admins") {
+      return <AdminAccountsPage />;
     }
 
     if (activeSectionKey === "rides") {
@@ -952,7 +1279,8 @@ export default function DashboardShell() {
 
   const badges = {
     applications: pendingDrivers.length,
-    sos: sosAlerts.filter((a) => a.status !== "resolved").length,
+    // Alerts nobody is handling yet.
+    sos: sosAlerts.filter((a) => a.status === "active").length,
     notifications: unreadCount,
   };
   const initials = (user?.full_name || "Admin")
@@ -962,6 +1290,13 @@ export default function DashboardShell() {
     .slice(0, 2)
     .join("")
     .toUpperCase();
+  // Sidebar groups that have at least one page this admin may open.
+  const navGroups = ["Main", "Operations", "Insights", "System"].filter((group) =>
+    visibleSections.some((s) => s.group === group)
+  );
+  const roleChip = user?.admin ? (
+    <span className={`adm-role-chip role-${user.admin.role}`}>{user.admin.roleLabel}</span>
+  ) : null;
 
   function go(key) {
     setActiveSectionKey(key);
@@ -984,10 +1319,10 @@ export default function DashboardShell() {
         </div>
 
         <nav className="adm-nav">
-          {["Main", "Operations", "Insights", "System"].map((group) => (
+          {navGroups.map((group) => (
             <div className="adm-nav-group" key={group}>
               <p className="adm-nav-label">{group}</p>
-              {sections.filter((s) => s.group === group).map((section) => {
+              {visibleSections.filter((s) => s.group === group).map((section) => {
                 const Icon = section.icon;
                 const badge = badges[section.key] || 0;
                 return (
@@ -1014,6 +1349,7 @@ export default function DashboardShell() {
           <div className="adm-who">
             <b>{user?.full_name || "Admin"}</b>
             <small>{user?.email || "Administrator"}</small>
+            {roleChip}
           </div>
         </div>
       </aside>
@@ -1043,7 +1379,7 @@ export default function DashboardShell() {
               <Search size={14} />
               <input
                 type="search"
-                placeholder="Search pages, users, drivers, bookings…"
+                placeholder={searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => {
                   setSearchTerm(e.target.value);
@@ -1077,20 +1413,22 @@ export default function DashboardShell() {
 
             <span className="adm-live"><i /> LIVE</span>
 
-            <div style={{ position: "relative" }}>
-              <button
-                type="button"
-                className="adm-icon-btn"
-                aria-label={unreadCount ? `Notifications (${unreadCount} unread)` : "Notifications"}
-                onClick={() => {
-                  setShowNotifications((s) => !s);
-                  setAdminMenuOpen(false);
-                }}
-              >
-                <Bell size={16} />
-                {unreadCount > 0 ? <span className="adm-dot" /> : null}
-              </button>
-            </div>
+            {can(P.NOTIFICATIONS_VIEW) ? (
+              <div style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className="adm-icon-btn"
+                  aria-label={unreadCount ? `Notifications (${unreadCount} unread)` : "Notifications"}
+                  onClick={() => {
+                    setShowNotifications((s) => !s);
+                    setAdminMenuOpen(false);
+                  }}
+                >
+                  <Bell size={16} />
+                  {unreadCount > 0 ? <span className="adm-dot" /> : null}
+                </button>
+              </div>
+            ) : null}
 
             <div style={{ position: "relative" }}>
               <button
@@ -1102,15 +1440,22 @@ export default function DashboardShell() {
                 }}
               >
                 <span className="adm-avatar sm">{initials}</span>
-                <span className="nm">{user?.full_name || "Admin"}</span>
+                <span className="who">
+                  <span className="nm">{user?.full_name || "Admin"}</span>
+                  {roleChip}
+                </span>
                 <ChevronDown size={14} color="var(--muted2)" />
               </button>
               {adminMenuOpen ? (
                 <div className="adm-dropdown" style={{ width: 180 }}>
-                  <button type="button" className="item" onClick={() => go("settings")}>
-                    <SettingsIcon size={14} /> Settings
-                  </button>
-                  <div className="sep" />
+                  {can(P.SETTINGS_MANAGE) ? (
+                    <>
+                      <button type="button" className="item" onClick={() => go("settings")}>
+                        <SettingsIcon size={14} /> Settings
+                      </button>
+                      <div className="sep" />
+                    </>
+                  ) : null}
                   <button type="button" className="item danger" onClick={logout}>
                     <LogOut size={14} /> Sign out
                   </button>
@@ -1128,6 +1473,11 @@ export default function DashboardShell() {
             onMarkAllRead={markAllNotificationsRead}
             onMarkRead={markNotificationRead}
             onOpen={openNotification}
+            onOpenInbox={() => {
+              setSelectedNotificationId(null);
+              setActiveSectionKey("notifications");
+              setShowNotifications(false);
+            }}
           />
         ) : null}
 
@@ -1138,6 +1488,20 @@ export default function DashboardShell() {
           }}
         >
           <div className="page-stack">
+            {sosAlertsPromptOpen && can(P.SOS_VIEW) ? (
+              <div className="sos-alerts-prompt" role="status">
+                <Siren size={16} />
+                <span>
+                  Turn on SOS alerts to get a desktop notification (and hear an alarm) the moment an SOS comes in.
+                </span>
+                <button type="button" className="btn btn-primary btn-sm" onClick={enableSosAlerts}>
+                  Turn on
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={closeSosAlertsPrompt}>
+                  Not now
+                </button>
+              </div>
+            ) : null}
             {error ? (
               <div className="error-banner">
                 {error}{" "}
@@ -1179,7 +1543,7 @@ export default function DashboardShell() {
                       <div className="detail-row"><span>Reason</span><strong>{selectedBooking.cancelReason}</strong></div>
                     ) : null}
                   </div>
-                  {ACTIVE_RIDE_STATUSES.includes(selectedBooking.status) ? (
+                  {can(P.BOOKINGS_CLOSE) && ACTIVE_RIDE_STATUSES.includes(selectedBooking.status) ? (
                     <p className="muted" style={{ fontSize: "0.85rem", marginTop: 12 }}>
                       Stuck ride? Force-close it below — both the passenger and the driver are notified, and the
                       passenger can book again right away.
@@ -1196,7 +1560,7 @@ export default function DashboardShell() {
               )}
             </div>
             <div className="modal-footer">
-              {!selectedBookingLoading && ACTIVE_RIDE_STATUSES.includes(selectedBooking.status) ? (
+              {!selectedBookingLoading && can(P.BOOKINGS_CLOSE) && ACTIVE_RIDE_STATUSES.includes(selectedBooking.status) ? (
                 <>
                   {["ongoing", "on_ride"].includes(selectedBooking.status) ? (
                     <button
@@ -1223,6 +1587,80 @@ export default function DashboardShell() {
           </div>
         </div>
       ) : null}
+
+      {sosMapTarget ? (
+        <div className="modal-overlay open">
+          <div className="modal" style={{ maxWidth: 640 }}>
+            <div className="modal-header">
+              <div className="modal-title">
+                SOS location — {sosMapTarget.senderName || sosMapTarget.passengerName || "SOS"}
+              </div>
+              <button className="modal-close" type="button" onClick={() => setSosMapTarget(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              {isOutsideServiceArea(serviceArea, sosMapTarget.lat, sosMapTarget.lng) ? (
+                <div className="warning-banner" style={{ marginBottom: 12 }}>
+                  Outside service area — this alert came from outside Guiuan. It is shown anyway: an emergency is
+                  never hidden or blocked because of where it is.
+                </div>
+              ) : null}
+              <ServiceAreaMap
+                points={[
+                  {
+                    id: sosMapTarget.id,
+                    lat: sosMapTarget.lat,
+                    lng: sosMapTarget.lng,
+                    label: "SOS",
+                    color: "#DC2626",
+                    highlight: true,
+                  },
+                ]}
+                focus={{ lat: sosMapTarget.lat, lng: sosMapTarget.lng }}
+                height={360}
+                ariaLabel="SOS location map"
+              />
+              <div className="detail-list" style={{ marginTop: 12 }}>
+                <div className="detail-row">
+                  <span>Coordinates</span>
+                  <strong style={{ fontFamily: "var(--font-mono)" }}>
+                    {Number(sosMapTarget.lat).toFixed(5)}, {Number(sosMapTarget.lng).toFixed(5)}
+                  </strong>
+                </div>
+                <div className="detail-row"><span>Sent</span><strong>{formatDateTime(sosMapTarget.createdAt)}</strong></div>
+                <div className="detail-row"><span>Contact</span><strong>{sosMapTarget.contact || "-"}</strong></div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <a
+                className="btn btn-ghost"
+                href={`https://www.openstreetmap.org/?mlat=${sosMapTarget.lat}&mlon=${sosMapTarget.lng}#map=17/${sosMapTarget.lat}/${sosMapTarget.lng}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open in OpenStreetMap ↗
+              </a>
+              <button className="btn btn-ghost" type="button" onClick={() => setSosMapTarget(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        key={resolveSosTarget ? `resolve-sos-${resolveSosTarget.id}` : "resolve-sos"}
+        open={Boolean(resolveSosTarget)}
+        title={`Resolve SOS from ${resolveSosTarget?.senderName || resolveSosTarget?.passengerName || "passenger"}`}
+        message={
+          resolveSosTarget?.acknowledgedBy && resolveSosTarget.acknowledgedBy.id !== user?.id
+            ? `${resolveSosTarget.acknowledgedBy.name} is handling this alert. Resolve it only if you know it's over.`
+            : "Say briefly what happened and what was done. It's kept with the alert."
+        }
+        requireInput
+        inputLabel="Resolution note"
+        defaultValue=""
+        confirmLabel="Resolve"
+        onConfirm={resolveSos}
+        onCancel={() => setResolveSosTarget(null)}
+      />
 
       <ConfirmDialog
         key={closeRideDialog?.outcome || "closed"}

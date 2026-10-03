@@ -3,9 +3,18 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import StatusPill from "./StatusPill";
 import { asText, formatDateTime, shortenText } from "../utils/admin-formatters";
 import { MARKER_ICONS, registerMarkerIcons } from "../utils/map-marker-icons";
+import {
+  GUIUAN_CENTER,
+  addServiceAreaOutline,
+  fitToServiceArea,
+  isOutsideServiceArea,
+  relaxedMaxBounds,
+  useServiceArea,
+} from "../utils/service-area";
 
-const DEFAULT_CENTER = [120.9842, 14.5995];
-const DEFAULT_ZOOM = 12.5;
+const DEFAULT_CENTER = GUIUAN_CENTER;
+const DEFAULT_ZOOM = 11;
+const OUTSIDE_LABEL = "Outside service area";
 const MAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
 const LIGHT_MAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
@@ -25,7 +34,12 @@ function toLngLat(lat, lng) {
   return [nLng, nLat];
 }
 
-function buildMapData(onlineDrivers = [], activeRides = []) {
+// Open SOS alerts with a location; resolved ones aren't shown on the map.
+function openSosWithLocation(sosAlerts = []) {
+  return sosAlerts.filter((alert) => alert.status !== "resolved" && toLngLat(alert.lat, alert.lng));
+}
+
+function buildMapData(onlineDrivers = [], activeRides = [], sosAlerts = [], area = null) {
   const bounds = {
     minLng: Infinity,
     minLat: Infinity,
@@ -36,11 +50,17 @@ function buildMapData(onlineDrivers = [], activeRides = []) {
   const driverFeatures = [];
   const pickupFeatures = [];
   const dropoffFeatures = [];
+  const sosFeatures = [];
+  // Everything shown that lies outside Guiuan — listed with a "Show" button
+  // and kept within the map's limits.
+  const outsideItems = [];
+  const allPoints = [];
   let hasBounds = false;
   let latestUpdate = null;
 
   function extendBounds(point) {
     if (!point) return;
+    allPoints.push(point);
     const [lng, lat] = point;
     bounds.minLng = Math.min(bounds.minLng, lng);
     bounds.minLat = Math.min(bounds.minLat, lat);
@@ -61,6 +81,10 @@ function buildMapData(onlineDrivers = [], activeRides = []) {
   onlineDrivers.forEach((driver) => {
     const point = toLngLat(driver.current_lat, driver.current_lng);
     if (!point) return;
+    const outside = isOutsideServiceArea(area, point[1], point[0]);
+    if (outside) {
+      outsideItems.push({ key: `driver-${driver.id}`, kind: "Driver", label: asText(driver.full_name) || "Driver", point });
+    }
 
     driverFeatures.push({
       type: "Feature",
@@ -72,8 +96,10 @@ function buildMapData(onlineDrivers = [], activeRides = []) {
         id: driver.id,
         label: asText(driver.full_name) || "Driver",
         subLabel: asText(driver.tricycle_number) || "-",
+        mapLabel: `${asText(driver.tricycle_number) || "-"}${outside ? ` · ${OUTSIDE_LABEL}` : ""}`,
         rating: driver.rating_avg != null ? Number(driver.rating_avg).toFixed(1) : "-",
         lastUpdate: driver.last_location_update || "",
+        outside,
       },
     });
     extendBounds(point);
@@ -83,6 +109,11 @@ function buildMapData(onlineDrivers = [], activeRides = []) {
   activeRides.forEach((ride) => {
     const pickup = toLngLat(ride.pickup_lat, ride.pickup_lng);
     const dropoff = toLngLat(ride.dropoff_lat, ride.dropoff_lng);
+    for (const [end, point] of [["pickup", pickup], ["drop-off", dropoff]]) {
+      if (point && isOutsideServiceArea(area, point[1], point[0])) {
+        outsideItems.push({ key: `ride-${ride.id}-${end}`, kind: "Ride", label: `Ride #${ride.id} ${end}`, point });
+      }
+    }
 
     if (pickup) {
       pickupFeatures.push({
@@ -135,10 +166,37 @@ function buildMapData(onlineDrivers = [], activeRides = []) {
     updateLatest(ride.requested_at);
   });
 
+  // An emergency is always shown, wherever it is.
+  openSosWithLocation(sosAlerts).forEach((alert) => {
+    const point = toLngLat(alert.lat, alert.lng);
+    const outside = isOutsideServiceArea(area, point[1], point[0]);
+    const from = asText(alert.senderName || alert.passengerName || alert.driverName) || "SOS";
+    if (outside) outsideItems.unshift({ key: `sos-${alert.id}`, kind: "SOS", label: from, point });
+    sosFeatures.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: point },
+      properties: {
+        id: alert.id,
+        label: from,
+        mapLabel: `SOS · ${from}${outside ? ` · ${OUTSIDE_LABEL}` : ""}`,
+        status: alert.status === "acknowledged" ? `Handled by ${alert.acknowledgedBy?.name || "an admin"}` : "Open",
+        createdAt: alert.createdAt || "",
+        outside,
+      },
+    });
+    extendBounds(point);
+  });
+
   return {
     bounds,
     hasBounds,
     latestUpdate,
+    outsideItems,
+    allPoints,
+    sosCollection: {
+      type: "FeatureCollection",
+      features: sosFeatures,
+    },
     routeCollection: {
       type: "FeatureCollection",
       features: routeFeatures,
@@ -176,10 +234,13 @@ function ensureLayer(map, layer) {
   }
 }
 
-export default function LiveMapCard({ onlineDrivers, activeRides }) {
+export default function LiveMapCard({ onlineDrivers, activeRides, sosAlerts = [] }) {
+  const area = useServiceArea();
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const hasFittedRef = useRef(false);
+  // The service area, for code running in map callbacks.
+  const areaRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState(null);
   const prevPositionsRef = useRef(new Map());
@@ -187,8 +248,8 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
   const [mapStyle, setMapStyle] = useState(MAP_STYLE_URL);
 
   const mapData = useMemo(
-    () => buildMapData(onlineDrivers, activeRides),
-    [activeRides, onlineDrivers]
+    () => buildMapData(onlineDrivers, activeRides, sosAlerts, area),
+    [activeRides, onlineDrivers, sosAlerts, area]
   );
 
   useEffect(() => {
@@ -261,6 +322,7 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
             `Tricycle: ${props.subLabel || "-"}`,
             `Rating: ${props.rating || "-"}`,
             `Last update: ${lastUpdate}`,
+            ...(props.outside === true || props.outside === "true" ? [OUTSIDE_LABEL] : []),
           ]) {
             content.append(document.createElement("br"), document.createTextNode(line));
           }
@@ -269,6 +331,35 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
             .setLngLat(coordinates)
             .setDOMContent(content)
             .addTo(map);
+        });
+
+        // SOS popups, built with textContent like the driver popup.
+        map.on("click", "sos-points", (event) => {
+          const feature = event.features?.[0];
+          if (!feature) return;
+          const props = feature.properties || {};
+          const content = document.createElement("div");
+          content.style.cssText = "font-size:12px;line-height:1.5;";
+          const title = document.createElement("strong");
+          title.textContent = `🚨 SOS — ${props.label || "SOS"}`;
+          content.append(title);
+          for (const line of [
+            props.status || "Open",
+            props.createdAt ? formatDateTime(props.createdAt) : "",
+            ...(props.outside === true || props.outside === "true" ? [OUTSIDE_LABEL] : []),
+          ].filter(Boolean)) {
+            content.append(document.createElement("br"), document.createTextNode(line));
+          }
+          new maplibregl.Popup({ closeButton: true, offset: 12 })
+            .setLngLat(feature.geometry.coordinates.slice())
+            .setDOMContent(content)
+            .addTo(map);
+        });
+        map.on("mouseenter", "sos-points", () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", "sos-points", () => {
+          map.getCanvas().style.cursor = "";
         });
 
         setMapReady(true);
@@ -406,6 +497,9 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
   if (!map.getSource("dropoffs")) {
     map.addSource("dropoffs", { type: "geojson", data: emptyCollection });
   }
+  if (!map.getSource("sos")) {
+    map.addSource("sos", { type: "geojson", data: emptyCollection });
+  }
 
   ensureLayer(map, {
     id: "route-lines",
@@ -455,8 +549,8 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
         "icon-anchor": "center",
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
-        // Plate number under each tricycle.
-        "text-field": ["get", "subLabel"],
+        // Plate number under each tricycle (and "Outside service area").
+        "text-field": ["get", "mapLabel"],
         "text-size": 11,
         "text-offset": [0, 1.7],
         "text-anchor": "top",
@@ -468,6 +562,39 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
         "text-halo-width": 1.2,
       },
     });
+
+    // SOS on top of everything.
+    ensureLayer(map, {
+      id: "sos-points",
+      type: "circle",
+      source: "sos",
+      paint: {
+        "circle-radius": 10,
+        "circle-color": "#DC2626",
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 3,
+      },
+    });
+    ensureLayer(map, {
+      id: "sos-labels",
+      type: "symbol",
+      source: "sos",
+      layout: {
+        "text-field": ["get", "mapLabel"],
+        "text-size": 12,
+        "text-offset": [0, 1.4],
+        "text-anchor": "top",
+        "text-allow-overlap": true,
+      },
+      paint: {
+        "text-color": "#B91C1C",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.5,
+      },
+    });
+
+    // The boundary of Guiuan, under the routes and markers.
+    addServiceAreaOutline(map, areaRef.current, { beforeLayerId: "route-lines" });
   }
 
   function ensure3DBuildings(map) {
@@ -527,6 +654,7 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
       setGeoJsonSource(map, "drivers", mapData.driverCollection);
       setGeoJsonSource(map, "pickups", mapData.pickupCollection);
       setGeoJsonSource(map, "dropoffs", mapData.dropoffCollection);
+      setGeoJsonSource(map, "sos", mapData.sosCollection);
     };
 
     map.on("styledata", handleStyleLoaded);
@@ -543,22 +671,27 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
     setGeoJsonSource(map, "drivers", mapData.driverCollection);
     setGeoJsonSource(map, "pickups", mapData.pickupCollection);
     setGeoJsonSource(map, "dropoffs", mapData.dropoffCollection);
+    setGeoJsonSource(map, "sos", mapData.sosCollection);
 
-    if (!hasFittedRef.current && mapData.hasBounds) {
-      map.fitBounds(
-        [
-          [mapData.bounds.minLng, mapData.bounds.minLat],
-          [mapData.bounds.maxLng, mapData.bounds.maxLat],
-        ],
-        {
-          padding: 48,
-          duration: 900,
-          maxZoom: 15,
-        }
-      );
+    // The limits stay around Guiuan but always reach every marker shown.
+    if (area) map.setMaxBounds(relaxedMaxBounds(area, mapData.allPoints));
+  }, [mapData, mapReady, area]);
+
+  // Opens fitted to Guiuan (mainland and islands), with the outline.
+  useEffect(() => {
+    areaRef.current = area;
+    const map = mapRef.current;
+    if (!map || !mapReady || !area) return;
+    addServiceAreaOutline(map, area, { beforeLayerId: "route-lines" });
+    if (!hasFittedRef.current) {
       hasFittedRef.current = true;
+      fitToServiceArea(map, area, { padding: 24 });
     }
-  }, [mapData, mapReady]);
+  }, [area, mapReady]);
+
+  function showOnMap(point) {
+    mapRef.current?.flyTo({ center: point, zoom: 14, duration: 800 });
+  }
 
   const summary = useMemo(() => {
     return {
@@ -631,6 +764,25 @@ export default function LiveMapCard({ onlineDrivers, activeRides }) {
             )}
           </div>
         </div>
+
+        {mapData.outsideItems.length ? (
+          <div className="map-legend-group">
+            <p className="panel-label">{OUTSIDE_LABEL}</p>
+            <div className="map-list">
+              {mapData.outsideItems.slice(0, 5).map((item) => (
+                <div key={item.key} className="map-list-item">
+                  <span className={`map-dot ${item.kind === "SOS" ? "map-dot-sos" : "map-dot-ride"}`} />
+                  <div className="cell-stack">
+                    <strong>{item.kind === "SOS" ? `🚨 SOS — ${item.label}` : `${item.kind}: ${item.label}`}</strong>
+                    <button type="button" className="adm-link" onClick={() => showOnMap(item.point)}>
+                      Show on map
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="map-legend-group">
           <p className="panel-label">Active rides</p>

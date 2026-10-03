@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { SIGN_OUT_NOTICE_KEY } from "../api/client";
 import ForgotPasswordModal from "../components/ForgotPasswordModal";
 import AuthShell from "../components/AuthShell";
 
 export default function LoginPage() {
   const { login, loading, error } = useAuth();
   const [identifier, setIdentifier] = useState("");
+  // Why the dashboard signed this admin out (disabled, role changed), once.
+  const [notice] = useState(() => sessionStorage.getItem(SIGN_OUT_NOTICE_KEY));
+  useEffect(() => sessionStorage.removeItem(SIGN_OUT_NOTICE_KEY), []);
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -27,6 +31,7 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
+          {notice ? <p className="error-banner" role="status">{notice}</p> : null}
           <label>
             <span className="field-label-text">Admin number or email</span>
             <input
@@ -91,7 +96,12 @@ export default function LoginPage() {
         <p className="login-footnote">Need access? Contact your system administrator.</p>
       </section>
 
-      {showForgotPassword ? <ForgotPasswordModal onClose={() => setShowForgotPassword(false)} /> : null}
+      {showForgotPassword ? (
+        <ForgotPasswordModal
+          initialEmail={identifier.includes("@") ? identifier.trim() : ""}
+          onClose={() => setShowForgotPassword(false)}
+        />
+      ) : null}
     </main>
     </AuthShell>
   );

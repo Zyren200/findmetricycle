@@ -6,6 +6,9 @@ export const USER_KEY = "fmt_admin_user";
 // Fired on window whenever the interceptor swaps in a fresh access token,
 // so AuthContext (and the socket that depends on it) can follow along.
 export const TOKEN_REFRESHED_EVENT = "fmt:admin-token-refreshed";
+// Shown once on the sign-in page after the admin was signed out on purpose
+// (account disabled, role changed).
+export const SIGN_OUT_NOTICE_KEY = "fmt_admin_signout_notice";
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "/api",
@@ -79,8 +82,11 @@ apiClient.interceptors.response.use(
         config._retriedAfterRefresh = true;
         config.headers = { ...config.headers, Authorization: `Bearer ${newToken}` };
         return apiClient(config);
-      } catch (_refreshError) {
-        // fall through to logout
+      } catch (refreshError) {
+        // fall through to logout — and say why when a Super Admin disabled
+        // this account.
+        const reason = refreshError?.response?.data?.message || "";
+        if (/disabled/i.test(reason)) sessionStorage.setItem(SIGN_OUT_NOTICE_KEY, reason);
       }
     }
 

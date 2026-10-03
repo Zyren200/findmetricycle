@@ -445,3 +445,40 @@ input, select, textarea { font-family: var(--font-sans); }
 
 .filter-bar { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; backdrop-filter: none !important; }
 .filter-bar::before, .filter-bar::after { display: none !important; }
+
+/* ── Admin roles ─────────────────────────────────────────── */
+.adm-role-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
+  color: var(--accent); background: rgba(34, 211, 238, 0.1); border: 1px solid rgba(34, 211, 238, 0.25);
+}
+.adm-role-chip.role-super_admin { color: #c4b5fd; background: rgba(139, 92, 246, 0.12); border-color: rgba(139, 92, 246, 0.3); }
+.adm-role-chip.role-sos_responder { color: #fca5a5; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); }
+.adm-user-btn .who { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; line-height: 1.1; }
+.adm-who .adm-role-chip { margin-top: 4px; }
+@media (max-width: 900px) { .adm-user-btn .who { display: none; } }
+
+.no-access { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 48px 24px !important; }
+.no-access svg { color: var(--muted2); }
+.no-access h2 { margin: 0; font-size: 20px; color: var(--text); }
+.no-access p { margin: 0; max-width: 420px; }
+
+.adm-you { margin-left: 6px; font-size: 10px; color: var(--muted2); font-family: var(--font-mono); text-transform: uppercase; }
+.adm-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.adm-role-help { font-size: 12px; color: var(--muted2); margin-top: 6px; }
+
+/* ── SOS responders ──────────────────────────────────────── */
+.sos-handler { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.sos-handler b { color: var(--text); font-weight: 600; }
+.sos-note { display: block; margin-top: 2px; font-style: italic; color: var(--muted2); white-space: normal; }
+.sos-alerts-prompt {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: 10px;
+  background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--text); font-size: 13px;
+}
+.sos-alerts-prompt svg { color: var(--red); flex-shrink: 0; }
+.sos-alerts-prompt span { flex: 1; min-width: 200px; }
+
+/* ── Service area maps ───────────────────────────────────── */
+.service-area-map { position: relative; width: 100%; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+.service-area-map-canvas { position: absolute; inset: 0; }
+.map-dot-sos { background: #DC2626; }
