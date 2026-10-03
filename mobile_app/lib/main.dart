@@ -8,6 +8,7 @@ import "core/network/socket_client.dart";
 import "core/push/push_notifications.dart";
 import "core/state/app_config_store.dart";
 import "core/state/app_preferences.dart";
+import "core/state/service_area_store.dart";
 import "core/theme/app_theme.dart";
 import "core/theme/design_tokens.dart";
 import "features/shared/state/session_store.dart";
@@ -35,6 +36,10 @@ class FindMeTricycleApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (context) =>
               AppConfigStore(context.read<ApiClient>())..refresh(),
+        ),
+        ChangeNotifierProvider(
+          create: (context) =>
+              ServiceAreaStore(context.read<ApiClient>())..init(),
         ),
         ChangeNotifierProxyProvider2<ApiClient, SocketClient, SessionStore>(
           create: (_) => SessionStore(),

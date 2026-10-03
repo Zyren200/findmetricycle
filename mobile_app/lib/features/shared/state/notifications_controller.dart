@@ -50,7 +50,25 @@ class NotificationsController extends ChangeNotifier with DisposeSafeNotifier {
     }
   }
 
-  /// Marks everything as read (called once the list has been seen).
+  /// Marks one notification read — when it's opened, like an email.
+  Future<void> markRead(Map<String, dynamic> notification) async {
+    if (isRead(notification)) return;
+    final id = notification["id"];
+    items = [
+      for (final n in items) n["id"] == id ? {...n, "is_read": 1} : n
+    ];
+    unread = unread > 0 ? unread - 1 : 0;
+    notifyListeners();
+    try {
+      await _api.post("$_base/read", data: {
+        "ids": [id]
+      });
+    } catch (_) {
+      // The next load re-syncs from the server.
+    }
+  }
+
+  /// Marks everything as read (the "All read" button).
   Future<void> markAllRead() async {
     if (unread == 0 && items.every(isRead)) return;
     items = [
@@ -65,8 +83,13 @@ class NotificationsController extends ChangeNotifier with DisposeSafeNotifier {
     }
   }
 
+  /// Announcements are one shared row for everyone, so they have no
+  /// per-user read state (and aren't in the unread count): never unread.
   static bool isRead(Map<String, dynamic> n) =>
-      n["is_read"] == 1 || n["is_read"] == true || n["isRead"] == true;
+      n["type"] == "announcement" ||
+      n["is_read"] == 1 ||
+      n["is_read"] == true ||
+      n["isRead"] == true;
 
   void _onLive(dynamic event) {
     if (event is! Map) return;
@@ -88,7 +111,7 @@ class NotificationsController extends ChangeNotifier with DisposeSafeNotifier {
       },
       ...items,
     ];
-    unread += 1;
+    if (n["type"] != "announcement") unread += 1;
     notifyListeners();
   }
 

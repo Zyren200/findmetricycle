@@ -32,6 +32,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # Guiuan's service area, exported from the backend
+    # (cd backend && npm run service-area:export).
+    - assets/service_area/
   fonts:
     - family: Unbounded
       fonts:

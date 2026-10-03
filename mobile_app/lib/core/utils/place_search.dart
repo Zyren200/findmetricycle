@@ -1,4 +1,7 @@
 import "package:dio/dio.dart";
+import "package:latlong2/latlong.dart" as ll;
+
+import "../geo/service_area.dart";
 
 /// Search-as-you-type place lookup via Photon (Komoot's free OSM-based
 /// geocoder). Nominatim — already used elsewhere for reverse-geocoding —
@@ -7,10 +10,14 @@ import "package:dio/dio.dart";
 /// needs no API key either.
 const String _photonBaseUrl = "https://photon.komoot.io/api/";
 
-/// Roughly covers Guiuan and its surrounding barangays/municipalities so
-/// suggestions stay relevant to the service area instead of surfacing
-/// places from anywhere in the world.
-const String _guiuanBbox = "125.55,10.85,125.85,11.15";
+/// Used only until the service area has loaded: Guiuan's boundary box,
+/// islands included (the service area's own bbox replaces it).
+const String _guiuanBbox = "125.6158,10.6877,125.9692,11.0859";
+
+/// How many results to ask Photon for; some are dropped when they fall
+/// outside Guiuan, and at most [_maxResults] are shown.
+const int _fetchLimit = 15;
+const int _maxResults = 8;
 
 final Dio _searchClient = Dio(
   BaseOptions(
@@ -33,20 +40,33 @@ class PlaceSuggestion {
   final double lng;
 }
 
-/// Returns place suggestions matching [query], or an empty list if the
-/// query is blank or the request fails — callers should treat both the
-/// same way (nothing to show yet).
-Future<List<PlaceSuggestion>> searchPlaces(String query) async {
+/// Only the suggestions inside Guiuan (with the service area's buffer).
+List<PlaceSuggestion> keepInsideServiceArea(
+    List<PlaceSuggestion> suggestions, ServiceArea area) {
+  return suggestions
+      .where((s) => area.contains(ll.LatLng(s.lat, s.lng)))
+      .toList();
+}
+
+/// Returns place suggestions inside Guiuan matching [query], or an empty
+/// list if the query is blank, nothing in Guiuan matches, or the request
+/// fails — callers should treat all of these the same way.
+Future<List<PlaceSuggestion>> searchPlaces(String query,
+    {ServiceArea? area}) async {
   final trimmed = query.trim();
   if (trimmed.isEmpty) return [];
 
+  final center = area?.center ?? kGuiuanCenter;
   try {
     final response = await _searchClient.get(
       _photonBaseUrl,
       queryParameters: {
         "q": trimmed,
-        "bbox": _guiuanBbox,
-        "limit": 8,
+        "bbox": area?.photonBbox ?? _guiuanBbox,
+        // Rank places near the town proper first.
+        "lat": center.latitude,
+        "lon": center.longitude,
+        "limit": _fetchLimit,
       },
     );
 
@@ -89,7 +109,10 @@ Future<List<PlaceSuggestion>> searchPlaces(String query) async {
         lng: lng,
       ));
     }
-    return suggestions;
+    // The bbox is a rectangle; the boundary is what counts.
+    final inside =
+        area == null ? suggestions : keepInsideServiceArea(suggestions, area);
+    return inside.take(_maxResults).toList();
   } catch (_) {
     return [];
   }

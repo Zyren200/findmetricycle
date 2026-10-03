@@ -5,6 +5,7 @@ import "../../../core/components/index.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/network/socket_client.dart";
 import "../../../core/state/app_preferences.dart";
+import "../../../core/state/service_area_store.dart";
 import "../../../core/theme/design_tokens.dart";
 import "../repositories/passenger_repository.dart";
 import "../repositories/favorites_repository.dart";
@@ -45,6 +46,7 @@ class _PassengerShellPageState extends State<PassengerShellPage> {
             final controller = PassengerRideController(
               PassengerRepository(apiClient),
               socketClient,
+              serviceAreaStore: context.read<ServiceAreaStore>(),
             );
             controller.setPassengerCount(
               context.read<AppPreferences>().defaultPassengerCount,

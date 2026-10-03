@@ -93,6 +93,10 @@ class _PassengerHomePageState extends State<PassengerHomePage>
                 const SizedBox(height: 8),
                 LocationStatusBox(ctrl: ctrl),
               ],
+              if (ctrl.isOutsideServiceArea) ...[
+                const SizedBox(height: 8),
+                ServiceAreaNotice(ctrl: ctrl),
+              ],
               const SizedBox(height: 12),
               if (ongoing)
                 _ActiveRideCard(

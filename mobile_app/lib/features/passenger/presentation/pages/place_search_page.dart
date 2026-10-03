@@ -1,7 +1,9 @@
 import "dart:async";
 
 import "package:flutter/material.dart";
+import "package:provider/provider.dart";
 
+import "../../../../core/state/service_area_store.dart";
 import "../../../../core/theme/design_tokens.dart";
 import "../../../../core/utils/place_search.dart";
 
@@ -51,7 +53,8 @@ class _PlaceSearchPageState extends State<PlaceSearchPage> {
     }
 
     setState(() => _isSearching = true);
-    final results = await searchPlaces(trimmed);
+    final results = await searchPlaces(trimmed,
+        area: context.read<ServiceAreaStore>().area);
     if (!mounted || token != _searchToken) return;
 
     setState(() {
@@ -109,12 +112,31 @@ class _PlaceSearchPageState extends State<PlaceSearchPage> {
 
     if (_results.isEmpty) {
       return Center(
-        child: Text(
-          "No matching places found.",
-          style: Theme.of(context)
-              .textTheme
-              .bodySmall
-              ?.copyWith(color: DesignTokens.muted),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.travel_explore_rounded,
+                  color: DesignTokens.muted, size: 32),
+              const SizedBox(height: 10),
+              Text(
+                "No places in Guiuan match “${_queryController.text.trim()}”.",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: DesignTokens.text, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                "FindMeTricycle only operates within Guiuan. Try another name, or go back and tap the spot on the map.",
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: DesignTokens.muted),
+              ),
+            ],
+          ),
         ),
       );
     }

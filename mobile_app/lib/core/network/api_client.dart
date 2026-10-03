@@ -139,6 +139,25 @@ class ApiClient {
     return response.data ?? <String, dynamic>{};
   }
 
+  /// A GET for data the app caches: sends the cached copy's [etag] and
+  /// returns the status (304 = unchanged, keep the cache) and the new ETag.
+  Future<({int status, Map<String, dynamic> data, String? etag})> getCached(
+    String path, {
+    String? etag,
+  }) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      path,
+      options: Options(
+        headers: {if (etag != null && etag.isNotEmpty) "If-None-Match": etag},
+      ),
+    );
+    return (
+      status: response.statusCode ?? 0,
+      data: response.data ?? <String, dynamic>{},
+      etag: response.headers.value("etag"),
+    );
+  }
+
   Future<Map<String, dynamic>> delete(
     String path, {
     Map<String, dynamic>? data,

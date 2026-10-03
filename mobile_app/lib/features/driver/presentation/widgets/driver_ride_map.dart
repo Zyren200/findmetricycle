@@ -6,6 +6,8 @@ import "package:maplibre_gl/maplibre_gl.dart" as ml;
 import "package:provider/provider.dart";
 
 import "../../../../core/config/app_config.dart";
+import "../../../../core/geo/service_area.dart";
+import "../../../../core/state/service_area_store.dart";
 import "../../../../core/theme/design_tokens.dart";
 import "../../../../core/widgets/app_map.dart";
 import "../../../../core/widgets/map_marker_icons.dart";
@@ -13,7 +15,8 @@ import "../driver_ride_controller.dart";
 
 /// The rider's map: their own position, and the pickup / drop-off pins and
 /// route of the incoming or active booking — all read from the ambient
-/// [DriverRideController].
+/// [DriverRideController]. Guiuan's service area is drawn, but the camera
+/// isn't fenced in: a rider outside the boundary must still see themselves.
 class DriverRideMap extends StatefulWidget {
   const DriverRideMap({super.key, this.borderRadius = 0});
 
@@ -24,10 +27,11 @@ class DriverRideMap extends StatefulWidget {
 }
 
 class _DriverRideMapState extends State<DriverRideMap> {
-  static const ll.LatLng _fallbackCenter = ll.LatLng(14.5995, 120.9842);
-
   DriverRideController? _rideController;
+  ServiceAreaStore? _serviceAreaStore;
   AppMapController? _mapController;
+  // Which service area (version + theme) the overlay was last drawn for.
+  String? _overlayKey;
   bool _mapReady = false;
   String? _lastFitKey;
 
@@ -41,6 +45,11 @@ class _DriverRideMapState extends State<DriverRideMap> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final store = context.read<ServiceAreaStore>();
+    if (_serviceAreaStore != store) {
+      _serviceAreaStore?.removeListener(_applyMapData);
+      _serviceAreaStore = store..addListener(_applyMapData);
+    }
     final ctrl = context.read<DriverRideController>();
     if (_rideController == ctrl) return;
     _rideController?.removeListener(_applyMapData);
@@ -50,7 +59,21 @@ class _DriverRideMapState extends State<DriverRideMap> {
   @override
   void dispose() {
     _rideController?.removeListener(_applyMapData);
+    _serviceAreaStore?.removeListener(_applyMapData);
     super.dispose();
+  }
+
+  Future<void> _syncServiceAreaOverlay(AppMapController map) async {
+    final area = _serviceAreaStore?.area;
+    if (area == null) return;
+    final key = "${area.version}:${DesignTokens.isDark}";
+    if (key == _overlayKey) return;
+    _overlayKey = key;
+    try {
+      await map.addServiceAreaLayers(area, dark: DesignTokens.isDark);
+    } catch (_) {
+      _overlayKey = null; // try again on the next update
+    }
   }
 
   Future<void> _handleStyleLoaded() async {
@@ -66,6 +89,7 @@ class _DriverRideMapState extends State<DriverRideMap> {
     }
     if (!mounted) return;
     _staticKey = null;
+    _overlayKey = null;
     setState(() => _mapReady = true);
     _applyMapData();
   }
@@ -76,6 +100,7 @@ class _DriverRideMapState extends State<DriverRideMap> {
     if (map == null || ctrl == null || !_mapReady) return;
 
     try {
+      await _syncServiceAreaOverlay(map);
       await _updateStaticLayer(map, ctrl);
       await _updateCurrentLocation(map, ctrl);
 
@@ -245,7 +270,8 @@ class _DriverRideMapState extends State<DriverRideMap> {
 
   @override
   Widget build(BuildContext context) {
-    final start = _rideController?.currentPosition ?? _fallbackCenter;
+    final area = context.watch<ServiceAreaStore>().area;
+    final start = _rideController?.currentPosition ?? area?.center ?? kGuiuanCenter;
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
       child: Stack(
@@ -254,6 +280,9 @@ class _DriverRideMapState extends State<DriverRideMap> {
             child: AppMap(
               initialStyleUrl: AppConfig.openFreeMapStyleUrl,
               initialPosition: ml.LatLng(start.latitude, start.longitude),
+              // No pan limit for riders (see above) — only the zoom-out
+              // limit while the service area is enforced.
+              minZoom: area != null && area.enforced ? area.minZoom : 3.0,
               onMapCreated: (map) {
                 _mapController = map;
                 _applyMapData();

@@ -138,11 +138,17 @@ class _RideHistoryPageState extends State<RideHistoryPage> {
     }
 
     final address = ride["dropoff_address"]?.toString();
-    context.read<PassengerRideController>().setDestinationFromFavorite(
-          ll.LatLng(lat, lng),
-          // Coordinate-only addresses get re-geocoded on the map.
-          address: looksLikeCoordinates(address) ? null : address,
-        );
+    final rideController = context.read<PassengerRideController>();
+    if (!rideController.setDestinationFromFavorite(
+      ll.LatLng(lat, lng),
+      // Coordinate-only addresses get re-geocoded on the map.
+      address: looksLikeCoordinates(address) ? null : address,
+    )) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(rideController.error ?? "")),
+      );
+      return;
+    }
     context.read<ValueNotifier<int>>().value = 0;
   }
 

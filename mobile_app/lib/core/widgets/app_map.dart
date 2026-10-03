@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
+import '../geo/service_area.dart';
+
 /// Thin MapLibre abstraction used by the app.
 /// Provides simple symbol management and smooth movement helpers.
 class AppMap extends StatefulWidget {
@@ -19,6 +21,12 @@ class AppMap extends StatefulWidget {
   /// edge, so it can sit above panels/cards that cover the map's bottom.
   final double attributionBottomInset;
 
+  /// Where the camera may go (null: anywhere) and how far it may zoom out —
+  /// keeps the map on the service area.
+  final ml.LatLngBounds? cameraBounds;
+  final double minZoom;
+  final double maxZoom;
+
   const AppMap({
     this.onMapCreated,
     this.onStyleLoaded,
@@ -27,6 +35,9 @@ class AppMap extends StatefulWidget {
     this.initialPosition,
     this.initialZoom = 14.0,
     this.attributionBottomInset = 12,
+    this.cameraBounds,
+    this.minZoom = 3.0,
+    this.maxZoom = 20.0,
     super.key,
   });
 
@@ -40,7 +51,8 @@ class _AppMapState extends State<AppMap> {
     return ml.MapLibreMap(
       styleString: widget.initialStyleUrl,
       initialCameraPosition: ml.CameraPosition(
-        target: widget.initialPosition ?? const ml.LatLng(14.5995, 120.9842),
+        target: widget.initialPosition ??
+            ml.LatLng(kGuiuanCenter.latitude, kGuiuanCenter.longitude),
         zoom: widget.initialZoom,
       ),
       onMapCreated: (ctrl) {
@@ -61,7 +73,8 @@ class _AppMapState extends State<AppMap> {
       attributionButtonPosition: ml.AttributionButtonPosition.bottomRight,
       attributionButtonMargins: math.Point(12, widget.attributionBottomInset),
       trackCameraPosition: true,
-      minMaxZoomPreference: const ml.MinMaxZoomPreference(3.0, 20.0),
+      minMaxZoomPreference: ml.MinMaxZoomPreference(widget.minZoom, widget.maxZoom),
+      cameraTargetBounds: ml.CameraTargetBounds(widget.cameraBounds),
     );
   }
 }
@@ -213,6 +226,43 @@ class AppMapController {
     for (final l in lines) {
       await _ctrl.addLine(l);
     }
+  }
+
+  /// Dims everything outside the service area and outlines it, below the
+  /// markers. Safe to call again after a style reload.
+  Future<void> addServiceAreaLayers(ServiceArea area, {required bool dark}) async {
+    const maskSource = "service-area-mask";
+    const outlineSource = "service-area-outline";
+    try {
+      await _ctrl.removeLayer("$maskSource-fill");
+      await _ctrl.removeLayer("$outlineSource-line");
+      await _ctrl.removeSource(maskSource);
+      await _ctrl.removeSource(outlineSource);
+    } catch (_) {
+      // Not added yet.
+    }
+    await _ctrl.addGeoJsonSource(maskSource, area.outsideMaskGeoJson);
+    await _ctrl.addFillLayer(
+      maskSource,
+      "$maskSource-fill",
+      ml.FillLayerProperties(
+        fillColor: dark ? "#020617" : "#0F172A",
+        fillOpacity: dark ? 0.42 : 0.22,
+      ),
+      enableInteraction: false,
+    );
+    await _ctrl.addGeoJsonSource(outlineSource, area.outlineGeoJson);
+    await _ctrl.addLineLayer(
+      outlineSource,
+      "$outlineSource-line",
+      const ml.LineLayerProperties(
+        lineColor: "#0E8C46",
+        lineWidth: 1.6,
+        lineOpacity: 0.85,
+        lineDasharray: [2, 1.5],
+      ),
+      enableInteraction: false,
+    );
   }
 
   Future<void> animateCameraBounds(ml.LatLngBounds bounds,

@@ -7,6 +7,8 @@ import "package:maplibre_gl/maplibre_gl.dart" as ml;
 import "package:provider/provider.dart";
 
 import "../../../../core/config/app_config.dart";
+import "../../../../core/geo/service_area.dart";
+import "../../../../core/state/service_area_store.dart";
 import "../../../../core/theme/design_tokens.dart";
 import "../../../../core/utils/geo_utils.dart";
 import "../../../../core/widgets/app_map.dart";
@@ -35,10 +37,11 @@ class PassengerRideMap extends StatefulWidget {
 }
 
 class _PassengerRideMapState extends State<PassengerRideMap> {
-  static const ll.LatLng _fallbackCenter = ll.LatLng(14.5995, 120.9842);
-
   PassengerRideController? _rideController;
+  ServiceAreaStore? _serviceAreaStore;
   AppMapController? _mapController;
+  // Which service area (version + theme) the overlay was last drawn for.
+  String? _overlayKey;
 
   bool _mapReady = false;
   bool _mapSlow = false;
@@ -70,6 +73,11 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final store = context.read<ServiceAreaStore>();
+    if (_serviceAreaStore != store) {
+      _serviceAreaStore?.removeListener(_requestSync);
+      _serviceAreaStore = store..addListener(_requestSync);
+    }
     final controller = context.read<PassengerRideController>();
     if (_rideController == controller) return;
 
@@ -83,8 +91,21 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
   void dispose() {
     _mapSlowTimer?.cancel();
     _rideController?.removeListener(_requestSync);
+    _serviceAreaStore?.removeListener(_requestSync);
     super.dispose();
   }
+
+  ServiceArea? get _area => _serviceAreaStore?.area;
+
+  /// Map limits apply only while the server enforces the service area
+  /// (GEOFENCE_ENABLED); otherwise the boundary is just drawn.
+  bool get _enforced => _area?.enforced == true;
+
+  /// The passenger's GPS is outside Guiuan and the camera can't go there.
+  bool _userOutside(ll.LatLng? here) =>
+      _enforced && here != null && !_area!.contains(here);
+
+  ll.LatLng get _home => _area?.center ?? kGuiuanCenter;
 
   void _handleMapCreated(AppMapController controller) {
     _mapController = controller;
@@ -108,8 +129,24 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
     if (!mounted) return;
 
     _staticKey = null;
+    _overlayKey = null;
     setState(() => _mapReady = true);
     _requestSync();
+  }
+
+  /// Draws (or redraws, when the boundary or theme changed) the dimmed
+  /// area outside Guiuan and its outline.
+  Future<void> _syncServiceAreaOverlay(AppMapController map) async {
+    final area = _area;
+    if (area == null) return;
+    final key = "${area.version}:${DesignTokens.isDark}";
+    if (key == _overlayKey) return;
+    _overlayKey = key;
+    try {
+      await map.addServiceAreaLayers(area, dark: DesignTokens.isDark);
+    } catch (_) {
+      _overlayKey = null; // try again on the next sync
+    }
   }
 
   void _requestSync() {
@@ -137,6 +174,7 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
     try {
       do {
         _syncPending = false;
+        await _syncServiceAreaOverlay(map);
         final batch = _buildAnnotationBatch(controller);
 
         if (batch.staticKey != _staticKey) {
@@ -171,12 +209,15 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
             controller.currentPosition != null &&
             controller.dropoff == null) {
           // First real GPS fix: snap straight to it at a close zoom instead
-          // of the generic bounds fit (or the fallback center).
+          // of the generic bounds fit (or the fallback center) — unless it's
+          // outside Guiuan while the service area is enforced: the map stays
+          // on Guiuan and a notice explains why.
           _hasCenteredOnUser = true;
           _lastFitKey = batch.fitKey;
+          final outside = _userOutside(controller.currentPosition);
           await map.animateCamera(
-            _toMapLibre(controller.currentPosition)!,
-            zoom: 16.2,
+            _toMapLibre(outside ? _home : controller.currentPosition)!,
+            zoom: outside ? (_area?.defaultZoom ?? 14) : 16.2,
           );
         } else if (batch.bounds != null && batch.fitKey != _lastFitKey) {
           _hasCenteredOnUser = true;
@@ -212,7 +253,9 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
     final assignedDriver = _toMapLibre(controller.driverPosition);
     final driverMarkers = _buildDriverMarkers(controller);
 
-    addFitPoint(currentLocation);
+    // A position the camera can't reach (outside Guiuan, enforced) would
+    // only squash the fit.
+    if (!_userOutside(controller.currentPosition)) addFitPoint(currentLocation);
     addFitPoint(pickup);
     addFitPoint(dropoff);
     addFitPoint(assignedDriver);
@@ -504,14 +547,20 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
     );
   }
 
+  static ml.LatLngBounds _bounds(List<double> b) => ml.LatLngBounds(
+        southwest: ml.LatLng(b[1], b[0]),
+        northeast: ml.LatLng(b[3], b[2]),
+      );
+
   ml.LatLng? _toMapLibre(ll.LatLng? point) =>
       point == null ? null : ml.LatLng(point.latitude, point.longitude);
 
   Future<void> _moveToCurrentLocation() async {
     final map = _mapController;
-    final point = _rideController?.currentPosition ?? _fallbackCenter;
+    final here = _rideController?.currentPosition;
+    final point = here == null || _userOutside(here) ? _home : here;
     await map?.animateCamera(ml.LatLng(point.latitude, point.longitude),
-        zoom: 16.2);
+        zoom: point == _home ? (_area?.defaultZoom ?? 14) : 16.2);
   }
 
   Future<void> _fitToSelection() async {
@@ -527,7 +576,10 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
 
   @override
   Widget build(BuildContext context) {
-    final start = _rideController?.currentPosition ?? _fallbackCenter;
+    // Rebuild when the service area arrives or changes (limits, overlay).
+    final area = context.watch<ServiceAreaStore>().area;
+    final here = _rideController?.currentPosition;
+    final start = here == null || _userOutside(here) ? _home : here;
     final onTap = widget.onTap;
 
     return ClipRRect(
@@ -538,6 +590,8 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
             child: AppMap(
               initialStyleUrl: AppConfig.openFreeMapStyleUrl,
               initialPosition: ml.LatLng(start.latitude, start.longitude),
+              cameraBounds: area != null && area.enforced ? _bounds(area.mapBounds) : null,
+              minZoom: area != null && area.enforced ? area.minZoom : 3.0,
               onMapCreated: _handleMapCreated,
               onStyleLoaded: _handleStyleLoaded,
               onMapClick: onTap == null

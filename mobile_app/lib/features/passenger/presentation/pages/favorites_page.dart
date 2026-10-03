@@ -113,10 +113,16 @@ class _FavoritesPageState extends State<FavoritesPage> {
     if (id != null) await profileController.useFavorite(id: id);
     if (!mounted) return;
 
-    context.read<PassengerRideController>().setDestinationFromFavorite(
-          ll.LatLng(lat, lng),
-          address: address,
-        );
+    final rideController = context.read<PassengerRideController>();
+    if (!rideController.setDestinationFromFavorite(
+      ll.LatLng(lat, lng),
+      address: address,
+    )) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(rideController.error ?? "")),
+      );
+      return;
+    }
     context.read<ValueNotifier<int>>().value = 0;
     // Opened from Profile / Settings: go back to Home, where the trip is.
     Navigator.of(context).popUntil((route) => route.isFirst);

@@ -94,8 +94,11 @@ class _BookingFlowPageState extends State<BookingFlowPage> {
     final ctrl = context.read<PassengerRideController>();
     if (id != null) await profile.useFavorite(id: id);
     if (!mounted) return;
-    ctrl.setDestinationFromFavorite(ll.LatLng(lat, lng),
-        address: favorite["address"] as String?);
+    // Refused (shown in the error box) when it's outside Guiuan.
+    if (!ctrl.setDestinationFromFavorite(ll.LatLng(lat, lng),
+        address: favorite["address"] as String?)) {
+      return;
+    }
     _goTo(_Step.passengers);
   }
 
@@ -197,6 +200,7 @@ class _BookingFlowPageState extends State<BookingFlowPage> {
               ],
               const SizedBox(height: 16),
               LocationStatusBox(ctrl: ctrl),
+              ServiceAreaNotice(ctrl: ctrl),
               const SectionLabel("Pickup"),
               if (ctrl.currentPosition != null)
                 PlaceListTile(

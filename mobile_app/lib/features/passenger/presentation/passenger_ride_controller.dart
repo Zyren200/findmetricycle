@@ -3,8 +3,10 @@ import "package:flutter/material.dart";
 import "package:geolocator/geolocator.dart";
 import "package:latlong2/latlong.dart" as ll;
 import "../../../core/config/app_config.dart";
+import "../../../core/geo/service_area.dart";
 import "../../../core/network/socket_client.dart";
 import "../../../core/state/dispose_safe_notifier.dart";
+import "../../../core/state/service_area_store.dart";
 import "../../../core/utils/geo_utils.dart";
 import "../../../core/utils/geocoding.dart";
 import "../../../core/utils/place_search.dart";
@@ -47,11 +49,45 @@ String bookingStatusLabel(String? status) {
 class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
   PassengerRideController(
     this._repository,
-    this._socketClient,
-  );
+    this._socketClient, {
+    ServiceAreaStore? serviceAreaStore,
+  }) : _serviceAreaStore = serviceAreaStore {
+    // The boundary may arrive after this controller starts (bundled copy,
+    // then the server's): screens showing the notice need to know.
+    _serviceAreaStore?.addListener(notifyListeners);
+  }
 
   final PassengerRepository _repository;
   final SocketClient _socketClient;
+  final ServiceAreaStore? _serviceAreaStore;
+
+  /// Guiuan's service area, once loaded.
+  ServiceArea? get serviceArea => _serviceAreaStore?.area;
+
+  /// The passenger's GPS position is outside Guiuan (whether or not the
+  /// service area is enforced right now).
+  bool get isOutsideServiceArea {
+    final area = serviceArea;
+    final here = currentPosition;
+    return area != null && here != null && !area.contains(here);
+  }
+
+  /// Bookings outside Guiuan are refused (the server's GEOFENCE_ENABLED).
+  bool get serviceAreaEnforced => serviceArea?.enforced == true;
+
+  /// A point that can't be a pickup or drop-off while the service area is
+  /// enforced. The server checks bookings too; this just says so early.
+  bool _outsideServiceArea(ll.LatLng? point) =>
+      point != null && (serviceArea?.blocks(point) ?? false);
+
+  /// The GPS position, when it may be used as the pickup.
+  ll.LatLng? get _usableCurrentPosition =>
+      _outsideServiceArea(currentPosition) ? null : currentPosition;
+
+  void _refuseOutsideServiceArea() {
+    error = ServiceArea.outsideMessage;
+    notifyListeners();
+  }
 
   bool isInitializing = false;
   bool isSubmittingRide = false;
@@ -233,6 +269,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
   void usePickupAtCurrentLocation() {
     final here = currentPosition;
     if (here == null) return;
+    if (_outsideServiceArea(here)) return _refuseOutsideServiceArea();
     if (activeBookingId != null &&
         bookingStatus != null &&
         kActiveBookingStatuses.contains(bookingStatus)) {
@@ -244,6 +281,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     dropoffAddress = null;
     routePolyline = null;
     routeDistanceKm = null;
+    error = null;
     notifyListeners();
     _resolveAddress(isPickup: true, point: here);
   }
@@ -450,7 +488,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
         locationError = null;
         locationServiceDisabled = false;
         if (!hadPosition) {
-          pickup ??= currentPosition;
+          pickup ??= _usableCurrentPosition;
           if (pickup != null) _resolveAddress(isPickup: true, point: pickup!);
         }
         notifyListeners();
@@ -494,7 +532,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
       final lastKnown = await Geolocator.getLastKnownPosition();
       if (lastKnown != null && currentPosition == null) {
         currentPosition = ll.LatLng(lastKnown.latitude, lastKnown.longitude);
-        pickup ??= currentPosition;
+        pickup ??= _usableCurrentPosition;
         notifyListeners();
       }
     } catch (_) {
@@ -505,7 +543,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
       final pos = await _getFreshPosition();
       if (pos != null) {
         currentPosition = ll.LatLng(pos.latitude, pos.longitude);
-        pickup ??= currentPosition;
+        pickup ??= _usableCurrentPosition;
       }
     } finally {
       isResolvingLocation = false;
@@ -600,8 +638,14 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
 
   /// Prefill pickup/destination from a saved favorite place, resetting any
   /// stale active-booking state so the map is ready for a fresh request.
-  void setDestinationFromFavorite(ll.LatLng destination, {String? address}) {
-    pickup ??= currentPosition;
+  /// Returns false (and sets [error]) when the place is outside Guiuan.
+  bool setDestinationFromFavorite(ll.LatLng destination, {String? address}) {
+    if (_outsideServiceArea(destination)) {
+      _refuseOutsideServiceArea();
+      return false;
+    }
+    error = null;
+    pickup ??= _usableCurrentPosition;
     dropoff = destination;
     dropoffAddress = address;
     routePolyline = null;
@@ -619,6 +663,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     }
     if (pickup != null) _resolveAddress(isPickup: true, point: pickup!);
     _fetchRouteIfReady();
+    return true;
   }
 
   /// Resolves a searched place to a usable point: snap it to the nearest
@@ -641,6 +686,8 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     }
 
     final point = await _resolveSearchPoint(place);
+    if (_outsideServiceArea(point)) return _refuseOutsideServiceArea();
+    error = null;
     pickup = point;
     pickupAddress = place.name;
     dropoff = null;
@@ -666,7 +713,9 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     }
 
     final point = await _resolveSearchPoint(place);
-    pickup ??= currentPosition;
+    if (_outsideServiceArea(point)) return _refuseOutsideServiceArea();
+    error = null;
+    pickup ??= _usableCurrentPosition;
     dropoff = point;
     dropoffAddress = place.name;
     notifyListeners();
@@ -687,6 +736,9 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
       return;
     }
 
+    // Outside Guiuan: refused before the (network) road check.
+    if (_outsideServiceArea(rawLocation)) return _refuseOutsideServiceArea();
+
     isValidatingTap = true;
     error = null;
     notifyListeners();
@@ -699,6 +751,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
       notifyListeners();
       return;
     }
+    if (_outsideServiceArea(snapped)) return _refuseOutsideServiceArea();
 
     final setPickup =
         asPickup ?? (pickup == null || (pickup != null && dropoff != null));
@@ -719,7 +772,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
       notifyListeners();
       _resolveAddress(isPickup: true, point: snapped);
     } else {
-      pickup ??= currentPosition;
+      pickup ??= _usableCurrentPosition;
       dropoff = snapped;
       dropoffAddress = null;
       notifyListeners();
@@ -730,6 +783,10 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
 
   Future<void> findRide() async {
     if (pickup == null || dropoff == null) return;
+    // The server refuses these too; say so without the round trip.
+    if (_outsideServiceArea(pickup) || _outsideServiceArea(dropoff)) {
+      return _refuseOutsideServiceArea();
+    }
 
     isSubmittingRide = true;
     error = null;
@@ -959,7 +1016,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
         kActiveBookingStatuses.contains(bookingStatus)) {
       return;
     }
-    pickup = currentPosition;
+    pickup = _usableCurrentPosition;
     pickupAddress = null;
     dropoff = null;
     dropoffAddress = null;
@@ -1134,6 +1191,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
 
   @override
   void dispose() {
+    _serviceAreaStore?.removeListener(notifyListeners);
     _positionSub?.cancel();
     _stopNearbyRefresh();
     _fareUpdateSub?.cancel();

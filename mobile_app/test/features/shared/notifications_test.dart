@@ -9,6 +9,7 @@ import "package:flutter_test/flutter_test.dart";
 
 class FakeApi extends ApiClient {
   final List<String> posted = [];
+  final List<Map<String, dynamic>?> postedData = [];
   List<Map<String, dynamic>> rows = [];
 
   @override
@@ -22,6 +23,7 @@ class FakeApi extends ApiClient {
   Future<Map<String, dynamic>> post(String path,
       {Map<String, dynamic>? data, Map<String, dynamic>? queryParameters}) async {
     posted.add(path);
+    postedData.add(data);
     return {"success": true, "meta": {"unread": 0}};
   }
 }
@@ -92,7 +94,7 @@ void main() {
     expect(timeAgo("2026-08-01T10:00:00", now: now), "Ago 1, 2026");
   });
 
-  testWidgets("opening the screen shows times and marks everything read", (tester) async {
+  testWidgets("opening the list leaves unread ones unread, like an inbox", (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
@@ -102,9 +104,51 @@ void main() {
 
     expect(find.text("Driver assigned"), findsOneWidget);
     expect(find.text("5 min ang nakalipas"), findsNWidgets(2));
-    expect(ctrl.unread, 0);
-    expect(api.posted, contains("/passenger/notifications/read"));
+    expect(ctrl.unread, 1);
+    expect(api.posted, isEmpty);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets("tapping a notification opens it in full and marks just that one read", (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    api.rows = [
+      {
+        ...row(3, "ride_completed", "Trip completed"),
+        "body": "Total fare: PHP 45.00. Rate your driver! This is the whole message, not a preview.",
+        "metadata": {"bookingId": 12, "finalFare": 45},
+      },
+    ];
+
+    await tester.pumpWidget(MaterialApp(home: NotificationsScreen(controller: ctrl)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text("Trip completed"));
+    await tester.pumpAndSettle();
+
+    expect(find.text("Notification"), findsOneWidget); // detail page title
+    expect(find.textContaining("This is the whole message"), findsOneWidget);
+    expect(find.text("#12"), findsOneWidget); // ride number
+    expect(find.text("₱45.00"), findsOneWidget);
+    expect(ctrl.unread, 0);
+    expect(api.posted, ["/passenger/notifications/read"]);
+    expect(api.postedData.single, {"ids": [3]});
+    expect(tester.takeException(), isNull);
+  });
+
+  test("announcements are shared, so they never count as unread", () async {
+    await ctrl.load();
+    socket.push({"id": 11, "type": "announcement", "title": "Holiday hours", "recipientRole": "everyone"});
+    await Future<void>.delayed(Duration.zero);
+
+    expect(ctrl.items.first["id"], 11);
+    expect(NotificationsController.isRead(ctrl.items.first), isTrue);
+    expect(ctrl.unread, 1); // only the earlier personal one
+  });
+
+  test("full date for an opened notification", () {
+    expect(fullDateTime("2026-10-03T09:05:00"), "Okt 3, 2026 · 9:05 AM");
+    expect(fullDateTime("2026-10-03T21:30:00"), "Okt 3, 2026 · 9:30 PM");
   });
 
   testWidgets("bell shows the unread count", (tester) async {

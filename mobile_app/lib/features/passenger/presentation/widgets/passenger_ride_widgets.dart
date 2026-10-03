@@ -67,6 +67,42 @@ String rideStatusHeadline(PassengerRideController ctrl) {
   };
 }
 
+/// Shown when the passenger's GPS is outside Guiuan: explains the service
+/// area (and that pickups there are refused while it's enforced).
+class ServiceAreaNotice extends StatelessWidget {
+  const ServiceAreaNotice({super.key, required this.ctrl});
+
+  final PassengerRideController ctrl;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!ctrl.isOutsideServiceArea) return const SizedBox.shrink();
+    final message = ctrl.serviceAreaEnforced
+        ? "You're outside Guiuan. FindMeTricycle only operates within Guiuan — choose a pickup point inside Guiuan on the map or by search."
+        : "You're outside Guiuan, FindMeTricycle's service area. Bookings from here are allowed only while the service area isn't enforced (testing).";
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: DesignTokens.blue.withAlpha(22),
+        borderRadius: BorderRadius.circular(DesignTokens.radiusSm),
+        border: Border.all(color: DesignTokens.blue.withAlpha(70)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline_rounded, color: DesignTokens.blue, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message,
+                style: TextStyle(color: DesignTokens.text, fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Location status for the map areas, or null when the position is known.
 class LocationStatusBox extends StatelessWidget {
   const LocationStatusBox({super.key, required this.ctrl});
