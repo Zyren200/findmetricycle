@@ -4,7 +4,8 @@ const SELECT_FIELDS = `
   c.*,
   reporter.full_name AS reporter_name,
   reporter.phone AS reporter_phone,
-  reported.full_name AS reported_user_name
+  reported.full_name AS reported_user_name,
+  resolver.full_name AS resolved_by_name
 `;
 
 async function createComplaint({
@@ -31,6 +32,7 @@ async function findById(id, client = db) {
       FROM complaints c
       JOIN users reporter ON reporter.id = c.reporter_id
       LEFT JOIN users reported ON reported.id = c.reported_user_id
+      LEFT JOIN users resolver ON resolver.id = c.resolved_by
       WHERE c.id = ? AND c.deleted_at IS NULL
       LIMIT 1
     `,
@@ -56,6 +58,7 @@ async function listForAdmin({ status, limit = 50, offset = 0 } = {}, client = db
       FROM complaints c
       JOIN users reporter ON reporter.id = c.reporter_id
       LEFT JOIN users reported ON reported.id = c.reported_user_id
+      LEFT JOIN users resolver ON resolver.id = c.resolved_by
       WHERE ${conditions.join(" AND ")}
       ORDER BY (c.status = 'open') DESC, c.created_at DESC
       LIMIT ? OFFSET ?

@@ -4,6 +4,7 @@ const env = require("./config/env");
 const { initSocket } = require("./sockets");
 const db = require("./config/db");
 const rideOfferScheduler = require("./services/ride-offer-scheduler.service");
+const sosEscalationScheduler = require("./services/sos-escalation-scheduler.service");
 const barangayService = require("./services/barangay.service");
 
 const server = http.createServer(app);
@@ -19,6 +20,7 @@ async function bootstrap() {
       console.log(`FindMeTricycle API running on http://localhost:${env.port}`);
     });
     rideOfferScheduler.start();
+    sosEscalationScheduler.start();
   } catch (error) {
     console.error(
       "Failed to start server:",

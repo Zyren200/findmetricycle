@@ -8,11 +8,14 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "migrate": "node scripts/run-migrations.js",
+    "service-area:update": "node scripts/update-service-area.js",
+    "service-area:export": "node scripts/export-service-area.js",
     "create-admin": "node scripts/create-admin.js",
     "test": "jest --runInBand",
     "lint": "eslint src scripts tests"
   },
   "dependencies": {
+    "@turf/boolean-point-in-polygon": "^7.4.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

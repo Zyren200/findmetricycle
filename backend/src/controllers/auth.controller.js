@@ -1,4 +1,5 @@
 const authService = require("../services/auth.service");
+const { describeAdmin } = require("../services/admin-access.service");
 
 async function registerPassenger(req, res, next) {
   try {
@@ -67,7 +68,7 @@ async function verifyAdminOtp(req, res, next) {
 
 async function requestAdminPasswordReset(req, res, next) {
   try {
-    const result = await authService.requestAdminPasswordReset();
+    const result = await authService.requestAdminPasswordReset(req.body.email);
     res.json({ success: true, ...result });
   } catch (error) {
     next(error);
@@ -76,7 +77,7 @@ async function requestAdminPasswordReset(req, res, next) {
 
 async function verifyAdminPasswordResetOtp(req, res, next) {
   try {
-    const result = await authService.verifyAdminPasswordResetOtp(req.body.code);
+    const result = await authService.verifyAdminPasswordResetOtp(req.body.email, req.body.code);
     res.json({ success: true, ...result });
   } catch (error) {
     next(error);
@@ -85,7 +86,7 @@ async function verifyAdminPasswordResetOtp(req, res, next) {
 
 async function resetAdminPassword(req, res, next) {
   try {
-    const result = await authService.resetAdminPassword(req.body.newPassword);
+    const result = await authService.resetAdminPassword(req.body.email, req.body.code, req.body.newPassword);
     res.json({ success: true, ...result });
   } catch (error) {
     next(error);
@@ -156,10 +157,12 @@ async function logoutAll(req, res, next) {
   }
 }
 
+// For an admin, also their role and permission list (authMiddleware has
+// already loaded them and refused a disabled admin).
 function me(req, res) {
   res.json({
     success: true,
-    data: req.user,
+    data: req.admin ? { ...req.user, admin: describeAdmin(req.admin) } : req.user,
   });
 }
 

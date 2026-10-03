@@ -3,7 +3,7 @@ const authController = require("../controllers/auth.controller");
 const authMiddleware = require("../middlewares/auth.middleware");
 const validate = require("../middlewares/validate.middleware");
 const authSchema = require("../validations/auth.schema");
-const { authLimiter, loginLimiter } = require("../middlewares/rate-limit.middleware");
+const { authLimiter, loginLimiter, otpPerEmailLimiter } = require("../middlewares/rate-limit.middleware");
 
 const router = express.Router();
 
@@ -29,6 +29,7 @@ router.get("/admin/exists", authController.adminExists);
 router.post(
   "/admin/send-otp",
   authLimiter,
+  otpPerEmailLimiter,
   validate(authSchema.adminSendOtpSchema),
   authController.sendAdminOtp
 );
@@ -44,9 +45,12 @@ router.post(
   validate(authSchema.registerAdminSchema),
   authController.registerAdmin
 );
+// Each admin resets their own password through their own email.
 router.post(
   "/admin/forgot-password/request",
   authLimiter,
+  otpPerEmailLimiter,
+  validate(authSchema.adminForgotPasswordRequestSchema),
   authController.requestAdminPasswordReset
 );
 router.post(

@@ -11,54 +11,14 @@ const upload = require("../middlewares/upload.middleware");
 const { requireCaptcha, signCaptchaSessionToken } = require("../middlewares/captcha.middleware");
 const captchaService = require("../services/captcha.service");
 const ApiError = require("../utils/api-error");
-const { authLimiter, loginLimiter } = require("../middlewares/rate-limit.middleware");
+const {
+  authLimiter,
+  loginLimiter,
+  otpPerEmailLimiter,
+  otpPerUserLimiter,
+} = require("../middlewares/rate-limit.middleware");
 
 const router = express.Router();
-
-// Sending an email costs a Brevo credit and can be aimed at someone else's
-// inbox, so OTP dispatch is capped much tighter than normal auth traffic —
-// per IP, and independently per email address to stop one IP from farming
-// codes across many accounts or one target's inbox being flooded from many IPs.
-const otpEmailTargets = new Map(); // email -> array of send timestamps
-const OTP_EMAIL_WINDOW_MS = 15 * 60 * 1000;
-const OTP_EMAIL_MAX = 3;
-
-function otpPerEmailLimiter(req, res, next) {
-  return limitOtpForEmail(req.body?.email, res, next);
-}
-
-// Same budget, keyed on the signed-in user's own email.
-function otpPerUserLimiter(req, res, next) {
-  return limitOtpForEmail(req.user?.email, res, next);
-}
-
-function limitOtpForEmail(rawEmail, res, next) {
-  const email = String(rawEmail || "").toLowerCase().trim();
-  if (!email) return next();
-
-  const now = Date.now();
-  const hits = (otpEmailTargets.get(email) || []).filter((t) => now - t < OTP_EMAIL_WINDOW_MS);
-
-  if (hits.length >= OTP_EMAIL_MAX) {
-    return res.status(429).json({
-      success: false,
-      message: "Too many codes requested for this email. Please wait a few minutes and try again.",
-    });
-  }
-
-  hits.push(now);
-  otpEmailTargets.set(email, hits);
-  next();
-}
-
-// Drop emails whose window has fully elapsed so the map doesn't grow
-// forever on a long-running server.
-setInterval(() => {
-  const cutoff = Date.now() - OTP_EMAIL_WINDOW_MS;
-  for (const [email, hits] of otpEmailTargets) {
-    if (hits.every((t) => t < cutoff)) otpEmailTargets.delete(email);
-  }
-}, OTP_EMAIL_WINDOW_MS).unref();
 
 const otpIpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

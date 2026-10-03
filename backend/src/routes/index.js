@@ -7,6 +7,7 @@ const adminRoutes = require("./admin.routes");
 const favoritesRoutes = require("./favorites.routes");
 const documentsRoutes = require("./documents.routes");
 const devicesRoutes = require("./devices.routes");
+const serviceAreaRoutes = require("./service-area.routes");
 
 const router = express.Router();
 
@@ -51,5 +52,6 @@ router.use("/driver", driverRoutes);
 router.use("/admin", adminRoutes);
 router.use("/documents", documentsRoutes);
 router.use("/devices", devicesRoutes);
+router.use("/service-area", serviceAreaRoutes);
 
 module.exports = router;

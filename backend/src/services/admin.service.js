@@ -12,7 +12,9 @@ const statusHistoryModel = require("../models/application-status-history.model")
 const db = require("../config/db");
 const ApiError = require("../utils/api-error");
 const barangayService = require("./barangay.service");
+const serviceAreaService = require("./service-area.service");
 const systemSettingsService = require("./system-settings.service");
+const { PERMISSIONS: P } = require("../constants/admin-permissions");
 
 async function listPendingDrivers(status = "pending") {
   const [applications, counts] = await Promise.all([
@@ -344,51 +346,69 @@ async function getLiveMapData() {
   };
 }
 
-async function getDashboardSummary() {
+// Each figure is included only when the admin's permissions cover it, and
+// its query is skipped otherwise — an SOS Responder's dashboard never
+// carries earnings, passenger counts or driver applications.
+async function getDashboardSummary(permissions = []) {
+  const can = (permission) => permissions.includes(permission);
+  const canRides = can(P.BOOKINGS_VIEW) || can(P.RIDES_VIEW);
+  const canDrivers = can(P.DRIVERS_VIEW);
+  const canOnlineDrivers = canDrivers || can(P.LIVE_MAP_VIEW);
+  const canApplications = can(P.DRIVER_APPLICATIONS_VIEW);
+
   const [counts, onlineDrivers, allDrivers, rideHistory, passengers, pendingDrivers, licenses, recentApplications, sosAlerts] =
     await Promise.all([
-      bookingModel.getDashboardCounts(),
-      driverModel.listOnlineDriversForAdmin(),
-      driverModel.listAllForAdmin(),
-      bookingModel.listRideHistory(20),
-      userModel.listPassengersForAdmin(),
-      driverApplicationModel.listPendingApplications(),
-      driverModel.listDriversWithExpiringLicenses(30),
-      driverApplicationModel.listRecent(5),
-      listSosAlerts(),
+      canRides || can(P.EARNINGS_VIEW) ? bookingModel.getDashboardCounts() : null,
+      canOnlineDrivers ? driverModel.listOnlineDriversForAdmin() : null,
+      canDrivers ? driverModel.listAllForAdmin() : null,
+      canRides ? bookingModel.listRideHistory(20) : null,
+      can(P.USERS_VIEW) ? userModel.listPassengersForAdmin() : null,
+      canApplications ? driverApplicationModel.listPendingApplications() : null,
+      canDrivers ? driverModel.listDriversWithExpiringLicenses(30) : null,
+      canApplications ? driverApplicationModel.listRecent(5) : null,
+      can(P.SOS_VIEW) ? listSosAlerts() : null,
     ]);
 
   const statusOf = (ride) => String(ride.status || "").toLowerCase();
+  const summary = {};
 
-  return {
-    totalRides: counts.totalRides,
-    dailyEarnings: counts.dailyEarnings,
-    activeDrivers: onlineDrivers.length,
-    onlineDrivers: onlineDrivers.length,
-    totalDrivers: allDrivers.length,
-    approvedDrivers: allDrivers.filter((d) => d.approval_status === "approved").length,
-    totalPassengers: passengers.length,
-    pendingApplications: pendingDrivers.length,
-    ongoingRides: rideHistory.filter((ride) => ["pending", "accepted", "ongoing"].includes(statusOf(ride))).length,
-    completedRidesToday: counts.completedRidesToday,
-    cancelledRidesToday: counts.cancelledRidesToday,
-    todaysBookings: counts.todaysBookings,
-    sosAlerts: sosAlerts.filter((alert) => alert.status === "active").length,
-    rideHistory,
-    recentBookings: rideHistory.slice(0, 5),
-    recentDriverRegistrations: recentApplications,
-    licenseExpiringSoon: licenses.length,
-  };
+  if (canRides) {
+    summary.totalRides = counts.totalRides;
+    summary.ongoingRides = rideHistory.filter((ride) => ["pending", "accepted", "ongoing"].includes(statusOf(ride))).length;
+    summary.completedRidesToday = counts.completedRidesToday;
+    summary.cancelledRidesToday = counts.cancelledRidesToday;
+    summary.todaysBookings = counts.todaysBookings;
+    summary.rideHistory = rideHistory;
+    summary.recentBookings = rideHistory.slice(0, 5);
+  }
+  if (can(P.EARNINGS_VIEW)) summary.dailyEarnings = counts.dailyEarnings;
+  if (canOnlineDrivers) {
+    summary.activeDrivers = onlineDrivers.length;
+    summary.onlineDrivers = onlineDrivers.length;
+  }
+  if (canDrivers) {
+    summary.totalDrivers = allDrivers.length;
+    summary.approvedDrivers = allDrivers.filter((d) => d.approval_status === "approved").length;
+    summary.licenseExpiringSoon = licenses.length;
+  }
+  if (can(P.USERS_VIEW)) summary.totalPassengers = passengers.length;
+  if (canApplications) {
+    summary.pendingApplications = pendingDrivers.length;
+    summary.recentDriverRegistrations = recentApplications;
+  }
+  if (can(P.SOS_VIEW)) summary.sosAlerts = sosAlerts.filter((alert) => alert.status === "active").length;
+
+  return summary;
 }
 
-async function getRideActivity(days = 7) {
+async function getRideActivity(days = 7, { includeEarnings = true } = {}) {
   const rows = await bookingModel.getRideActivity(days);
   return rows.map((row) => ({
     date: row.date,
     total: Number(row.total || 0),
     completed: Number(row.completed || 0),
     cancelled: Number(row.cancelled || 0),
-    earnings: Number(row.earnings || 0),
+    ...(includeEarnings ? { earnings: Number(row.earnings || 0) } : {}),
   }));
 }
 
@@ -605,39 +625,60 @@ async function getBookingDetail(bookingId) {
   };
 }
 
-async function listComplaints() {
-  const rows = await complaintModel.listForAdmin({ limit: 100, offset: 0 });
-  return rows.map((row) => ({
+function toComplaintView(row) {
+  return {
     id: row.id,
     reporter: row.reporter_name || "Unknown",
-    reportedUser: row.reported_user_name || "-",
+    reporterPhone: row.reporter_phone || null,
+    reportedUser: row.reported_user_name || null,
     rideId: row.booking_id,
     category: row.category,
     description: row.description,
     status: row.status,
     createdAt: row.created_at,
-  }));
+    resolutionNote: row.resolution_note || null,
+    resolvedAt: row.resolved_at || null,
+    resolvedByName: row.resolved_by_name || null,
+  };
 }
 
-async function resolveComplaint(complaintId, adminUserId) {
-  const row = await complaintModel.resolveComplaint(complaintId, adminUserId, { status: "resolved" });
-  if (!row) {
-    throw new ApiError(404, "Complaint not found.");
+async function listComplaints() {
+  const rows = await complaintModel.listForAdmin({ limit: 100, offset: 0 });
+  return rows.map(toComplaintView);
+}
+
+// Closes an open report as resolved (acted on) or dismissed (no action
+// needed), with an optional note on what was done.
+async function resolveComplaint(complaintId, adminUserId, { status = "resolved", note = null } = {}) {
+  const existing = await complaintModel.findById(complaintId);
+  if (!existing) {
+    throw new ApiError(404, "Report not found.");
   }
-  return row;
+  if (existing.status !== "open") {
+    throw new ApiError(409, `This report is already ${existing.status}.`);
+  }
+  const row = await complaintModel.resolveComplaint(complaintId, adminUserId, {
+    status,
+    resolutionNote: note ? String(note).trim() || null : null,
+  });
+  return toComplaintView(row);
 }
 
 async function listSosAlerts() {
   return sosService.listForAdmin();
 }
 
-async function resolveSosAlert(sosId, adminUserId) {
-  return sosService.resolveForAdmin(sosId, adminUserId);
+async function acknowledgeSosAlert(sosId, admin) {
+  return sosService.acknowledgeForAdmin(sosId, admin);
+}
+
+async function resolveSosAlert(sosId, admin, note) {
+  return sosService.resolveForAdmin(sosId, admin, note);
 }
 
 async function getActivityLogs(limit = 100, offset = 0) {
   const query = `
-    SELECT al.id, al.created_at, u.full_name as admin_name, al.action, al.target_type, al.target_id, al.metadata_json
+    SELECT al.id, al.created_at, COALESCE(al.admin_name, u.full_name) AS admin_name, al.action, al.target_type, al.target_id, al.metadata_json
     FROM activity_logs al
     LEFT JOIN users u ON al.admin_id = u.id
     ORDER BY al.created_at DESC
@@ -674,6 +715,11 @@ async function updateBarangay(barangayId, changes, adminUserId) {
   const isEnabled = changes.is_enabled ?? Boolean(existing.is_enabled);
   const lat = changes.lat ?? existing.lat;
   const lng = changes.lng ?? existing.lng;
+  // A moved pin has to land inside Guiuan's boundary (always, whatever
+  // GEOFENCE_ENABLED says): pins decide which barangay a point belongs to.
+  if (changes.lat !== undefined || changes.lng !== undefined) {
+    serviceAreaService.assertPinInsideBoundary(lat, lng);
+  }
   await db.query("UPDATE barangays SET is_enabled = ?, lat = ?, lng = ? WHERE id = ?", [
     isEnabled ? 1 : 0,
     lat,
@@ -689,9 +735,16 @@ async function updateBarangay(barangayId, changes, adminUserId) {
   if (changes.lat !== undefined || changes.lng !== undefined) actions.push("Barangay Pin Moved");
   for (const action of actions) {
     await db.query(
-      `INSERT INTO activity_logs (admin_id, action, target_type, target_id, metadata_json)
-       VALUES (?, ?, ?, ?, ?)`,
-      [adminUserId, action, "barangay", barangayId, JSON.stringify({ barangayName: existing.name, isEnabled, lat, lng })]
+      `INSERT INTO activity_logs (admin_id, admin_name, action, target_type, target_id, metadata_json)
+       VALUES (?, (SELECT full_name FROM users WHERE id = ?), ?, ?, ?, ?)`,
+      [
+        adminUserId,
+        adminUserId,
+        action,
+        "barangay",
+        barangayId,
+        JSON.stringify({ barangayName: existing.name, isEnabled, lat, lng }),
+      ]
     );
   }
 
@@ -733,6 +786,7 @@ module.exports = {
   listComplaints,
   resolveComplaint,
   listSosAlerts,
+  acknowledgeSosAlert,
   resolveSosAlert,
   getActivityLogs,
   listBarangays,

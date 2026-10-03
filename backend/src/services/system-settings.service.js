@@ -119,9 +119,9 @@ async function updateSettings(settings, adminUserId) {
   );
 
   await db.query(
-    `INSERT INTO activity_logs (admin_id, action, target_type, metadata_json)
-     VALUES (?, ?, ?, ?)`,
-    [adminUserId, "System Settings Updated", "settings", JSON.stringify(settings)]
+    `INSERT INTO activity_logs (admin_id, admin_name, action, target_type, metadata_json)
+     VALUES (?, (SELECT full_name FROM users WHERE id = ?), ?, ?, ?)`,
+    [adminUserId, adminUserId, "System Settings Updated", "settings", JSON.stringify(settings)]
   );
 
   invalidateCache();

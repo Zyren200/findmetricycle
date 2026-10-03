@@ -2,6 +2,8 @@ const jwt = require("jsonwebtoken");
 const env = require("../config/env");
 const ApiError = require("../utils/api-error");
 const userModel = require("../models/user.model");
+const roles = require("../constants/roles");
+const { loadAdminContext } = require("../services/admin-access.service");
 
 async function authMiddleware(req, _res, next) {
   try {
@@ -27,6 +29,16 @@ async function authMiddleware(req, _res, next) {
 
     if (user.status === "suspended" || user.status === "rejected") {
       throw new ApiError(403, "Account is not active.");
+    }
+
+    // A disabled admin's unexpired access token stops working everywhere,
+    // not just on /admin routes. 401 makes the dashboard sign them out.
+    if (user.role === roles.ADMIN) {
+      const admin = await loadAdminContext(user.id);
+      if (!admin || admin.status !== "active") {
+        throw new ApiError(401, "This admin account has been disabled.");
+      }
+      req.admin = admin;
     }
 
     req.user = {

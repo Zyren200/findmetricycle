@@ -172,6 +172,10 @@ async function updateLocation(driverId, lat, lng) {
 // older than this treated as effectively offline for matching purposes,
 // regardless of what is_online still says in the DB.
 const STALE_LOCATION_SECONDS = 60;
+// "Really online": the flag is on and a location arrived recently. Used for
+// matching and for what the admin dashboard calls online, so a driver whose
+// app was killed doesn't show as online forever.
+const ONLINE_NOW_SQL = `d.is_online = 1 AND d.last_location_update >= DATE_SUB(NOW(), INTERVAL ${STALE_LOCATION_SECONDS} SECOND)`;
 
 async function getApprovedOnlineDriversWithLocation() {
   return db.query(
@@ -183,7 +187,7 @@ async function getApprovedOnlineDriversWithLocation() {
         AND d.is_online = 1
         AND d.current_lat IS NOT NULL
         AND d.current_lng IS NOT NULL
-        AND d.last_location_update >= DATE_SUB(NOW(), INTERVAL ${STALE_LOCATION_SECONDS} SECOND)
+        AND ${ONLINE_NOW_SQL}
         AND d.deleted_at IS NULL
         AND u.deleted_at IS NULL
     `
@@ -396,7 +400,7 @@ async function listOnlineDriversForAdmin() {
       FROM drivers d
       JOIN users u ON u.id = d.user_id
       WHERE d.approval_status = 'approved'
-        AND d.is_online = 1
+        AND ${ONLINE_NOW_SQL}
         AND d.deleted_at IS NULL
         AND u.deleted_at IS NULL
     `
@@ -420,7 +424,7 @@ async function listAllForAdmin() {
         d.license_holder_name,
         d.license_image_url,
         d.business_permit_image_url,
-        d.is_online,
+        COALESCE((${ONLINE_NOW_SQL}), 0) AS is_online,
         d.current_lat,
         d.current_lng,
         d.rating_avg,

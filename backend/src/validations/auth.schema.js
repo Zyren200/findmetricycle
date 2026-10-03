@@ -47,14 +47,24 @@ const adminVerifyOtpSchema = z.object({
   }),
 });
 
+// Each admin resets their own password through their own email.
+const adminForgotPasswordRequestSchema = z.object({
+  body: z.object({
+    email: z.string().trim().email().max(120),
+  }),
+});
+
 const adminForgotPasswordVerifySchema = z.object({
   body: z.object({
+    email: z.string().trim().email().max(120),
     code: z.string().trim().regex(/^\d{6}$/, "Code must be 6 digits"),
   }),
 });
 
 const adminForgotPasswordResetSchema = z.object({
   body: z.object({
+    email: z.string().trim().email().max(120),
+    code: z.string().trim().regex(/^\d{6}$/, "Code must be 6 digits"),
     newPassword: z.string().min(8).max(100),
   }),
 });
@@ -67,6 +77,7 @@ module.exports = {
   registerAdminSchema,
   adminSendOtpSchema,
   adminVerifyOtpSchema,
+  adminForgotPasswordRequestSchema,
   adminForgotPasswordVerifySchema,
   adminForgotPasswordResetSchema,
 };

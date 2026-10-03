@@ -1,5 +1,10 @@
 const notificationModel = require("../models/notification.model");
 const pushService = require("./push.service");
+const {
+  notificationPermission,
+  permissionRoom,
+  visibleNotificationTypes,
+} = require("../constants/admin-permissions");
 
 function sanitize(n) {
   if (!n) return null;
@@ -32,8 +37,10 @@ async function createNotification(payload) {
     const { getIO } = require("../sockets");
     const io = getIO();
 
-    if (["admin", "everyone"].includes(payload.recipientRole || "everyone")) {
-      io.to("role:admin").emit("admin:notification_created", sanitized);
+    // Shared admin-feed rows only, and only to the admins whose
+    // permissions cover this type (the same rule the feed itself uses).
+    if (!payload.userId && ["admin", "everyone"].includes(payload.recipientRole || "everyone")) {
+      io.to(permissionRoom(notificationPermission(sanitized.type))).emit("admin:notification_created", sanitized);
     }
 
     // A notification addressed to one user (driver or passenger) should
@@ -80,22 +87,32 @@ async function listAnnouncements({ limit = 50 } = {}) {
   return rows.map(sanitize);
 }
 
-async function listNotifications(filters = {}) {
-  const rows = await notificationModel.listNotifications(filters);
+// The admin feed is per admin: only the types their permissions cover,
+// with their own read state. `admin` is req.admin.
+function adminViewer(admin) {
+  return {
+    userId: admin.userId,
+    since: admin.since,
+    types: visibleNotificationTypes(admin.permissions),
+  };
+}
+
+async function listForAdmin(admin, filters = {}) {
+  const rows = await notificationModel.listForAdmin(adminViewer(admin), filters);
   return rows.map(sanitize);
 }
 
-async function markRead(id) {
-  const row = await notificationModel.markRead(id);
+async function markReadForAdmin(admin, id) {
+  const row = await notificationModel.markReadForAdmin(adminViewer(admin), id);
   return sanitize(row);
 }
 
-async function countUnreadForAdmin() {
-  return notificationModel.countUnreadForAdmin();
+async function countUnreadForAdmin(admin) {
+  return notificationModel.countUnreadForAdmin(adminViewer(admin));
 }
 
-async function markAllRead() {
-  await notificationModel.markAllRead();
+async function markAllReadForAdmin(admin) {
+  await notificationModel.markAllReadForAdmin(adminViewer(admin));
   return true;
 }
 
@@ -103,8 +120,8 @@ module.exports = {
   createAnnouncement,
   listAnnouncements,
   createNotification,
-  listNotifications,
-  markRead,
-  markAllRead,
+  listForAdmin,
+  markReadForAdmin,
+  markAllReadForAdmin,
   countUnreadForAdmin,
 };

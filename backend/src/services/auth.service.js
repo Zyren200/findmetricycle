@@ -11,8 +11,16 @@ const parseDurationMs = require("../utils/parse-duration-ms");
 const sanitizeUser = require("../utils/sanitize-user");
 const db = require("../config/db");
 const authV2Service = require("./auth.v2.service");
+const adminAccountModel = require("../models/admin-account.model");
+const { loadAdminContext, describeAdmin, signOutEverywhere } = require("./admin-access.service");
+const { ADMIN_ROLES } = require("../constants/admin-permissions");
+const { createFailureLimiter } = require("../utils/failure-limiter");
 
 const refreshDurationMs = parseDurationMs(env.jwt.refreshExpiresIn) || 30 * 24 * 60 * 60 * 1000;
+
+// Wrong passwords per admin account, on top of the per-IP login limiter, so
+// one admin can't be brute-forced from many addresses.
+const adminLoginFailures = createFailureLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
 
 function signAccessToken(user) {
   return jwt.sign({ userId: user.id, role: user.role, type: "access" }, env.jwt.secret, {
@@ -50,8 +58,15 @@ async function issueAuthPayload(user, options = {}) {
     client
   );
 
+  // Admins also get their role and permission list; the dashboard builds
+  // its menus from it (the server still checks every request).
+  const sanitized = sanitizeUser(user);
+  if (user.role === roles.ADMIN) {
+    sanitized.admin = describeAdmin(options.adminContext || (await loadAdminContext(user.id, client)));
+  }
+
   return {
-    user: sanitizeUser(user),
+    user: sanitized,
     token: accessToken,
     accessToken,
     refreshToken,
@@ -116,7 +131,10 @@ async function assertNoAdminExists(client = db) {
     "SELECT COUNT(*) as count FROM admins a JOIN users u ON u.id = a.user_id WHERE u.deleted_at IS NULL"
   );
   if (Number(count) > 0) {
-    throw new ApiError(409, "An admin account already exists. Only one admin account is allowed.");
+    throw new ApiError(
+      409,
+      "An admin account already exists. New admins are added by a Super Admin from Admin Accounts."
+    );
   }
 }
 
@@ -179,34 +197,43 @@ async function registerAdmin(payload) {
       client
     );
 
-    await userModel.createAdminProfile(user.id, client);
+    // The very first admin sets up the system, so they're a Super Admin.
+    await adminAccountModel.createProfile(user.id, { role: ADMIN_ROLES.SUPER_ADMIN, passwordSet: true }, client);
+    const adminContext = await loadAdminContext(user.id, client);
 
     // Consume the registration OTP so it can't double as a pre-verified
     // code for the forgot-password flow right after signup.
     await client.query("DELETE FROM otp_codes WHERE email = ?", [email]);
 
-    return issueAuthPayload(user, { client });
+    return issueAuthPayload(user, { client, adminContext });
   });
 }
 
-async function getRegisteredAdminEmail() {
-  const rows = await db.query(
-    "SELECT u.email FROM admins a JOIN users u ON u.id = a.user_id WHERE u.deleted_at IS NULL LIMIT 1"
-  );
-  const email = rows[0]?.email || null;
+// Admin forgot-password works on the admin's own email: every admin has
+// one, so the address typed in decides whose password is reset. Only
+// active admin accounts qualify — a passenger's email gets nothing here.
+async function findResettableAdmin(rawEmail) {
+  const email = String(rawEmail || "").trim();
   if (!email) {
-    throw new ApiError(404, "No admin account exists.");
+    throw new ApiError(400, "Email is required.", { field: "email" });
   }
-  return email;
+  const admin = await adminAccountModel.findByEmail(email);
+  if (!admin) {
+    throw new ApiError(404, "No admin account uses this email.", { field: "email" });
+  }
+  if (admin.status !== "active") {
+    throw new ApiError(403, "This admin account has been disabled.", { field: "email" });
+  }
+  return { email, admin };
 }
 
-async function requestAdminPasswordReset() {
-  const email = await getRegisteredAdminEmail();
+async function requestAdminPasswordReset(rawEmail) {
+  const { email } = await findResettableAdmin(rawEmail);
   return authV2Service.requestPasswordReset(email);
 }
 
-async function verifyAdminPasswordResetOtp(code) {
-  const email = await getRegisteredAdminEmail();
+async function verifyAdminPasswordResetOtp(rawEmail, code) {
+  const { email } = await findResettableAdmin(rawEmail);
   try {
     await authV2Service.verifyOTP(email, code, authV2Service.PASSWORD_RESET_PURPOSE);
     return { success: true, message: "Code verified." };
@@ -215,32 +242,38 @@ async function verifyAdminPasswordResetOtp(code) {
   }
 }
 
-async function resetAdminPassword(newPassword) {
-  const email = await getRegisteredAdminEmail();
+function codeMatches(expected, actual) {
+  const a = Buffer.from(String(expected || ""));
+  const b = Buffer.from(String(actual || ""));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+async function resetAdminPassword(rawEmail, code, newPassword) {
+  const { email, admin } = await findResettableAdmin(rawEmail);
 
   // Only a verified *password reset* code counts — a registration code
-  // for the same address must not unlock this.
-  const latestOtp = await db.query(
-    "SELECT is_verified, verified_at FROM otp_codes WHERE email = ? AND purpose = ? ORDER BY id DESC LIMIT 1",
+  // for the same address must not unlock this — and the code has to be
+  // sent again here, so knowing the email alone is never enough.
+  const [otp] = await db.query(
+    "SELECT code, is_verified, verified_at FROM otp_codes WHERE email = ? AND purpose = ? ORDER BY id DESC LIMIT 1",
     [email, authV2Service.PASSWORD_RESET_PURPOSE]
   );
   const isVerified =
-    latestOtp.length > 0 &&
-    Number(latestOtp[0].is_verified) === 1 &&
-    new Date(latestOtp[0].verified_at).getTime() > Date.now() - 30 * 60 * 1000;
+    Boolean(otp) &&
+    Number(otp.is_verified) === 1 &&
+    new Date(otp.verified_at).getTime() > Date.now() - 30 * 60 * 1000 &&
+    codeMatches(otp.code, code);
   if (!isVerified) {
     throw new ApiError(400, "Please verify the code sent to your email first.");
   }
 
-  const user = await userModel.findByEmail(email);
-  if (!user) {
-    throw new ApiError(404, "Admin account not found.");
-  }
-
   const passwordHash = await bcrypt.hash(newPassword, 12);
-  await userModel.updatePasswordHash(user.id, passwordHash);
+  await userModel.updatePasswordHash(admin.user_id, passwordHash);
+  await adminAccountModel.markPasswordSet(admin.user_id);
   await db.query("DELETE FROM otp_codes WHERE email = ?", [email]);
-  await refreshTokenModel.revokeAllByUserId(user.id);
+  // Every session on the old password ends, sockets included.
+  await signOutEverywhere(admin.user_id);
+  adminLoginFailures.reset(String(admin.user_id));
 
   return { success: true, message: "Password updated successfully." };
 }
@@ -262,8 +295,15 @@ async function login({ email, phone, password }) {
     );
   }
 
+  const isAdmin = user.role === roles.ADMIN;
+  const failureKey = String(user.id);
+  if (isAdmin && adminLoginFailures.isBlocked(failureKey)) {
+    throw new ApiError(429, "Too many failed login attempts for this account. Please try again in 15 minutes.");
+  }
+
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) {
+    if (isAdmin) adminLoginFailures.recordFailure(failureKey);
     throw new ApiError(401, "Invalid password. Please try again.", { field: "password" });
   }
 
@@ -273,6 +313,16 @@ async function login({ email, phone, password }) {
 
   if (user.status !== "active") {
     throw new ApiError(403, `Account is ${user.status}.`);
+  }
+
+  if (isAdmin) {
+    const adminContext = await loadAdminContext(user.id);
+    if (!adminContext || adminContext.status !== "active") {
+      throw new ApiError(403, "This admin account has been disabled.");
+    }
+    adminLoginFailures.reset(failureKey);
+    await adminAccountModel.touchLastLogin(user.id);
+    return issueAuthPayload(user, { adminContext });
   }
 
   return issueAuthPayload(user);
@@ -310,8 +360,17 @@ async function refreshAccessToken({ refreshToken }) {
     throw new ApiError(403, "Account is not active.");
   }
 
+  let adminContext;
+  if (user.role === roles.ADMIN) {
+    adminContext = await loadAdminContext(user.id);
+    if (!adminContext || adminContext.status !== "active") {
+      await refreshTokenModel.revokeAllByUserId(user.id);
+      throw new ApiError(401, "This admin account has been disabled.");
+    }
+  }
+
   await refreshTokenModel.revokeTokenByHash(tokenHash);
-  return issueAuthPayload(user);
+  return issueAuthPayload(user, { adminContext });
 }
 
 async function logout({ refreshToken }) {

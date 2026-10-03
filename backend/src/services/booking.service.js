@@ -9,8 +9,7 @@ const { haversineKm } = require("../utils/haversine");
 const { calculateFare, calculateFareBreakdown } = require("../utils/fare");
 const { decorateBookingRecord } = require("../utils/ride-progress");
 const ApiError = require("../utils/api-error");
-const env = require("../config/env");
-const { isInsideGeofence } = require("../utils/geofence");
+const serviceAreaService = require("./service-area.service");
 const notificationService = require("./notification.service");
 const { MIN_PASSENGERS, MAX_PASSENGERS } = require("../constants/fare");
 const { toPublicDriver } = require("../utils/public-driver");
@@ -107,15 +106,6 @@ async function createBookingAndFindDriver(payload) {
     throw new ApiError(400, "Valid pickup/drop-off latitude and longitude are required.");
   }
 
-  // Enforced here (not as route middleware) so the socket find_ride path
-  // is covered too.
-  if (env.geofence.enabled) {
-    const [pickupLat, pickupLng, dropoffLat, dropoffLng] = coords;
-    if (!isInsideGeofence(pickupLat, pickupLng) || !isInsideGeofence(dropoffLat, dropoffLng)) {
-      throw new ApiError(403, "Service is only available within Guiuan area.");
-    }
-  }
-
   const active = await bookingModel.findActiveByPassenger(payload.passengerId);
   if (active) {
     let activeDriver = null;
@@ -137,6 +127,11 @@ async function createBookingAndFindDriver(payload) {
   // After the active-booking check, so a ride already under way can always
   // be resumed even if the admin has since closed its area or hours.
   await systemSettingsService.assertOpenForBooking();
+  // Guiuan's boundary (or the older radius), when GEOFENCE_ENABLED is on.
+  // Checked here rather than as route middleware so the socket find_ride
+  // path is covered too; Barangay Coverage still runs right after.
+  const [pickupLat, pickupLng, dropoffLat, dropoffLng] = coords;
+  serviceAreaService.assertBookingInsideServiceArea({ pickupLat, pickupLng, dropoffLat, dropoffLng });
   await barangayService.assertBookableLocations({
     pickupLat: coords[0],
     pickupLng: coords[1],

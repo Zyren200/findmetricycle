@@ -33,6 +33,11 @@ module.exports = {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean),
+  // Where admins sign in; linked from the emails new admins receive.
+  // Optional — without it the email just names the admin dashboard.
+  adminDashboardUrl: /^https?:\/\//i.test(process.env.ADMIN_DASHBOARD_URL || "")
+    ? process.env.ADMIN_DASHBOARD_URL.trim()
+    : "",
 
   db: {
     host: process.env.DB_HOST,
@@ -56,8 +61,13 @@ module.exports = {
 
   geofence: {
     // Off unless GEOFENCE_ENABLED=true, so local testing from outside the
-    // service area keeps working.
+    // service area keeps working. Turn it on in production.
     enabled: process.env.GEOFENCE_ENABLED === "true",
+    // "polygon": Guiuan's municipal boundary (data/service-area); "radius":
+    // the older circle around GEOFENCE_CENTER_*.
+    mode: process.env.GEOFENCE_MODE === "radius" ? "radius" : "polygon",
+    // Tolerance outside the boundary for GPS error along borders and coasts.
+    bufferMeters: Math.max(0, Number(process.env.GEOFENCE_BUFFER_METERS ?? 300) || 0),
     centerLat: Number(process.env.GEOFENCE_CENTER_LAT || 11.033),
     centerLng: Number(process.env.GEOFENCE_CENTER_LNG || 125.722),
     radiusKm: Number(process.env.GEOFENCE_RADIUS_KM || 50),

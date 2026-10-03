@@ -6,6 +6,7 @@ const sosService = require("../services/sos.service");
 const complaintService = require("../services/complaint.service");
 const { decorateBookingRecord } = require("../utils/ride-progress");
 const { getIO } = require("../sockets");
+const { PERMISSIONS, permissionRoom } = require("../constants/admin-permissions");
 
 async function setOnlineStatus(req, res, next) {
   try {
@@ -52,7 +53,7 @@ async function updateLocation(req, res, next) {
         });
       }
 
-      getIO().to("role:admin").emit("admin:driver_location", {
+      getIO().to(permissionRoom(PERMISSIONS.LIVE_MAP_VIEW)).emit("admin:driver_location", {
         driverId: driver.id,
         lat: Number(driver.current_lat),
         lng: Number(driver.current_lng),

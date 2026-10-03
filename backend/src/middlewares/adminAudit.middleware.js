@@ -32,7 +32,7 @@ function sanitize(obj) {
   return JSON.stringify(clone);
 }
 
-function adminAudit(req, _res, next) {
+function adminAudit(req, res, next) {
   // Only record actions that change state — GET reads would drown the
   // meaningful entries (approvals, suspensions, fare changes) in noise.
   if (req.method === "GET") {
@@ -55,25 +55,32 @@ function adminAudit(req, _res, next) {
       }
     });
 
-    db.query(
-      `
-        INSERT INTO activity_logs
-          (admin_id, action, target_type, target_id, metadata_json, ip_address, user_agent)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        req.user ? req.user.id : null,
-        `${method} ${url}`,
-        inferTargetType(url),
-        inferTargetId(url),
-        body || null,
-        String(ip || '').slice(0, 45),
-        String(req.headers['user-agent'] || '').slice(0, 255),
-      ]
-    ).catch((err) => {
-      if (process.env.NODE_ENV !== 'test') {
-        console.warn('adminAudit database write failed:', err && err.message ? err.message : err);
-      }
+    // Written once the response is out: the permission check runs after
+    // this middleware, and a refused request must not read as if the
+    // action happened.
+    res.on('finish', () => {
+      const denied = res.statusCode === 403;
+      db.query(
+        `
+          INSERT INTO activity_logs
+            (admin_id, admin_name, action, target_type, target_id, metadata_json, ip_address, user_agent)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          req.user ? req.user.id : null,
+          req.user && req.user.fullName ? String(req.user.fullName).slice(0, 120) : null,
+          `${denied ? 'DENIED ' : ''}${method} ${url}`,
+          inferTargetType(url),
+          inferTargetId(url),
+          body || null,
+          String(ip || '').slice(0, 45),
+          String(req.headers['user-agent'] || '').slice(0, 255),
+        ]
+      ).catch((err) => {
+        if (process.env.NODE_ENV !== 'test') {
+          console.warn('adminAudit database write failed:', err && err.message ? err.message : err);
+        }
+      });
     });
   } catch (err) {
     // ignore logging problems

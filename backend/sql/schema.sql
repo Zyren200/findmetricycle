@@ -21,14 +21,26 @@ CREATE TABLE IF NOT EXISTS users (
   INDEX idx_users_driver_approval (driver_approval_status)
 );
 
+-- One row per admin account; role permissions live in
+-- src/constants/admin-permissions.js.
 CREATE TABLE IF NOT EXISTS admins (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL UNIQUE,
+  admin_role ENUM('super_admin', 'operations_admin', 'sos_responder') NOT NULL DEFAULT 'sos_responder',
+  status ENUM('active', 'disabled') NOT NULL DEFAULT 'active',
+  created_by BIGINT UNSIGNED NULL,
+  last_login_at DATETIME NULL,
+  password_set_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at DATETIME NULL,
   CONSTRAINT fk_admin_user
     FOREIGN KEY (user_id) REFERENCES users(id)
     ON DELETE CASCADE
+    ON UPDATE CASCADE,
+  CONSTRAINT fk_admins_created_by
+    FOREIGN KEY (created_by) REFERENCES users(id)
+    ON DELETE SET NULL
     ON UPDATE CASCADE
 );
 
@@ -224,6 +236,20 @@ CREATE TABLE IF NOT EXISTS notifications (
   INDEX idx_notifications_deleted (deleted_at)
 );
 
+-- Admin notifications are shared rows; each admin's read state is here.
+-- No foreign key on notification_id: notifications.id is signed on
+-- databases created by older migrations, and notifications are only ever
+-- soft-deleted, so a read row can't point at a missing notification.
+CREATE TABLE IF NOT EXISTS admin_notification_reads (
+  notification_id BIGINT UNSIGNED NOT NULL,
+  admin_user_id BIGINT UNSIGNED NOT NULL,
+  read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (notification_id, admin_user_id),
+  INDEX idx_admin_notification_reads_admin (admin_user_id),
+  CONSTRAINT fk_admin_notification_reads_admin
+    FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS driver_applications (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
@@ -291,9 +317,16 @@ CREATE TABLE IF NOT EXISTS sos_alerts (
   lat DECIMAL(10, 7) NULL,
   lng DECIMAL(10, 7) NULL,
   message TEXT NULL,
-  status ENUM('active', 'resolved', 'dismissed', 'archived') NOT NULL DEFAULT 'active',
+  -- 'active' is an open alert; one admin acknowledges it, then resolves it.
+  status ENUM('active', 'acknowledged', 'resolved', 'dismissed', 'archived') NOT NULL DEFAULT 'active',
+  acknowledged_by BIGINT UNSIGNED NULL,
+  acknowledged_at DATETIME NULL,
   resolved_by BIGINT UNSIGNED NULL,
   resolved_at DATETIME NULL,
+  resolution_note VARCHAR(500) NULL,
+  escalated_at DATETIME NULL,
+  triggered_by_user_id BIGINT UNSIGNED NULL,
+  triggered_by_role ENUM('passenger', 'driver') NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at DATETIME NULL,
@@ -311,6 +344,14 @@ CREATE TABLE IF NOT EXISTS sos_alerts (
     ON UPDATE CASCADE,
   CONSTRAINT fk_sos_resolved_by
     FOREIGN KEY (resolved_by) REFERENCES users(id)
+    ON DELETE SET NULL
+    ON UPDATE CASCADE,
+  CONSTRAINT fk_sos_acknowledged_by
+    FOREIGN KEY (acknowledged_by) REFERENCES users(id)
+    ON DELETE SET NULL
+    ON UPDATE CASCADE,
+  CONSTRAINT fk_sos_triggered_by
+    FOREIGN KEY (triggered_by_user_id) REFERENCES users(id)
     ON DELETE SET NULL
     ON UPDATE CASCADE,
   INDEX idx_sos_status_created (status, created_at),
@@ -418,6 +459,7 @@ CREATE TABLE IF NOT EXISTS push_tokens (
 CREATE TABLE IF NOT EXISTS activity_logs (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   admin_id BIGINT UNSIGNED NULL,
+  admin_name VARCHAR(120) NULL,
   action VARCHAR(120) NOT NULL,
   target_type VARCHAR(80) NULL,
   target_id BIGINT UNSIGNED NULL,

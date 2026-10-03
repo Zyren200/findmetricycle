@@ -10,6 +10,8 @@ const { hasDriverAccess } = require("../utils/driver-access");
 const { isRateLimited } = require("../utils/socket-rate-limiter");
 const ApiError = require("../utils/api-error");
 const { isAllowedOrigin } = require("../utils/cors-origin");
+const { PERMISSIONS, permissionRoom } = require("../constants/admin-permissions");
+const { loadAdminContext } = require("../services/admin-access.service");
 
 let io = null;
 
@@ -39,8 +41,19 @@ async function socketAuthMiddleware(socket, next) {
       return next(new Error("Invalid socket user."));
     }
 
-    if (user.status !== "active" && user.role !== roles.ADMIN) {
+    if (user.status !== "active") {
       return next(new Error("Inactive account."));
+    }
+
+    // Admins: their own account status and permissions, read fresh — a
+    // disabled admin can't connect, and the rooms joined below decide which
+    // admin events reach them.
+    let admin = null;
+    if (user.role === roles.ADMIN) {
+      admin = await loadAdminContext(user.id);
+      if (!admin || admin.status !== "active") {
+        return next(new Error("Inactive account."));
+      }
     }
 
     socket.user = {
@@ -49,6 +62,7 @@ async function socketAuthMiddleware(socket, next) {
       fullName: user.full_name,
       isDriverAccount: Boolean(user.is_driver_account),
       driverApprovalStatus: user.driver_approval_status || "none",
+      adminPermissions: admin ? admin.permissions : [],
     };
     return next();
   } catch (error) {
@@ -60,6 +74,9 @@ async function onSocketConnection(socket) {
   const user = socket.user;
   socket.join(`user:${user.id}`);
   socket.join(`role:${user.role}`);
+  for (const permission of user.adminPermissions) {
+    socket.join(permissionRoom(permission));
+  }
 
   if (user.role === roles.PASSENGER) {
     socket.join(`passenger:${user.id}`);
@@ -120,7 +137,7 @@ async function onSocketConnection(socket) {
           });
         }
 
-        io.to("role:admin").emit("admin:driver_location", {
+        io.to(permissionRoom(PERMISSIONS.LIVE_MAP_VIEW)).emit("admin:driver_location", {
           driverId: driver.id,
           lat: Number(driver.current_lat),
           lng: Number(driver.current_lng),
@@ -245,4 +262,7 @@ function getIO() {
 module.exports = {
   initSocket,
   getIO,
+  // Exported for tests.
+  socketAuthMiddleware,
+  onSocketConnection,
 };

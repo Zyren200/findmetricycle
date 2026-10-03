@@ -86,9 +86,46 @@ async function sendDriverCorrectionEmail(email, fullName, note) {
   });
 }
 
+// Sent when a Super Admin adds an admin ("welcome") or asks them to reset
+// their password ("reset"). Never contains a password or a code: the admin
+// sets their own password with Forgot password on the sign-in page, and the
+// code arrives in a separate email they request themselves.
+async function sendAdminAccessEmail(email, fullName, { kind = "welcome", roleLabel = "Admin" } = {}) {
+  const signIn = env.adminDashboardUrl
+    ? `<a href="${escapeHtml(env.adminDashboardUrl)}">${escapeHtml(env.adminDashboardUrl)}</a>`
+    : "the FindMeTricycle admin dashboard";
+  const welcome = kind === "welcome";
+  return sendMail({
+    to: email,
+    subject: welcome ? "Your FindMeTricycle admin account" : "Reset your FindMeTricycle admin password",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #0E8C46;">FindMeTricycle</h2>
+        <p>Hi ${escapeHtml(fullName)},</p>
+        ${
+          welcome
+            ? `<p>An admin account was created for you with the role <strong>${escapeHtml(roleLabel)}</strong>.</p>
+               <p>To set your password:</p>`
+            : `<p>A Super Admin asked you to reset your admin password.</p>
+               <p>To set a new password:</p>`
+        }
+        <ol>
+          <li>Open ${signIn}.</li>
+          <li>Click <strong>Forgot password?</strong></li>
+          <li>Enter this email address (${escapeHtml(email)}) and follow the code we send you.</li>
+        </ol>
+        <p>Nobody else knows or sets your password. If you weren't expecting this email, you can ignore it.</p>
+        <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">
+        <p style="color: #666; font-size: 12px;">&copy; FindMeTricycle</p>
+      </div>
+    `,
+  });
+}
+
 module.exports = {
   sendMail,
   sendDriverApprovalEmail,
   sendDriverRejectionEmail,
   sendDriverCorrectionEmail,
+  sendAdminAccessEmail,
 };

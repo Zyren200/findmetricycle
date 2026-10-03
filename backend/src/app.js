@@ -10,14 +10,17 @@ const apiRoutes = require("./routes");
 const errorMiddleware = require("./middlewares/error.middleware");
 const ApiError = require("./utils/api-error");
 const { isAllowedOrigin, allowAll } = require("./utils/cors-origin");
+const { apiRateLimitKey } = require("./middlewares/rate-limit.middleware");
 
 // Baseline abuse protection for every /api route — existing per-route
 // limiters (auth, OTP) stay in place and are stricter than this; this is
 // just the floor for everything else (driver location updates, booking
-// creation, SOS, etc) that previously had none at all.
+// creation, SOS, etc) that previously had none at all. Admin dashboards are
+// counted per admin account rather than per IP (see apiRateLimitKey).
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
+  keyGenerator: apiRateLimitKey,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: "Too many requests. Please slow down." },

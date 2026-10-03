@@ -3,26 +3,34 @@ const validate = require("../middlewares/validate.middleware");
 const { z } = require("zod");
 const db = require("../config/db");
 const authMiddleware = require("../middlewares/auth.middleware");
+const serviceAreaService = require("../services/service-area.service");
 
 const router = express.Router();
 
 // Schemas
+const latitude = z.number().min(-90).max(90);
+const longitude = z.number().min(-180).max(180);
+
 const createFavoriteSchema = z.object({
   body: z.object({
     label: z.string().min(1).max(120),
     address: z.string().min(1),
-    lat: z.number(),
-    lng: z.number(),
+    lat: latitude,
+    lng: longitude,
   }),
 });
 
 const updateFavoriteSchema = z.object({
-  body: z.object({
-    label: z.string().min(1).max(120).optional(),
-    address: z.string().min(1).optional(),
-    lat: z.number().optional(),
-    lng: z.number().optional(),
-  }),
+  body: z
+    .object({
+      label: z.string().min(1).max(120).optional(),
+      address: z.string().min(1).optional(),
+      lat: latitude.optional(),
+      lng: longitude.optional(),
+    })
+    .refine((body) => (body.lat === undefined) === (body.lng === undefined), {
+      message: "Send lat and lng together.",
+    }),
 });
 
 // Passenger routes
@@ -66,6 +74,9 @@ router.post(
         lng,
       } = req.body;
 
+      // A saved place has to be somewhere a ride can go.
+      serviceAreaService.assertPlaceInsideServiceArea(lat, lng);
+
       const result = await db.query(
         `INSERT INTO favorite_destinations 
          (user_id, label, address, lat, lng)
@@ -108,6 +119,9 @@ router.put(
     try {
       const { id } = req.params;
       const updates = req.body;
+      if (updates.lat !== undefined) {
+        serviceAreaService.assertPlaceInsideServiceArea(updates.lat, updates.lng);
+      }
 
       // Verify ownership
       const favorite = await db.query(

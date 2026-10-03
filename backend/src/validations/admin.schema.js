@@ -1,4 +1,43 @@
-const { z } = require("./common");
+const { z, phoneSchema } = require("./common");
+const { ADMIN_ROLES } = require("../constants/admin-permissions");
+
+// Role values come only from the defined list; anything else is rejected.
+const adminRoleValue = z.enum(Object.values(ADMIN_ROLES), {
+  errorMap: () => ({ message: "Choose a valid role." }),
+});
+
+const adminUserParam = z.object({
+  userId: z.coerce.number().int().positive(),
+});
+
+const createAdminSchema = z.object({
+  body: z.object({
+    fullName: z.string().trim().min(2, "Enter the admin's full name.").max(120),
+    email: z.string().trim().email("Enter a valid email.").max(120),
+    phone: phoneSchema,
+    role: adminRoleValue,
+  }),
+});
+
+const adminRoleSchema = z.object({
+  params: adminUserParam,
+  body: z.object({ role: adminRoleValue }),
+});
+
+const adminParamSchema = z.object({
+  params: adminUserParam,
+});
+
+const sosParamSchema = z.object({
+  params: z.object({ id: z.coerce.number().int().positive() }),
+});
+
+const sosResolveSchema = z.object({
+  params: z.object({ id: z.coerce.number().int().positive() }),
+  body: z.object({
+    note: z.string().trim().min(3, "Add a short note on what was done.").max(500),
+  }),
+});
 
 const driverParamSchema = z.object({
   params: z.object({
@@ -66,6 +105,18 @@ const barangayUpdateSchema = z.object({
     }),
 });
 
+const complaintResolveSchema = z.object({
+  params: z.object({
+    id: z.coerce.number().int().positive(),
+  }),
+  body: z
+    .object({
+      status: z.enum(["resolved", "dismissed"]).default("resolved"),
+      note: z.string().trim().max(1000).optional(),
+    })
+    .default({}),
+});
+
 const bookingCloseSchema = z.object({
   params: z.object({
     bookingId: z.coerce.number().int().positive(),
@@ -96,6 +147,12 @@ const systemSettingsSchema = z.object({
 });
 
 module.exports = {
+  createAdminSchema,
+  adminRoleSchema,
+  adminParamSchema,
+  sosParamSchema,
+  sosResolveSchema,
+  complaintResolveSchema,
   bookingCloseSchema,
   barangayUpdateSchema,
   systemSettingsSchema,

@@ -2,6 +2,7 @@ const adminService = require("../services/admin.service");
 const bookingService = require("../services/booking.service");
 const { getIO } = require("../sockets");
 const notificationService = require("../services/notification.service");
+const { PERMISSIONS } = require("../constants/admin-permissions");
 
 // Paging input goes straight into LIMIT/OFFSET: "abc" or a huge number used
 // to break the query (server error) or pull the whole table.
@@ -130,7 +131,7 @@ async function getLiveMap(req, res, next) {
 
 async function getDashboard(req, res, next) {
   try {
-    const data = await adminService.getDashboardSummary();
+    const data = await adminService.getDashboardSummary(req.admin.permissions);
     res.json({ success: true, data });
   } catch (error) {
     next(error);
@@ -140,7 +141,9 @@ async function getDashboard(req, res, next) {
 async function getRideActivity(req, res, next) {
   try {
     const days = req.query.days ? Number(req.query.days) : 7;
-    const data = await adminService.getRideActivity(days);
+    const data = await adminService.getRideActivity(days, {
+      includeEarnings: req.admin.permissions.includes(PERMISSIONS.EARNINGS_VIEW),
+    });
     res.json({ success: true, data });
   } catch (error) {
     next(error);
@@ -150,12 +153,12 @@ async function getRideActivity(req, res, next) {
 async function getNotifications(req, res, next) {
   try {
     const [data, unread] = await Promise.all([
-      notificationService.listNotifications({
+      notificationService.listForAdmin(req.admin, {
         search: req.query.search,
         limit: Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 100, 1), 200),
         offset: Math.max(Number.parseInt(req.query.offset, 10) || 0, 0),
       }),
-      notificationService.countUnreadForAdmin(),
+      notificationService.countUnreadForAdmin(req.admin),
     ]);
     res.json({ success: true, data, meta: { unread } });
   } catch (error) {
@@ -166,7 +169,7 @@ async function getNotifications(req, res, next) {
 async function postMarkNotificationRead(req, res, next) {
   try {
     const id = Number(req.params.id);
-    const data = await notificationService.markRead(id);
+    const data = await notificationService.markReadForAdmin(req.admin, id);
     if (!data) {
       return res.status(404).json({ success: false, message: "Notification not found." });
     }
@@ -178,7 +181,7 @@ async function postMarkNotificationRead(req, res, next) {
 
 async function postMarkAllNotificationsRead(req, res, next) {
   try {
-    await notificationService.markAllRead();
+    await notificationService.markAllReadForAdmin(req.admin);
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -387,7 +390,10 @@ async function getComplaints(req, res, next) {
 
 async function resolveComplaint(req, res, next) {
   try {
-    const data = await adminService.resolveComplaint(Number(req.params.id), req.user.id);
+    const data = await adminService.resolveComplaint(Number(req.params.id), req.user.id, {
+      status: req.body?.status,
+      note: req.body?.note,
+    });
     res.json({ success: true, data });
   } catch (error) {
     next(error);
@@ -403,10 +409,23 @@ async function getSosAlerts(req, res, next) {
   }
 }
 
+async function acknowledgeSosAlert(req, res, next) {
+  try {
+    const data = await adminService.acknowledgeSosAlert(req.params.id, { userId: req.user.id, name: req.user.fullName });
+    res.json({ success: true, message: "You're handling this alert.", data });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function resolveSosAlert(req, res, next) {
   try {
-    const data = await adminService.resolveSosAlert(Number(req.params.id), req.user.id);
-    res.json({ success: true, data });
+    const data = await adminService.resolveSosAlert(
+      req.params.id,
+      { userId: req.user.id, name: req.user.fullName },
+      req.body.note
+    );
+    res.json({ success: true, message: "Alert resolved.", data });
   } catch (error) {
     next(error);
   }
@@ -519,6 +538,7 @@ module.exports = {
   getComplaints,
   getSosAlerts,
   resolveComplaint,
+  acknowledgeSosAlert,
   resolveSosAlert,
   getActivityLogs,
   getBarangays,
