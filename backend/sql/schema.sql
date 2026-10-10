@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   full_name VARCHAR(120) NOT NULL,
   phone VARCHAR(20) NOT NULL UNIQUE,
   email VARCHAR(120) NULL UNIQUE,
+  address VARCHAR(255) NULL,
   password_hash VARCHAR(255) NOT NULL,
   role ENUM('passenger', 'driver', 'admin') NOT NULL,
   status ENUM('pending', 'active', 'suspended', 'rejected', 'archived') NOT NULL DEFAULT 'active',
@@ -272,17 +273,29 @@ CREATE TABLE IF NOT EXISTS driver_applications (
   full_name VARCHAR(120) NOT NULL,
   email VARCHAR(120) NULL,
   phone VARCHAR(20) NOT NULL,
+  address VARCHAR(255) NULL,
+  emergency_contact_name VARCHAR(120) NULL,
+  emergency_contact_phone VARCHAR(20) NULL,
   plate_number VARCHAR(60) NOT NULL,
+  franchise_number VARCHAR(60) NULL,
   license_image_url VARCHAR(255) NOT NULL,
   business_permit_image_url VARCHAR(255) NOT NULL,
+  selfie_image_url VARCHAR(255) NULL,
   license_number VARCHAR(80) NULL,
+  license_type VARCHAR(40) NULL,
   license_holder_name VARCHAR(120) NULL,
   license_birth_date DATE NULL,
   license_expires_at DATETIME NULL,
   ocr_status ENUM('pending', 'passed', 'failed') NOT NULL DEFAULT 'pending',
   ocr_failure_reason VARCHAR(255) NULL,
-  status ENUM('pending', 'approved', 'rejected', 'archived') NOT NULL DEFAULT 'pending',
+  liveness_status ENUM('pending', 'passed', 'needs_review', 'failed') NOT NULL DEFAULT 'pending',
+  license_check_status VARCHAR(20) NULL,
+  permit_check_status VARCHAR(20) NULL,
+  document_check_json TEXT NULL,
+  documents_checked_at DATETIME NULL,
+  status ENUM('pending', 'needs_correction', 'approved', 'rejected', 'archived') NOT NULL DEFAULT 'pending',
   rejection_reason VARCHAR(255) NULL,
+  correction_note VARCHAR(255) NULL,
   reviewed_by BIGINT UNSIGNED NULL,
   reviewed_at DATETIME NULL,
   submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -304,6 +317,22 @@ CREATE TABLE IF NOT EXISTS driver_applications (
   INDEX idx_driver_applications_status_submitted (status, submitted_at),
   INDEX idx_driver_applications_user (user_id),
   INDEX idx_driver_applications_deleted (deleted_at)
+);
+
+CREATE TABLE IF NOT EXISTS application_status_history (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  application_id BIGINT UNSIGNED NOT NULL,
+  status VARCHAR(30) NOT NULL,
+  note TEXT NULL,
+  changed_by BIGINT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_status_history_application
+    FOREIGN KEY (application_id) REFERENCES driver_applications(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_status_history_admin
+    FOREIGN KEY (changed_by) REFERENCES users(id)
+    ON DELETE SET NULL,
+  INDEX idx_status_history_application (application_id, created_at)
 );
 
 CREATE TABLE IF NOT EXISTS booking_timeline_events (
