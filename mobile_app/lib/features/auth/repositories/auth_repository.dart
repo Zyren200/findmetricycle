@@ -55,6 +55,21 @@ class AuthRepository {
     );
   }
 
+  /// Checks the reset code before the new password is asked for; the same
+  /// code then goes with [resetPassword].
+  Future<Map<String, dynamic>> verifyPasswordResetCode({
+    required String email,
+    required String code,
+  }) {
+    return _apiClient.post(
+      "/auth/v2/forgot-password/verify",
+      data: {
+        "email": email.trim(),
+        "code": code.trim(),
+      },
+    );
+  }
+
   Future<Map<String, dynamic>> resetPassword({
     required String email,
     required String code,

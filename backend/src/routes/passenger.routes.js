@@ -18,10 +18,16 @@ router.post("/bookings/find-ride", validate(passengerSchema.findRideSchema), pas
 router.get("/bookings/history", passengerController.getBookingHistory);
 // Must stay above "/bookings/:bookingId" so "active" isn't read as an id.
 router.get("/bookings/active", passengerController.getActiveBooking);
+router.get(
+  "/bookings/:bookingId/route",
+  validate(passengerSchema.bookingIdParamSchema),
+  passengerController.getBookingRoute
+);
 router.get("/fare", passengerController.getFare);
 router.get("/notifications", passengerController.getNotifications);
 router.post("/notifications/read", passengerController.markNotificationsRead);
 router.post("/sos", validate(passengerSchema.sosSchema), passengerController.triggerSos);
+router.post("/report", validate(passengerSchema.reportSchema), passengerController.reportIssue);
 router.patch(
   "/profile",
   profileUpload.single("profileImage"),

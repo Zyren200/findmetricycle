@@ -1,147 +1,96 @@
+import { ICON } from "../../components/Icons";
+import { Card, Head, Shot } from "../../components/ui";
+import { useAuth } from "../../context/AuthContext";
 import { Link, useDocumentTitle } from "../../router";
 
-// What the application actually asks for (see the wizard steps).
-const requirements = [
-  { icon: "🪪", label: "Valid Driver's License", note: "Clear photo; the license details are read automatically" },
-  { icon: "📄", label: "Franchise or Business Permit", note: "Clear photo of your current permit" },
-  { icon: "🛺", label: "Tricycle Information", note: "Plate number and franchise / permit number" },
-  { icon: "📞", label: "Address & Emergency Contact", note: "Your home address and someone we can reach" },
-  { icon: "📷", label: "Face Verification", note: "Quick live selfie check through this website" },
-  { icon: "📱", label: "FindMeTricycle Account", note: "Your passenger account with a registered email" },
-];
-
-const benefits = [
-  { icon: "⏰", title: "Flexible Schedule", desc: "Drive on your own time. Go online when you want, rest when you need." },
-  { icon: "💵", title: "Cash Earnings", desc: "Collect payment directly from passengers. No waiting for payouts." },
-  { icon: "📱", title: "Easy to Manage", desc: "Switch between Passenger and Driver mode in the same FindMeTricycle account." },
-  { icon: "🤝", title: "Local Community", desc: "Be part of a trusted driver network built for Guiuan." },
-];
-
-const applicationSteps = [
-  { label: "Complete CAPTCHA", desc: "Simple human verification to protect your application." },
-  { label: "Log in", desc: "Use your existing FindMeTricycle passenger account." },
-  { label: "Verify Email with OTP", desc: "Confirm your email address with a one-time code." },
-  { label: "Personal Information", desc: "Confirm your details, address and emergency contact." },
-  { label: "Driver Information", desc: "Enter your license type, plate number and franchise number." },
-  { label: "Upload Documents", desc: "Upload clear photos of your driver's license and franchise / business permit." },
-  { label: "Face Verification", desc: "Complete a quick live selfie check to confirm your identity." },
-  { label: "Review & Submit", desc: "Review everything and confirm with a code sent to your email." },
-  { label: "Admin Review", desc: "Our team reviews your application and documents. You'll be emailed at each step." },
-];
+/** "Start Application", or "View My Application" for a signed-in applicant. */
+export function DriverCta() {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? (
+    <Link className="btn btn-hot" to="/driver/status">
+      View My Application {ICON.arrow}
+    </Link>
+  ) : (
+    <Link className="btn btn-hot" to="/driver/apply">
+      Start Application {ICON.arrow}
+    </Link>
+  );
+}
 
 export default function DriverPage() {
-  useDocumentTitle("Become a Driver — FindMeTricycle");
+  useDocumentTitle("FindMeTricycle · Become a Driver");
 
   return (
     <>
-      <section className="hero" style={{ paddingBottom: 64 }}>
-        <div className="container">
-          <div style={{ maxWidth: 672 }}>
-            <span className="eyebrow driver">Guiuan, Eastern Samar</span>
-            <h1 className="hero-title" style={{ fontSize: "clamp(2rem, 6vw, 3rem)" }}>
-              Drive with <span className="accent-driver">FindMeTricycle</span>
-            </h1>
-            <p className="lead" style={{ maxWidth: "none" }}>
-              Become a verified driver and connect with passengers across Guiuan. Use your existing
-              FindMeTricycle account — no separate driver account needed.
-            </p>
-            <div className="cta-row">
-              <Link to="/driver/apply" className="cta cta-driver">
-                Apply as Driver
-              </Link>
-              <Link to="/driver/status" className="cta cta-outline-driver">
-                Check Application Status
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="callout-band">
-        <div className="container">
-          <div className="callout-row">
-            <div className="callout-icon">ℹ️</div>
-            <div>
-              <b>One Account. Two Modes.</b>
-              <p>
-                FindMeTricycle uses a single account. You start as a Passenger. After approval, your same
-                account unlocks Driver Mode — no second account, no separate login.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="container">
-          <div className="section-head" style={{ marginBottom: 40 }}>
-            <h2>Why drive with us?</h2>
-            <p>Built for Guiuan drivers.</p>
-          </div>
-          <div className="grid sm-2 lg-4">
-            {benefits.map((b) => (
-              <div className="tile tile-driver" key={b.title}>
-                <span className="tile-emoji">{b.icon}</span>
-                <h3>{b.title}</h3>
-                <p>{b.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section section-alt">
-        <div className="container container-md">
-          <div className="section-head" style={{ marginBottom: 40 }}>
-            <h2>Driver Requirements</h2>
-            <p>Prepare these before starting your application.</p>
-          </div>
-          <div className="grid sm-2 grid-gap-sm">
-            {requirements.map((r) => (
-              <div className="tile tile-plain req-tile" key={r.label}>
-                <div className="req-icon">{r.icon}</div>
-                <div>
-                  <b>{r.label}</b>
-                  <small>{r.note}</small>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="note">Additional requirements may be requested by the admin after initial review.</p>
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="container container-sm">
-          <div className="section-head" style={{ marginBottom: 40 }}>
-            <h2>How the application works</h2>
-            <p>{applicationSteps.length} steps from application to Driver Mode.</p>
-          </div>
-          <div className="timeline-v">
-            {applicationSteps.map((s, i) => (
-              <div className="timeline-v-item" key={s.label}>
-                <div className="timeline-v-num">{String(i + 1).padStart(2, "0")}</div>
-                <div className={`timeline-v-body ${i === applicationSteps.length - 1 ? "highlight" : ""}`}>
-                  <b>{s.label}</b>
-                  <small>{s.desc}</small>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="band band-driver">
-        <div className="container">
-          <h2>Ready to start driving?</h2>
-          <p>Apply now and join the FindMeTricycle driver network in Guiuan.</p>
-          <div className="cta-row center">
-            <Link to="/driver/apply" className="cta cta-white cta-lg" style={{ color: "var(--driver)" }}>
-              Start Application
+      <section>
+        <div className="wrap">
+          <Head
+            eyebrow="Become a driver"
+            title="Drive with FindMeTricycle in Guiuan."
+            sub="Apply with the passenger account you already use in the app. There is no separate driver account."
+          />
+          <div className="row" style={{ marginBottom: 40 }}>
+            <DriverCta />
+            <Link className="btn btn-glass" to="/download">
+              No account yet? Get the app
             </Link>
-            <Link to="/driver/status" className="cta cta-ghost-white cta-lg">
-              Check Status
-            </Link>
+          </div>
+          <div className="grid g3">
+            <Card icon="pin" tone="o" title="More passengers">
+              Get ride requests from nearby passengers instead of waiting at the terminal.
+            </Card>
+            <Card icon="cash" tone="t" title="Keep your cash fares">
+              Passengers pay you directly in cash.
+            </Card>
+            <Card icon="shield" tone="v" title="Trusted platform">
+              Every driver and passenger is verified, so riders feel safe booking.
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div className="wrap">
+          <Head
+            eyebrow="Driver Mode"
+            title="What you will use on every ride."
+            sub="Once approved, switch to Driver Mode in the same app. No second app to install."
+            as="h2"
+          />
+          <div className="shots-row three">
+            <Shot id="d-request" title="Ride requests" sub="Fare, pickup and drop-off. Accept within 20 seconds." />
+            <Shot id="d-pin" title="PIN check" sub="Type the passenger's PIN to start the trip." />
+            <Shot id="d-earn" title="Earnings" sub="Today, this week and this month at a glance." />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div className="wrap">
+          <div className="grid g2">
+            <div className="card glass">
+              <span className="eyebrow">Prepare these first</span>
+              <h3 style={{ fontSize: 24 }}>Requirements</h3>
+              <ul className="list" style={{ marginTop: 12 }}>
+                <li>Passenger account with an email address</li>
+                <li>Driver&apos;s license (clear photo, in your own name)</li>
+                <li>Franchise or business permit (clear photo)</li>
+                <li>Tricycle plate number and franchise number</li>
+                <li>Home address and an emergency contact</li>
+                <li>A phone or laptop with a camera for the face check</li>
+              </ul>
+            </div>
+            <div className="card glass">
+              <span className="eyebrow">How the application works</span>
+              <h3 style={{ fontSize: 24 }}>From sign-in to Driver Mode</h3>
+              <ol className="list" style={{ marginTop: 12 }}>
+                <li>Sign in with your passenger account and confirm the code sent to your email.</li>
+                <li>Fill in 5 short steps: personal info, driver info, documents, face check, review.</li>
+                <li>Submit. You get a reference number right away.</li>
+                <li>The admin team reviews it and emails you the result.</li>
+                <li>Once approved, tap Switch to Driver Mode in the app&apos;s Profile.</li>
+              </ol>
+            </div>
           </div>
         </div>
       </section>

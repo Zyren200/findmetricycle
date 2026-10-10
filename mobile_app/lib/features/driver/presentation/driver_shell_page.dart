@@ -5,7 +5,6 @@ import "../../../core/components/index.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/state/app_preferences.dart";
 import "../../../core/network/socket_client.dart";
-import "../../../core/theme/design_tokens.dart";
 import "../repositories/driver_repository.dart";
 import "../../shared/state/notifications_controller.dart";
 import "driver_earnings_page.dart";
@@ -16,11 +15,16 @@ import "driver_rides_page.dart";
 import "pages/ride_request_page.dart";
 import "widgets/driver_ride_actions.dart";
 
-/// Driver Mode's top-level shell: Home / Rides / Earnings / Profile,
-/// mirroring PassengerShellPage's IndexedStack + AppBottomNav pattern. Owns
-/// the single DriverRideController instance for the whole driver session —
-/// tabs (and anything pushed on top of them) read it via ambient Provider
-/// instead of each page creating its own.
+/// Tab indexes in Driver Mode's floating tab bar.
+const int kDriveTab = 0;
+const int kEarningsTab = 1;
+const int kHistoryTab = 2;
+const int kDriverProfileTab = 3;
+
+/// Driver Mode's top-level shell: Drive / Earnings / History / Profile
+/// under the floating glass tab bar. Owns the single DriverRideController
+/// for the whole driver session — tabs (and anything pushed on top of
+/// them) read it via ambient Provider.
 class DriverShellPage extends StatefulWidget {
   const DriverShellPage({super.key});
 
@@ -29,7 +33,7 @@ class DriverShellPage extends StatefulWidget {
 }
 
 class _DriverShellPageState extends State<DriverShellPage> {
-  final ValueNotifier<int> _navIndex = ValueNotifier<int>(0);
+  final ValueNotifier<int> _navIndex = ValueNotifier<int>(kDriveTab);
 
   @override
   void dispose() {
@@ -58,7 +62,7 @@ class _DriverShellPageState extends State<DriverShellPage> {
 
     return MultiProvider(
       providers: [
-        // Lets tabs (e.g. Rides) react when they're opened — the
+        // Lets tabs (e.g. History) react when they're opened — the
         // IndexedStack keeps them alive, so initState only runs once.
         ChangeNotifierProvider.value(value: _navIndex),
         ChangeNotifierProvider(
@@ -81,47 +85,55 @@ class _DriverShellPageState extends State<DriverShellPage> {
         ),
       ],
       child: _IncomingRequestWatcher(
-        child: Scaffold(
-          body: Container(
-            color: DesignTokens.bg,
-            child: ValueListenableBuilder<int>(
-              valueListenable: _navIndex,
-              builder: (context, index, _) => IndexedStack(
-                index: index,
-                children: const [
-                  DriverHomePage(),
-                  DriverRidesPage(),
-                  DriverEarningsPage(),
-                  DriverProfilePage(),
-                ],
-              ),
-            ),
+        child: ValueListenableBuilder<int>(
+          valueListenable: _navIndex,
+          builder: (context, index, child) => PopScope(
+            // Back on another tab returns to Drive first.
+            canPop: index == kDriveTab,
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop) _navIndex.value = kDriveTab;
+            },
+            child: child!,
           ),
-          bottomNavigationBar: ValueListenableBuilder<int>(
-            valueListenable: _navIndex,
-            builder: (context, index, _) => AppBottomNav(
-              selectedIndex: index,
-              onIndexChanged: (value) => _navIndex.value = value,
-              items: [
-                BottomNavItem(
-                  icon: Icons.home_outlined,
-                  activeIcon: Icons.home,
-                  label: "Home",
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              children: [
+                Positioned.fill(
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _navIndex,
+                    builder: (context, index, _) => IndexedStack(
+                      index: index,
+                      children: const [
+                        DriverHomePage(),
+                        DriverEarningsPage(),
+                        DriverRidesPage(),
+                        DriverProfilePage(),
+                      ],
+                    ),
+                  ),
                 ),
-                BottomNavItem(
-                  icon: Icons.route_outlined,
-                  activeIcon: Icons.route,
-                  label: "Rides",
-                ),
-                BottomNavItem(
-                  icon: Icons.payments_outlined,
-                  activeIcon: Icons.payments,
-                  label: "Earnings",
-                ),
-                BottomNavItem(
-                  icon: Icons.person_outline,
-                  activeIcon: Icons.person,
-                  label: "Profile",
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _navIndex,
+                    builder: (context, index, _) => FloatingTabBar(
+                      semanticLabel: "Driver",
+                      index: index,
+                      onChanged: (value) => _navIndex.value = value,
+                      tabs: const [
+                        SunTab(icon: Icons.trip_origin_rounded, label: "Drive"),
+                        SunTab(
+                            icon: Icons.payments_outlined, label: "Earnings"),
+                        SunTab(icon: Icons.schedule_rounded, label: "History"),
+                        SunTab(
+                            icon: Icons.person_outline_rounded,
+                            label: "Profile"),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -167,7 +179,7 @@ class _IncomingRequestWatcherState extends State<_IncomingRequestWatcher> {
     final ctrl = _ctrl;
     final id = ctrl?.incomingBooking?["id"]?.toString();
     if (id == null || ctrl!.activeBooking != null || id == _shownId) return;
-    _shownId = id; // each offer pops up once; the Home card stays for reopening
+    _shownId = id; // each offer pops up once; the Drive sheet can reopen it
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || ctrl.incomingBooking?["id"]?.toString() != id) return;
       openRideRequestPage(context, const RideRequestPage());

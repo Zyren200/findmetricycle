@@ -13,7 +13,6 @@ export default function FareSettingsPage() {
     baseFare: 20.0,
     perKmRate: 12.0,
     minimumFare: 0.0,
-    nightFee: 0.0,
     additionalPassengerFee: 0.0,
   });
 
@@ -26,7 +25,6 @@ export default function FareSettingsPage() {
           baseFare: parseFloat(data.data.base_fare) || 20.0,
           perKmRate: parseFloat(data.data.per_km_rate) || 12.0,
           minimumFare: parseFloat(data.data.minimum_fare) || 0.0,
-          nightFee: parseFloat(data.data.night_fee) || 0.0,
           additionalPassengerFee: parseFloat(data.data.additional_passenger_fee) || 0.0,
         });
       }
@@ -60,7 +58,6 @@ export default function FareSettingsPage() {
         baseFare: parseFloat(fares.baseFare),
         perKmRate: parseFloat(fares.perKmRate),
         minimumFare: parseFloat(fares.minimumFare),
-        nightFee: parseFloat(fares.nightFee),
         additionalPassengerFee: parseFloat(fares.additionalPassengerFee),
       });
       setSuccess("Fare settings updated successfully!");
@@ -157,20 +154,6 @@ export default function FareSettingsPage() {
                   placeholder="0.00"
                 />
                 <small>Lowest possible fare regardless of distance</small>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="nightFee">Night Premium (PHP)</label>
-                <input
-                  id="nightFee"
-                  type="number"
-                  step="0.50"
-                  min="0"
-                  value={fares.nightFee}
-                  onChange={(e) => handleChange("nightFee", e.target.value)}
-                  placeholder="0.00"
-                />
-                <small>Additional charge for evening/night rides</small>
               </div>
 
               <div className="form-group">

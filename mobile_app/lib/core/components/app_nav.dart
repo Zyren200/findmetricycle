@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import '../theme/design_tokens.dart';
+import 'app_layout.dart';
+import 'sunrise.dart';
 
-/// Custom app bar
+/// App bar in the Sunrise style: the rounded back button (when the page
+/// can go back) and the 22/28 title — the same header as [AppTopBar].
 class AppAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final Color? backgroundColor;
@@ -18,32 +20,21 @@ class AppAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppBar(
-      title: Text(
-        title,
-        style: TextStyle(
-          fontSize: DesignTokens.fontSize20,
-          fontWeight: DesignTokens.fw700,
-          color: DesignTokens.accent,
-          fontFamily: DesignTokens.fontSyne,
-        ),
-      ),
-      backgroundColor: backgroundColor ?? DesignTokens.bg,
-      foregroundColor: DesignTokens.text,
-      elevation: 0,
-      centerTitle: false,
-      toolbarHeight: 64,
-      actions: actions,
-      automaticallyImplyLeading: showLeading,
-      iconTheme: IconThemeData(color: DesignTokens.text),
+    final canPop = showLeading && (ModalRoute.of(context)?.canPop ?? false);
+    return AppTopBar(
+      title: title,
+      showBack: canPop,
+      trailing: actions == null
+          ? null
+          : Row(mainAxisSize: MainAxisSize.min, children: actions!),
     );
   }
 
   @override
-  Size get preferredSize => const Size.fromHeight(56);
+  Size get preferredSize => const Size.fromHeight(68);
 }
 
-/// Custom bottom navigation bar
+/// Bottom navigation as the Sunrise floating glass tab bar.
 class AppBottomNav extends StatelessWidget {
   final int selectedIndex;
   final Function(int) onIndexChanged;
@@ -58,65 +49,17 @@ class AppBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: DesignTokens.bg2,
-        border: Border(
-          top: BorderSide(color: DesignTokens.border, width: 1),
-        ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: List.generate(
-            items.length,
-            (index) {
-              final item = items[index];
-              final isSelected = index == selectedIndex;
-              final color =
-                  isSelected ? DesignTokens.accent : DesignTokens.muted;
-              final badge = item.badgeCount ?? 0;
-              return Expanded(
-                child: InkWell(
-                  onTap: () => onIndexChanged(index),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Badge(
-                          isLabelVisible: badge > 0,
-                          label: Text(badge > 9 ? "9+" : "$badge"),
-                          backgroundColor: DesignTokens.red,
-                          child: Icon(
-                            isSelected
-                                ? (item.activeIcon ?? item.icon)
-                                : item.icon,
-                            color: color,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          item.label,
-                          style: TextStyle(
-                            fontSize: DesignTokens.fontSize11,
-                            fontWeight: isSelected
-                                ? DesignTokens.fw600
-                                : DesignTokens.fw500,
-                            color: color,
-                            fontFamily: DesignTokens.fontDmSans,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
+    return FloatingTabBar(
+      index: selectedIndex,
+      onChanged: (i) => onIndexChanged(i),
+      tabs: [
+        for (final item in items)
+          SunTab(
+            icon: item.icon,
+            label: item.label,
+            badge: item.badgeCount ?? 0,
           ),
-        ),
-      ),
+      ],
     );
   }
 }

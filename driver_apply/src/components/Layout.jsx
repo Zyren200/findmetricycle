@@ -1,188 +1,171 @@
-import { useState } from "react";
-import { config } from "../config";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { Link, NavLink, navigate } from "../router";
+import { installPrismFx } from "../prism-fx";
+import { Link, navigate, usePath } from "../router";
+import { MarkIcon } from "./Icons";
+import { ThemeToggle } from "./ThemeToggle";
+import { useToast } from "./ui";
 
-const navLinks = [
-  { to: "/", label: "Home", end: true },
-  { to: "/how-it-works", label: "How It Works" },
-  { to: "/driver", label: "Become a Driver" },
-  { to: "/safety", label: "Safety" },
-  { to: "/about", label: "About" },
-  { to: "/contact", label: "Contact" },
+const NAV = [
+  ["/", "Home"],
+  ["/how-it-works", "How It Works"],
+  ["/driver", "Become a Driver"],
+  ["/download", "Download"],
+  ["/safety", "Safety"],
+  ["/about", "About"],
+  ["/contact", "Contact"],
 ];
+
+export function firstName(user) {
+  return String(user?.fullName || user?.full_name || "").trim().split(/\s+/)[0] || "there";
+}
 
 export function Logo() {
   return (
     <Link to="/" className="logo">
-      <span className="logo-mark">F</span>
-      <span className="logo-text">
-        Find<span>Me</span>Tricycle
+      <span className="mark">
+        <MarkIcon />
+      </span>
+      <span>
+        FindMe<b>Tricycle</b>
       </span>
     </Link>
   );
 }
 
-function Header() {
-  const [open, setOpen] = useState(false);
-  const { isAuthenticated, logout } = useAuth();
+function isOn(to, path) {
+  if (to === "/driver") return path === "/driver" || path === "/driver/apply";
+  return to === path;
+}
 
-  function handleLogout() {
+function Header({ tabsRef, headerRef }) {
+  const path = usePath();
+  const { isAuthenticated, user, logout } = useAuth();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+
+  const items = isAuthenticated ? [...NAV, ["/driver/status", "My Application"]] : NAV;
+
+  useEffect(() => setOpen(false), [path]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  function signOut() {
     setOpen(false);
     logout();
-    navigate("/");
+    toast("Signed out", "You can sign in again any time to check your application.");
+    navigate("/driver");
   }
 
   return (
-    <header className="site-header">
-      <div className="container">
-        <div className="site-header-row">
-          <span onClick={() => setOpen(false)}>
-            <Logo />
-          </span>
-
-          <nav className="nav">
-            {navLinks.map((l) => (
-              <NavLink key={l.to} to={l.to} end={l.end}>
-                {l.label}
-              </NavLink>
-            ))}
-          </nav>
-
-          <div className="header-actions">
-            {isAuthenticated ? (
-              <>
-                <Link to="/driver/status" className="header-link">
-                  My Application
+    <header className="nav" ref={headerRef}>
+      <div className="wrap">
+        <nav className="nav-in glass" aria-label="Main">
+          <Logo />
+          <ul className={`tabs ${open ? "open" : ""}`} id="tabs" ref={tabsRef}>
+            {items.map(([to, label]) => (
+              <li key={to}>
+                <Link to={to} className={isOn(to, path) ? "on" : ""} onClick={() => setOpen(false)}>
+                  {label}
                 </Link>
-                <button type="button" className="header-link" onClick={handleLogout}>
+              </li>
+            ))}
+            {isAuthenticated ? (
+              <li className="only-m">
+                <button type="button" onClick={signOut}>
                   Sign Out
                 </button>
-              </>
+              </li>
             ) : null}
-            <Link to="/download" className="cta cta-primary cta-sm">
-              Download App
-            </Link>
-          </div>
-
-          <button
-            type="button"
-            className="menu-btn"
-            onClick={() => setOpen(!open)}
-            aria-label="Toggle menu"
-            aria-expanded={open}
-          >
-            <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              {open ? (
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {open ? (
-        <div className="mobile-menu">
-          <nav className="container">
-            {navLinks.map((l) => (
-              <NavLink key={l.to} to={l.to} end={l.end} onClick={() => setOpen(false)}>
-                {l.label}
-              </NavLink>
-            ))}
-            <div className="mobile-menu-footer">
+          </ul>
+          <div className="actions">
+            <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {isAuthenticated ? (
                 <>
-                  <Link to="/driver/status" onClick={() => setOpen(false)}>
-                    My Application
-                  </Link>
-                  <button type="button" className="header-link" onClick={handleLogout}>
+                  <span className="user-chip">
+                    <i>{firstName(user).charAt(0).toUpperCase()}</i>
+                    <span>{firstName(user)}</span>
+                  </span>
+                  <button type="button" className="btn btn-glass btn-sm" id="signOut" onClick={signOut}>
                     Sign Out
                   </button>
                 </>
-              ) : null}
-              <Link to="/download" className="cta cta-primary" onClick={() => setOpen(false)}>
-                Download App
-              </Link>
-            </div>
-          </nav>
-        </div>
-      ) : null}
+              ) : (
+                <Link to="/driver/apply" className="btn btn-hot btn-sm nav-cta">
+                  Apply as Driver
+                </Link>
+              )}
+            </span>
+            <ThemeToggle />
+            <button
+              type="button"
+              className="ibtn burger"
+              aria-label="Menu"
+              aria-expanded={open}
+              aria-controls="tabs"
+              onClick={() => setOpen((o) => !o)}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </button>
+          </div>
+        </nav>
+      </div>
     </header>
   );
 }
 
-const footerColumns = [
-  {
-    title: "Passengers",
-    links: [
-      { to: "/download", label: "Download App" },
-      { to: "/how-it-works", label: "How It Works" },
-      { to: "/safety", label: "Safety" },
-    ],
-  },
-  {
-    title: "Drivers",
-    links: [
-      { to: "/driver", label: "Become a Driver" },
-      { to: "/driver/apply", label: "Apply Now" },
-      { to: "/driver/status", label: "Application Status" },
-    ],
-  },
-  {
-    title: "Company",
-    links: [
-      { to: "/about", label: "About Us" },
-      { to: "/contact", label: "Contact" },
-      { to: "/safety", label: "Safety Policy" },
-    ],
-  },
-];
-
 function Footer() {
   return (
-    <footer className="site-footer">
-      <div className="container">
-        <div className="footer-grid">
-          <div className="footer-brand">
-            <Logo />
-            <p>Your local tricycle ride-hailing platform, built for Guiuan, Eastern Samar.</p>
-            <a className="footer-mail" href={`mailto:${config.contactEmail}`}>
-              {config.contactEmail}
-            </a>
-          </div>
-          {footerColumns.map((col) => (
-            <div key={col.title}>
-              <h3>{col.title}</h3>
-              <ul>
-                {col.links.map((l) => (
-                  <li key={l.label}>
-                    <Link to={l.to}>{l.label}</Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+    <footer>
+      <div className="wrap">
+        <div>
+          <b style={{ color: "var(--fg)" }}>FindMeTricycle</b> · Guiuan, Eastern Samar
+          <br />
+          <small>&copy; {new Date().getFullYear()} FindMeTricycle. Cash rides with verified local drivers.</small>
         </div>
-        <div className="footer-bottom">
-          <span>&copy; {new Date().getFullYear()} FindMeTricycle. Guiuan, Eastern Samar, Philippines.</span>
-          <span>
-            <span className="live-dot" />
-            Service available in Guiuan
-          </span>
-        </div>
+        <nav aria-label="Footer">
+          <Link to="/how-it-works">How It Works</Link>
+          <Link to="/driver">Become a Driver</Link>
+          <Link to="/driver/status">Application Status</Link>
+          <Link to="/safety">Safety</Link>
+          <Link to="/contact">Contact</Link>
+        </nav>
       </div>
     </footer>
   );
 }
 
 export default function Layout({ children }) {
+  const appRef = useRef(null);
+  const tabsRef = useRef(null);
+  const headerRef = useRef(null);
+
+  useEffect(
+    () => installPrismFx({ app: appRef.current, tabs: tabsRef.current, header: headerRef.current }),
+    []
+  );
+
   return (
-    <div className="site">
-      <Header />
-      <main className="site-main">{children}</main>
+    <>
+      <div className="sky" aria-hidden="true">
+        <span className="stars" />
+        <span className="aur x1" />
+        <span className="aur x2" />
+        <span className="aur x3" />
+        <span className="aur x4" />
+        <span className="beam" />
+      </div>
+      <Header tabsRef={tabsRef} headerRef={headerRef} />
+      <main id="app" ref={appRef}>
+        {children}
+      </main>
       <Footer />
-    </div>
+    </>
   );
 }

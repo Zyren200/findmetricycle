@@ -60,5 +60,12 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- SOS opens the dialer with the emergency number (ACTION_DIAL, no
+             CALL_PHONE permission); Android 11+ only lets canLaunchUrl see a
+             dialer that is declared here. -->
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
     </queries>
 </manifest>

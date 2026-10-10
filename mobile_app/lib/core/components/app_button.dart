@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/design_tokens.dart';
+import 'sunrise.dart';
 
-/// Custom button component
+/// Button in one of the [AppButtonStyle]s, drawn as a Sunrise button.
 class AppButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -16,70 +17,28 @@ class AppButton extends StatelessWidget {
     this.style = AppButtonStyle.accent,
     this.isLoading = false,
     this.width,
-    this.height = 52,
+    this.height = 56,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isGhost = style == AppButtonStyle.ghost;
-    final backgroundColor = style.backgroundColor ??
-        (isGhost ? Colors.transparent : DesignTokens.bg3);
-    final textColor = style.textColor;
-    final borderSide = isGhost
-        ? BorderSide(color: DesignTokens.border2, width: 1)
-        : (style == AppButtonStyle.accent
-            ? BorderSide.none
-            : BorderSide(color: DesignTokens.border, width: 1));
-
+    final tone = switch (style) {
+      AppButtonStyle.accent => SunTone.primary,
+      AppButtonStyle.ghost => SunTone.outline,
+      AppButtonStyle.destructive => SunTone.outline,
+      AppButtonStyle.success => SunTone.lagoon,
+    };
     return SizedBox(
       width: width ?? double.infinity,
-      height: height,
-      child: Material(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(DesignTokens.radius),
-        child: InkWell(
-          onTap: isLoading ? null : onPressed,
-          borderRadius: BorderRadius.circular(DesignTokens.radius),
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: borderSide.color,
-                width: borderSide.width,
-              ),
-              borderRadius: BorderRadius.circular(DesignTokens.radius),
-              boxShadow: style == AppButtonStyle.accent
-                  ? const [
-                      BoxShadow(
-                        color: Color.fromRGBO(0, 0, 0, 0.12),
-                        blurRadius: 6,
-                        offset: Offset(0, 2),
-                      )
-                    ]
-                  : null,
-            ),
-            child: Center(
-              child: isLoading
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(textColor),
-                      ),
-                    )
-                  : Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: DesignTokens.fontSize14,
-                        fontWeight: DesignTokens.fw600,
-                        color: textColor,
-                        fontFamily: DesignTokens.fontSyne,
-                      ),
-                    ),
-            ),
-          ),
-        ),
+      child: SunButton(
+        label: label,
+        onPressed: onPressed,
+        loading: isLoading,
+        tone: tone,
+        height: height ?? 56,
+        foreground:
+            style == AppButtonStyle.destructive ? DesignTokens.sosText : null,
       ),
     );
   }

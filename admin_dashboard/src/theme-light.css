@@ -1,0 +1,181 @@
+/* ============================================================
+   Light mode — the FindMeTricycle website palette: warm cream
+   background, white panels, orange accent, green for success.
+   Applied on top of theme.css when <html data-theme="light">;
+   dark mode (theme.css alone) is unchanged. Most of the UI follows
+   the tokens below; the rest of this file covers the spots that
+   theme.css / styles.css colour directly for a dark background.
+   ============================================================ */
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #fffbf5;
+  --bg2: #ffffff;
+  --bg3: #faf8f5;
+  --sidebar: #ffffff;
+  --border: #ece7e0;
+  --border2: #ddd5ca;
+  --text: #1f2937;
+  --text-strong: #111827;
+  --muted: #4b5563;
+  --muted2: #6b7280;
+  --faint: #9ca3af;
+
+  --accent: #ea580c;        /* orange-600 */
+  --accent-strong: #ea580c;
+  --accent-hover: #f97316;  /* orange-500 */
+  --on-accent: #ffffff;
+  --teal: #0d9488;
+  --teal-strong: #0f766e;
+  --accent2: #dc2626;
+  --warning: #b45309;
+  --warning-strong: #d97706;
+  --green: #16a34a;
+  --red: #dc2626;
+  --blue: #2563eb;
+  --purple: #7c3aed;
+  --orange: #ea580c;
+
+  --shadow: 0 12px 32px -20px rgba(120, 60, 10, 0.25);
+  --glow: rgba(249, 115, 22, 0.25);
+  --tint: #fff7ed;
+}
+
+/* ── Frame ─────────────────────────────────────────────────── */
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: #ddd5ca; }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #fdba74; }
+[data-theme="light"] .adm-brand-mark,
+[data-theme="light"] .adm-auth-brand .mark { background: linear-gradient(135deg, #f97316, #ea580c); }
+[data-theme="light"] .adm-nav-item:hover { background: #faf8f5; }
+[data-theme="light"] .adm-nav-item.active { background: #fff7ed; }
+[data-theme="light"] .adm-nav-badge { background: #f97316; }
+[data-theme="light"] .adm-avatar { background: linear-gradient(135deg, #f97316, #ea580c); }
+[data-theme="light"] .adm-topbar { background: rgba(255, 255, 255, 0.9); }
+[data-theme="light"] .adm-icon-btn:hover,
+[data-theme="light"] .adm-user-btn:hover,
+[data-theme="light"] .adm-dropdown button.item:hover { background: #f3f0eb; }
+[data-theme="light"] .adm-dropdown button.item.danger:hover { background: #fef2f2; }
+[data-theme="light"] .adm-search input:focus,
+[data-theme="light"] .adm-input-search:focus { border-color: #fdba74; }
+[data-theme="light"] .adm-search-results button:hover { background: #fff7ed; }
+[data-theme="light"] .adm-live { background: #f0fdf4; }
+[data-theme="light"] .adm-dropdown { box-shadow: 0 20px 40px -16px rgba(120, 60, 10, 0.25); }
+[data-theme="light"] .adm-backdrop.open { background: rgba(17, 24, 39, 0.35); }
+[data-theme="light"] .sidebar { background: #ffffff; }
+
+/* ── Headings, cards, metrics ──────────────────────────────── */
+[data-theme="light"] .page-hero-copy h2 { color: var(--text-strong); }
+[data-theme="light"] .panel,
+[data-theme="light"] .summary-card,
+[data-theme="light"] .chart-card,
+[data-theme="light"] .stat-card,
+[data-theme="light"] .metric-card,
+[data-theme="light"] .info-card,
+[data-theme="light"] .summary-item { box-shadow: 0 1px 2px rgba(120, 60, 10, 0.05) !important; }
+[data-theme="light"] .kpi,
+[data-theme="light"] .chart-box { background: #ffffff; }
+[data-theme="light"] .kpi.attn { background: linear-gradient(140deg, #fef2f2, transparent 60%), #ffffff; }
+[data-theme="light"] .adm-metric.accent { background: #fff7ed; border-color: #fed7aa; }
+[data-theme="light"] .adm-metric.alert { background: #fef2f2; border-color: #fecaca; box-shadow: none; }
+[data-theme="light"] .adm-metric .ico { background: #f3f0eb; }
+[data-theme="light"] .adm-metric.accent .ico { background: #ffedd5; }
+[data-theme="light"] .adm-metric.alert .ico { background: #fee2e2; }
+[data-theme="light"] .adm-link:hover { color: #c2410c; }
+[data-theme="light"] .adm-sos-item { background: #fef2f2; border-color: #fecaca; }
+[data-theme="light"] .adm-sos-item b { color: #b91c1c; }
+[data-theme="light"] .adm-hourly .bar { background: #fdba74; }
+[data-theme="light"] .adm-hourly .bar:hover { background: #f97316; }
+[data-theme="light"] .trend-row-bar { background: #f3f0eb; }
+[data-theme="light"] .mini-metric { background: #faf8f5 !important; border-color: var(--border) !important; }
+[data-theme="light"] .state-block { background: #faf8f5; border-color: var(--border); }
+
+/* ── Tables ────────────────────────────────────────────────── */
+[data-theme="light"] .table-wrap { background: #ffffff; }
+[data-theme="light"] td,
+[data-theme="light"] .compact-table td { color: var(--text); border-bottom-color: #f3f0eb !important; }
+[data-theme="light"] tbody tr:hover,
+[data-theme="light"] .compact-table tbody tr:hover { background: #fffbf5 !important; }
+[data-theme="light"] .detail-row { border-bottom-color: #f3f0eb !important; }
+
+/* ── Pills / badges: dark text on pale fills ───────────────── */
+[data-theme="light"] .status-success,
+[data-theme="light"] .badge-green { background: #dcfce7 !important; color: #15803d !important; border-color: #bbf7d0 !important; }
+[data-theme="light"] .status-warning,
+[data-theme="light"] .badge-yellow { background: #fef3c7 !important; color: #b45309 !important; border-color: #fde68a !important; }
+[data-theme="light"] .status-danger,
+[data-theme="light"] .badge-red { background: #fee2e2 !important; color: #b91c1c !important; border-color: #fecaca !important; }
+[data-theme="light"] .status-info,
+[data-theme="light"] .badge-blue { background: #ffedd5 !important; color: #c2410c !important; border-color: #fed7aa !important; }
+[data-theme="light"] .badge-purple { background: #ede9fe !important; color: #6d28d9 !important; border-color: #ddd6fe !important; }
+[data-theme="light"] .status-neutral,
+[data-theme="light"] .badge-gray { background: #f3f0eb !important; color: #4b5563 !important; border-color: #e7e1d8 !important; }
+[data-theme="light"] .adm-role-chip { background: #fff7ed; border-color: #fed7aa; }
+[data-theme="light"] .adm-role-chip.role-super_admin { color: #6d28d9; background: #ede9fe; border-color: #ddd6fe; }
+[data-theme="light"] .adm-role-chip.role-sos_responder { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
+
+/* ── Buttons, tabs, inputs ─────────────────────────────────── */
+[data-theme="light"] .btn-primary,
+[data-theme="light"] .primary-btn,
+[data-theme="light"] .adm-auth .login-form button[type="submit"],
+[data-theme="light"] .adm-auth button[type="submit"] {
+  background: linear-gradient(135deg, #f97316, #ea580c) !important;
+  box-shadow: 0 6px 16px -8px rgba(234, 88, 12, 0.6) !important;
+}
+[data-theme="light"] .btn-success { background: #16a34a !important; }
+[data-theme="light"] .btn-success:hover:not(:disabled) { background: #15803d !important; }
+[data-theme="light"] .btn-ghost,
+[data-theme="light"] .ghost-btn,
+[data-theme="light"] .btn-secondary { color: var(--text) !important; background: #ffffff !important; }
+[data-theme="light"] .btn-ghost:hover:not(:disabled),
+[data-theme="light"] .ghost-btn:hover:not(:disabled),
+[data-theme="light"] .btn-secondary:hover:not(:disabled) { background: #f3f0eb !important; }
+[data-theme="light"] .export-btn:hover:not(:disabled) { border-color: #fdba74 !important; background: #fff7ed !important; }
+[data-theme="light"] .filter-btn.active,
+[data-theme="light"] .tab-btn.active,
+[data-theme="light"] .tab.active { background: #fff7ed !important; color: #c2410c !important; border-color: #fdba74 !important; }
+[data-theme="light"] .tab-row .tab-btn.active,
+[data-theme="light"] .tabs .tab.active { box-shadow: 0 1px 2px rgba(120, 60, 10, 0.12); }
+[data-theme="light"] .page-btn:hover,
+[data-theme="light"] .page-btn.active,
+[data-theme="light"] .nav-item.active,
+[data-theme="light"] .map-style-btn.active,
+[data-theme="light"] .map-controls .style-toggle .active { background: #fff7ed; }
+[data-theme="light"] input:focus,
+[data-theme="light"] select:focus,
+[data-theme="light"] textarea:focus,
+[data-theme="light"] .adm-auth .login-form input:focus { border-color: #fb923c !important; box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15) !important; }
+
+/* ── Banners, toasts, modals, notifications ────────────────── */
+[data-theme="light"] .error-banner,
+[data-theme="light"] .adm-auth .error-text { background: #fef2f2 !important; border-color: #fecaca !important; color: #b91c1c !important; }
+[data-theme="light"] .warning-banner { background: #fffbeb !important; border-color: #fde68a !important; color: #92400e !important; }
+[data-theme="light"] .success-banner { background: #f0fdf4 !important; border-color: #bbf7d0 !important; color: #15803d !important; }
+[data-theme="light"] .toast { background: #ffffff !important; color: var(--text) !important; border-color: #fed7aa !important; box-shadow: 0 16px 32px -16px rgba(120, 60, 10, 0.3) !important; }
+[data-theme="light"] .toast.success { background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
+[data-theme="light"] .toast.error,
+[data-theme="light"] .toast.sos { background: #fef2f2 !important; border-color: #fecaca !important; }
+[data-theme="light"] .toast.warning { background: #fffbeb !important; border-color: #fde68a !important; }
+[data-theme="light"] .modal-overlay { background: rgba(17, 24, 39, 0.4) !important; }
+[data-theme="light"] .modal { box-shadow: 0 25px 50px -12px rgba(120, 60, 10, 0.3) !important; }
+[data-theme="light"] .notification-item.unread { background: #fff7ed !important; border-color: #fed7aa; }
+
+/* ── Maps (overlays only; the base map keeps its own style) ── */
+[data-theme="light"] .map-fallback { background: #faf8f5; }
+[data-theme="light"] .map-grid {
+  background-image:
+    linear-gradient(rgba(120, 90, 50, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 90, 50, 0.06) 1px, transparent 1px);
+}
+[data-theme="light"] .map-label,
+[data-theme="light"] .map-badge-lib { background: rgba(255, 255, 255, 0.92); color: var(--text); }
+[data-theme="light"] .map-legend-group { background: #ffffff; border-color: var(--border); }
+
+/* ── Sign-in screens ───────────────────────────────────────── */
+[data-theme="light"] .adm-auth-side { background: linear-gradient(160deg, #fff7ed, #ffedd5); }
+[data-theme="light"] .adm-auth-side::before { background-image: radial-gradient(circle at 1px 1px, #ea580c 1px, transparent 0); opacity: 0.06; }
+[data-theme="light"] .adm-auth-side::after { background: linear-gradient(135deg, rgba(255, 255, 255, 0.4), transparent 60%); }
+[data-theme="light"] .adm-auth-tiles div { background: rgba(255, 255, 255, 0.85); border-color: #fed7aa; }
+
+/* ── Theme switch ──────────────────────────────────────────── */
+.adm-theme-btn { color: var(--muted2); }
+.adm-auth-theme { position: fixed; top: 16px; right: 16px; z-index: 5; border: 1px solid var(--border) !important; background: var(--bg2) !important; }

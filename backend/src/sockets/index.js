@@ -184,6 +184,8 @@ async function onSocketConnection(socket) {
         dropoffAddress: payload?.dropoffAddress,
         dropoffLat: payload?.dropoffLat,
         dropoffLng: payload?.dropoffLng,
+        passengerCount: payload?.passengerCount,
+        routeDistanceKm: payload?.routeDistanceKm,
       });
 
       if (result.matchedDriver) {

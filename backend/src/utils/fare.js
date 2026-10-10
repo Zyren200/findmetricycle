@@ -39,7 +39,48 @@ function calculateFareBreakdown(distanceKm, fareSettings, passengerCount = 1) {
   };
 }
 
+// The passenger app sends the length of the road route it showed (and
+// priced) the trip by. Roads are never shorter than the straight line, and
+// even Guiuan's coastal roads stay within ~1.6x of it, so anything outside
+// these bounds is clamped rather than trusted.
+const MAX_ROUTE_TO_STRAIGHT_RATIO = 2.5;
+const MAX_ROUTE_EXTRA_KM = 1;
+
+/** Trip distance for pricing: the app's road route, within sane bounds. */
+function resolveTripDistanceKm(straightKm, routeKm) {
+  const straight = Number(straightKm) || 0;
+  const route = Number(routeKm);
+  if (!Number.isFinite(route) || route <= 0) return straight;
+  const max = straight * MAX_ROUTE_TO_STRAIGHT_RATIO + MAX_ROUTE_EXTRA_KM;
+  return Number(Math.min(Math.max(route, straight), max).toFixed(3));
+}
+
+/**
+ * The rates a booking was priced with (saved in its fare breakdown), so a
+ * fare change in the admin never re-prices a ride already booked. Falls
+ * back to [current] for bookings made before rates were saved.
+ */
+function ratesForBooking(booking, current) {
+  let saved = booking?.fare_breakdown_json;
+  if (typeof saved === "string") {
+    try {
+      saved = JSON.parse(saved);
+    } catch {
+      saved = null;
+    }
+  }
+  if (!saved || typeof saved !== "object" || saved.baseFare == null) return current;
+  return {
+    base_fare: saved.baseFare,
+    per_km_rate: saved.perKmRate,
+    additional_passenger_fee: saved.additionalPassengerFee,
+    minimum_fare: saved.minimumFare,
+  };
+}
+
 module.exports = {
   calculateFare,
   calculateFareBreakdown,
+  resolveTripDistanceKm,
+  ratesForBooking,
 };

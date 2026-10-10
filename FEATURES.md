@@ -2,7 +2,7 @@
 
 A tricycle booking system for **Guiuan, Eastern Samar**. Passengers book in the app, choose a nearby tricycle driver, and pay **cash** at the end of the trip.
 
-> Last updated: October 3, 2026. Update this document whenever the system changes.
+> Last updated: October 9, 2026. Update this document whenever the system changes.
 
 **Contents**
 1. [System components](#1-system-components)
@@ -61,7 +61,7 @@ flowchart LR
 | Role | Can do |
 |---|---|
 | **Super Admin** | Everything, including **Admin Accounts**, Earnings (and export), Activity Logs, Barangay Coverage, Fare Settings and Settings. Receives **SOS escalations**. |
-| **Operations Admin** | Dashboard, Live Map, Users, Driver Applications, Approved Drivers, Bookings (including Force Cancel / Mark Completed), Ride History, Complaints, Notifications, Announcements, Reports. **No** SOS, earnings or system settings. |
+| **Operations Admin** | Dashboard, Live Map, Users, Driver Applications, Approved Drivers, Bookings (including Force Cancel / Mark Completed), Ride History, Complaints, Contact Support, Notifications, Announcements, Reports. **No** SOS, earnings or system settings. |
 | **SOS Responder** | Dashboard (SOS and live-ride widgets only), Live Map, **SOS** (acknowledge and resolve), the booking an SOS was raised on, and SOS notifications. |
 
 The permission list lives in one file: `backend/src/constants/admin-permissions.js`. Driver documents (license, permit, selfie) are visible only to roles with driver-application access.
@@ -70,53 +70,63 @@ The permission list lives in one file: `backend/src/constants/admin-permissions.
 
 ## 3. Features: Mobile app (passenger)
 
-### Account
-- **Sign up:** email → 6-digit OTP by email (valid 5 minutes) → name, mobile number, password → signed in automatically.
+The app uses the **Prism Night** design, the same as the driver application website: a midnight page with soft aurora glows, frosted **glass** panels whose edges carry a prism rim (ember › amber › lagoon › dusk, slowly travelling on sheets and the tab bar), and **"hot" ember pill buttons** with a neon glow. Ember is for actions, lagoon for trust, pickup and "online", red only for SOS. Fonts: Geist, Geist Mono for labels and numbers, Instrument Serif italic for the big accent ("Sakay na, *Guiuan.*"). **Light ("Prism Daylight") / Dark / System** appearance. Maps fill the screen (OpenFreeMap Liberty in light, Dark in dark mode; outside Guiuan dimmed behind a dashed violet edge) with glass chips on top and a strong-glass sheet for the current step; other screens slide in over the aurora. Animations stop when the phone asks for reduced motion.
+
+### First launch and account
+- **Splash** while the saved session is restored.
+- **Intro** (first launch only): three slides — book in seconds, know who's coming, safe on every ride — with Skip.
+- **Welcome:** Create an account / Log in.
+- **Sign up** (one screen, 3-step progress bar): email → 6-digit OTP by email (valid 5 minutes, resend after 60 s) → first and last name (middle name optional), mobile number (+63; saved as 09XXXXXXXXX) and password → **signed in automatically**.
+- **Turn on your location:** asked once after signing in when the app has no location access yet (Allow / Not now).
 - **Log in:** with email or mobile number. Clear errors such as *"This email is not registered."* or *"Invalid password. Please try again."* — what was typed stays in the fields.
-- **Forgot Password:** email → new password → OTP by email.
+- **Forgot Password:** email → OTP by email (verified first) → new password.
 - **Change Password** (Settings): current password + new password + OTP. Signs out every **other** device.
 - **Edit Profile:** name, phone, email, address, photo. Warns when the email or phone is already used by another account.
 - **Delete Account:** requires the password; not allowed during a ride. Afterwards the phone and email can be used for a new account.
 
 ### Booking a ride
-- **Home:** map with the **live positions of online drivers** and quick access to Saved Places.
-- **Booking flow:** Pickup → Destination → Number of passengers (1–5) → Fare estimate → Confirm.
-  - Search for a place, use the current location, or drop a pin on the map.
+- **Home:** full-screen map with the **live positions of online drivers**, a greeting, the 🔔 alerts button, "N riders online nearby", and the **"Where to?"** sheet with Search destination and Saved Places chips. An active ride replaces the sheet (status, PIN, View ride).
+- **Plan your ride** (one sheet over the map): pickup and drop-off, number of passengers (1–5), and the **fare estimate** (tap it for the breakdown) → **Find a tricycle**.
+  - Search for a place, use the current location, or tap the map (the sheet says whether the tap sets the pickup or the drop-off).
   - **Guiuan only:** maps open on Guiuan with everything outside its boundary dimmed; place search only returns places inside Guiuan (the islands included). When the service area is enforced (`GEOFENCE_ENABLED=true`), maps can't be panned or zoomed far away, and a pickup or destination outside Guiuan is refused with *"This location is outside Guiuan. FindMeTricycle only operates within Guiuan."* A passenger whose GPS is outside Guiuan sees a short notice explaining this.
-- **Choose a rider:** list of the nearest online drivers (up to 10, within **5 km**) with name, tricycle number, rating and distance.
-- **Ride Status:** the driver's live location, the status ("Driver on the way", "Arrived", "In progress"), and the **4-digit pickup PIN** to give the driver.
+- **Choose your rider:** list of the nearest online drivers (up to 10, within **5 km**) with name, tricycle number, rating and distance — select one, then **Request**.
+- **Ride status:** the driver's live location, a status pill ("Ramon is on the way", "has arrived", "Heading to …") with the **SOS** button, progress (Accepted · At pickup · On trip), the rider with a **Call** button, and the **4-digit pickup PIN** to give the driver.
 - **Cancel:** allowed while choosing a rider, after the driver accepts, and **while the driver is at the pickup point**. Not allowed once the trip has started.
 - **After the trip:** Ride Completed → **rate the driver** (1–5 stars and a comment). Each ride can be rated once.
 
 ### Other features
-- **My Rides (history):** list and **Ride Details** (date, places, fare, driver, tricycle), with **Rate Driver**, **Save to Favorites** and **Book Again**.
+- **Your rides (history):** totals, All / Completed / Cancelled, one card per trip with **Book again**, and **Ride Details** (date, places, fare, driver, tricycle) with **Rate Driver**, **Save to Favorites** and **Book Again**.
 - **Saved Places (Favorites):** save frequent destinations.
-- **Safety:** **SOS** (sends an alert with the location to the admin), emergency hotline (call), and the current ride's details.
-- **Notifications:** an inbox — **unread items stand out**, and tapping one **opens the full message** with the ride number, fare and reason.
+- **Safety and SOS:** **SOS** sends an alert with the location and ride to the admin, then opens the dialer with **911** ready (keeps retrying when offline; "SOS sent" shows where it stands); emergency hotline (call); the current ride's details; safety tips.
+- **Alerts:** an inbox — **unread items carry an orange dot**, and tapping one **opens the full message** with the ride number, fare and reason. Mark all read.
 - **Contact Support:** call or email, using the contacts set in the admin Settings.
-- **Settings:** dark mode, language, notification preferences, sound effects, vibration, default passenger count, location permission; Help Center and FAQ, Terms of Service, Privacy Policy.
+- **Profile:** photo, Edit, Switch to Driver Mode (when approved), **Appearance (Light / Dark / System)**, Saved places, Safety and SOS, Settings, Help center, Log out.
+- **Settings:** appearance, language, notification preferences, sound effects, vibration, default passenger count, location and notification permissions; Help Center and FAQ; **Map** (the map used and its credit: © OpenStreetMap contributors, OpenFreeMap style, MapLibre — the maps themselves show no credit button); Terms of Service, Privacy Policy; Delete Account.
 - **Become a Driver:** opens the driver application website.
-- **Report a Problem:** send a report to the admin.
+- **Report a Problem:** pick a topic (booking, driver, fare, safety, app, account, other) and describe what happened; it goes to the admin's **Complaints**. From Settings it's a general report; from a ride's **Ride Details** ("Report a problem with this ride") it's tied to that ride and its driver.
 
 ---
 
 ## 4. Features: Mobile app (driver)
 
+Tabs: **Drive · Earnings · History · Profile** (floating glass tab bar; the active icon is lagoon in Driver Mode, ember in Passenger Mode).
+
+- **Drive:** full-screen map with the rider's position, today's earnings, 🔔, and the **You're offline** (checklist: GPS, location permission, internet → **Go online**) or **You're online** (today, trips, rating → Go offline) sheet. An active ride or a waiting request shows in the sheet instead.
 - **Online / Offline:**
   - Requires GPS on, location permission and an internet connection.
   - While Online, a **"You're online" notification** keeps GPS running even with the phone locked (Android foreground service).
   - The driver is set Offline automatically if GPS, permission or internet is lost.
 - **Status pills:** GPS · Internet · Location Sharing.
-- **Ride requests:** pop-up with vibration and **20 seconds** to **Accept** or **Decline**.
+- **Ride requests:** a card over the map with the fare and distance, a **20-second ring timer**, the passenger, pickup (distance from you) and drop-off → **Accept** or **Decline**.
 - **Active Ride:**
-  1. **I've Arrived at Pickup**
-  2. Ask the passenger for the **PIN** → **Start** (the correct PIN is required; 5 attempts).
-  3. **Complete Ride** — the final fare is computed; the passenger pays cash.
+  1. **I've arrived at pickup** (with a Call button for the passenger)
+  2. Ask the passenger for the **PIN** and type it on the **keypad** → **Start trip** (the correct PIN is required; 5 attempts).
+  3. **Complete ride** → "Ride completed" with the fare to collect in cash, distance, time and passengers.
   - **Passenger No-Show** (after arriving) — closes the ride and files a report.
   - **Cancel Ride** before the trip starts (with a reason) — the passenger picks another rider.
-- **Earnings:** Today, This Week, This Month, a chart of the last 7 days, lifetime totals, performance (cancellation rate), milestones, and the list of completed rides.
-- **Ride History:** All / Completed / Cancelled filters, with the passenger's rating and comment.
-- **Profile and Settings:** edit profile (including tricycle number), change password, notifications, auto-online, Report a Problem.
+- **Earnings:** Today / This week / This month switch, a tappable chart of the last 7 days, cancellation rate, lifetime totals, average rating and per ride, the next trip milestone, and the list of completed rides.
+- **History:** totals, All / Completed / Cancelled filters, with the passenger's rating and comment (or who cancelled).
+- **Profile and Settings:** license and franchise validity, Switch to Passenger Mode, auto-online, appearance, Report a problem, edit profile (including tricycle number), my ratings, notifications, change password, settings, log out.
 - **SOS** during a ride.
 - **If the app is restarted** during a ride, the Active Ride comes back.
 
@@ -124,19 +134,22 @@ The permission list lives in one file: `backend/src/constants/admin-permissions.
 
 ## 5. Features: Driver application website
 
-**Pages:** Home · How it Works · Safety · About · Download · Driver Info · **Apply** · **Application Status** · Contact
+**Pages:** Home · How it Works · Safety · About · Download (APK, QR code, install guide) · Become a Driver (benefits, requirements, steps) · **Apply** · **Application Status** · **Contact** (the message goes to the admin's **Contact Support** inbox; the admin's reply arrives by email). Signed-in visitors get **My Application**, their name and **Sign Out** in the header.
+
+**Design ("Prism Night"):** a midnight sky with drifting aurora, frosted glass cards whose edges catch a prism rim (ember, amber, lagoon, dusk), and orange "hot" buttons with a glow. Fonts: Geist, Geist Mono for labels, Instrument Serif for the hero accent. Light theme ("Prism Daylight") swaps to white glass; the theme follows the system until the visitor picks one with the moon / sun button. Real screenshots of the app (dark and light, in `driver_apply/public/shots/`) show on Home, Become a Driver and Download. Pages slide in with staggered reveals; animations stop when the device asks for reduced motion. On phones the nav becomes a menu and the wizard steps become a row of numbered dots.
 
 **Application flow** (see also [§8.5](#85-applying-to-become-a-driver)):
-1. **CAPTCHA** (Google reCAPTCHA)
-2. **Sign in** with the passenger account from the app
-3. **Email OTP**
-4. **Application wizard** (5 steps):
-   1. *Personal Information:* full name, email, contact number, address, emergency contact (name and number)
-   2. *Driver Information:* license type, tricycle / plate number, franchise / permit number (optional)
-   3. *Required Documents:* photos of the **Driver's License** and **Franchise / Permit**. The license is read by OCR and must show an **LTO license number** and the **applicant's name** before it's accepted.
-   4. *Identity Verification:* selfie / liveness check
-   5. *Review & Submit:* confirm the name, license number and birth date that were read from the license
-- **Application Status:** pending, needs correction, approved or rejected, with a timeline. When *needs correction* or *rejected*, the applicant can **resubmit**.
+1. **Sign in** (step 1 of 2): the passenger account from the app (email or mobile number) and password, plus Google **reCAPTCHA** in the same form (checked by the server). Only passenger accounts **with an email** can apply; no separate driver account is created.
+2. **Email code** (step 2 of 2): 6 digits, valid 5 minutes with a countdown, resend after 60 s; a pasted code fills all six boxes. **Use a different account** goes back.
+3. The site checks for an existing application (signing in from the Status page goes back to it): none → the wizard; pending or approved → the Status page; *needs correction* / *rejected* with the Resubmit link → the wizard as a resubmission.
+4. **Application wizard** (5 steps): a side list of the steps (✓ when done; finished steps can be reopened), a progress bar, and **Back / Next** under each step. Next checks the step first and points at what's missing. **Cancel and sign out** asks first.
+   1. *Personal Information:* full name, email and contact number from the account (read-only); home address (at least 8 characters) and emergency contact: name and an 11-digit mobile number (09XXXXXXXXX or +639XXXXXXXXX) that isn't the applicant's own
+   2. *Driver Information:* license type (Professional / Non-Professional, as two choice cards), tricycle plate number, franchise / permit number (optional)
+   3. *Required Documents:* photos of the **Driver's License** and **Franchise / Permit** (JPG, PNG or WEBP, max 5 MB), chosen or dragged onto each box. An accepted photo shows a preview and its checks as pills (clear photo, license number, name matches). Blurry, dark, glaring or tiny photos are refused. The license is read by OCR in the browser and must show an **LTO license number** and the **applicant's first name and surname**, or it's refused. A permit that doesn't look like one can still be submitted if the applicant ticks the box in that document's box — it's flagged for the admin.
+   4. *Identity Verification:* **Start face check** opens the camera in a round frame with a progress ring (look straight → blink → turn your head). The result and the selfie show afterwards, with **Do it again**. An incomplete check is marked for admin review; with no camera, **Continue without face check** (also reviewed by the admin).
+   5. *Review & Submit:* a summary of every step, each with **Edit**, and a confirmation checkbox. If the email code was verified more than **1 hour** ago, a "Confirm it's still you" dialog asks for a new code, then submits.
+5. **Submitted:** reference number, what happens next, and a note when some items need a manual check. The server re-checks the license, notifies the admins, and runs its own document check in the background (admins are notified again if a document doesn't pass).
+- **Application Status:** pending, needs correction, approved or rejected, with the admin's note, the application details (reference, plate, dates), the document and face-check results, and a timeline. When *needs correction* or *rejected*, the applicant can **resubmit**: the admin's note shows on top, the wizard opens at *Required Documents* with steps 1 and 2 filled in from the previous answers (the plate number stays the same), and new document photos and a new face check are required. **Refresh Status** reloads it.
 
 ---
 
@@ -155,13 +168,14 @@ The permission list lives in one file: `backend/src/constants/admin-permissions.
 | **Ride History** | All completed and cancelled rides. |
 | **SOS** | Alerts from passengers and drivers with the sender, message and location. **Open → Acknowledged ("I'm handling this") → Resolved** with a required note. Only one admin can acknowledge an alert; everyone with SOS access sees live who is handling it. New alerts play an **alarm** and show a **desktop notification** (the admin is asked once to allow them). Filter: open / being handled / resolved. |
 | **Complaints (reports)** | **Gmail-style inbox:** list (open reports in bold) → open one to see the full report, the reporter and their contact, and the ride details; **Resolve** or **Dismiss** with a note. |
+| **Contact Support** | Messages from the website's Contact page, in a **Gmail-style inbox** (All / Open / Replied / Closed; the sidebar badge counts open ones). Open one → read it → write a **reply, which is emailed to the sender's address**; every reply stays under the message with who sent it and when. **Close** or **Reopen**. |
 | **Notifications** | **Gmail-style inbox:** search, All / Unread; an opened notification shows the full message and the related booking, SOS alert, report or application, with a button to go there. Plus the **bell dropdown** at the top. Each admin sees only the notification types their role covers, with **their own read/unread state**; notifications from before their account was created count as read. |
 | **Announcements** | Send an announcement to everyone, passengers only, or drivers only. |
 | **Reports (Insights)** | Ride activity charts (7 or 30 days). |
 | **Earnings** | Daily earnings chart, earnings per driver, **Export CSV**. |
 | **Activity Logs** | A record of every admin action with the **acting admin's name**; refused attempts are logged as `DENIED`. |
 | **Barangay Coverage** | Guiuan's **60 barangays** on a **coverage map** with the boundary: search, **Enable / Disable**, **Move pin** (click the map or type the coordinates). A pin outside Guiuan's boundary is refused. |
-| **Fare Settings** | Base fare, per-km rate, minimum fare, night fee*, fee per additional passenger. *See [§11](#11-known-gaps).* |
+| **Fare Settings** | Base fare, per-km rate, minimum fare, fee per additional passenger. (The night fee is shelved — see [§11](#11-known-gaps).) |
 | **Settings** | App name, **support email and contact number** (shown in the app), **operating hours** (Philippine time) with an option to **block bookings outside them**. |
 | **Admin Accounts** (Super Admin) | List of admins (role, status, last login, who created them). **Add admin** (name, own email, mobile number, role) — they get an email telling them to set their own password with Forgot Password; nobody else sees or sets it. **Change role**, **Disable / Enable**, **Send password reset**. Rules enforced by the backend: no one can change their own role or disable themselves, the last active Super Admin can't be demoted or disabled, and an email or number already used by any account is refused. A role change or disable takes effect at once — the admin's open dashboard is signed out with an explanation. |
 | **Global search** | Find a page, user, driver or booking from the top bar (only what the role may open). |
@@ -192,16 +206,21 @@ The dashboard is live: new SOS alerts and notifications arrive immediately, and 
 ## 8. Flows, step by step
 
 ### 8.1 Passenger sign-up and login
-1. In the app: **Create Account** → enter email → **Send code**.
-2. Enter the 6-digit OTP from the email (valid 5 minutes).
-3. Enter name, mobile number and password → **signed in**.
-4. Next time: **Log in** with email or mobile number and password.
+1. First launch: splash → intro slides (or Skip) → **Welcome**.
+2. **Create an account** → enter email → **Send code**.
+3. Enter the 6-digit OTP from the email (valid 5 minutes).
+4. Enter first and last name, mobile number and password → **signed in** → **Turn on your location** (once).
+5. Next time: **Log in** with email or mobile number and password.
    - Wrong email → *"This email is not registered."* Wrong password → *"Invalid password."* The typed values are kept.
 
 ### 8.2 Forgot password
-1. Login → **Forgot password? Reset**.
-2. Enter email, new password and confirmation → **Continue**.
-3. Enter the OTP from the email → **Confirm** → back to login with the new password.
+1. Login → **Forgot password?**
+2. Enter the account's email → **Send code**. An unregistered email is shown under the field.
+3. Enter the 6-digit code from the email (it expires in 5 minutes; **Resend code** after 60 s). The code is checked right away; a wrong code stays on this step.
+4. Only after the code is verified: enter the new password and its confirmation → **Save new password**.
+5. Back on login, the email is filled in → log in with the new password. Every other session is signed out.
+   - The verified code stays usable for 15 minutes. If that runs out, the app goes back to step 2 to send a new code.
+   - Backend: `POST /auth/v2/forgot-password/request` → `/verify` → `/reset` (the code is sent again with the new password).
 
 ### 8.3 Booking a ride (full lifecycle)
 
@@ -227,9 +246,9 @@ stateDiagram-v2
 *("Offered" is still `pending` in the database, with a driver assigned and waiting for their answer.)*
 
 **Passenger:**
-1. **Home → Where to?** Choose pickup and destination, the number of passengers, and review the **fare estimate**.
-2. **Confirm & Book.** The system checks operating hours and barangay coverage.
-3. **Choose a rider** from the list of nearby drivers.
+1. **Home → Search destination.** The pickup is your current location (change it by search or by tapping the map); choose the destination, the number of passengers, and review the **fare estimate**.
+2. **Find a tricycle.** The system checks operating hours and barangay coverage.
+3. **Choose your rider** from the list of nearby drivers → **Request**.
 
 **Driver:**
 
@@ -258,12 +277,12 @@ Each step sends a **notification** (in-app, live and push).
 
 ### 8.5 Applying to become a driver
 1. In the app: **Profile → Become a Driver** → opens the website.
-2. **CAPTCHA → Sign in** (same account) → **Email OTP**.
+2. **Sign in** (same account, with the CAPTCHA in the same form) → **Email code**.
 3. Complete the **5-step wizard**. The license must pass the OCR check (LTO number and name).
 4. **Submit** → *pending*; the admin gets a notification.
 5. The admin reviews the application (§8.6).
 6. When **approved**: in the app, **Profile → Switch to Driver Mode** → **Go Online**.
-7. When **needs correction** or **rejected**: the reason is shown on the Status page → fix it → **Resubmit**.
+7. When **needs correction** or **rejected**: the reason is shown on the Status page → **Update / Resubmit Application** → the wizard opens with the previous answers → correct them, upload new document photos and redo the face check → submit (*pending* again).
 
 ### 8.6 Admin review of a driver application
 1. Admin → **Driver Applications** → open the application.
@@ -284,17 +303,24 @@ Each step sends a **notification** (in-app, live and push).
 6. When it's over → **Resolve** with a short note on what was done. Who acknowledged, who resolved, when, and the note are kept with the alert.
 
 ### 8.8 Reports (complaints)
-1. Passenger or driver → **Report a Problem**, or automatically from a **No-Show**.
+1. Passenger or driver → **Report a Problem** (both use the same sheet: topic + description; a passenger's report can be tied to a past ride), or automatically from a **No-Show**.
 2. Admin → **Complaints**: open reports are in bold → open one to read the full report and the ride details.
 3. Write a note (optional) → **Resolve** or **Dismiss**; who and when are recorded.
 
-### 8.9 Notifications
+### 8.9 Contact messages (website → admin → email)
+1. Visitor → website **Contact** page → name, email, subject (optional), message → **Send Message**. (Limited to 5 messages per hour per visitor; a hidden field stops bots.)
+2. The message is saved and admins with Contact Support access get a notification ("New contact message").
+3. Admin → **Contact Support** → open the message → write a reply → **Send reply**.
+4. The reply is **emailed to the address the visitor entered**, quoting their message. It is sent from the same Brevo address as the OTP emails, under the sender name **support.findmetricycle** (`SUPPORT_FROM_NAME` in `.env`). It's a **no-reply email**: it says replies aren't read and to send a new message from the Contact page instead. The reply is only recorded once the email went out — if sending fails, the admin sees an error and can try again.
+5. The message becomes **Replied**; the admin can **Close** it when nothing more is needed (or **Reopen** it).
+
+### 8.10 Notifications
 1. Something happens (e.g. a ride is accepted) → a notification is saved.
 2. If the app is open: **live update** (Socket.IO) and a badge on 🔔.
 3. If the app is closed or in the background: **push notification** (when Firebase is configured).
 4. In the list, unread items stand out → tap one → **full message** → marked *read*. There's also an **All read** button.
 
-### 8.10 Admin setup and login
+### 8.11 Admin setup and login
 1. First time: **Sign up** on the admin dashboard → email OTP → creates the first admin, a **Super Admin**. After that, sign-up is closed.
 2. More admins: Super Admin → **Admin Accounts** → **Add admin** (name, their own email, mobile number, role). The new admin gets an email with the steps (no password, no code).
 3. The new admin → sign-in page → **Forgot password?** → their own email → OTP → sets their own password → **Log in**.
@@ -343,7 +369,7 @@ fare = max( base_fare + (distance_km × per_km_rate)
 
 | # | Gap | Impact |
 |---|---|---|
-| 1 | **The night fee isn't applied.** It's saved in Fare Settings but isn't part of the fare formula. | Fares are the same day and night. |
+| 1 | **The night fee is shelved.** It was removed from Fare Settings and isn't part of the fare formula; any stored value is kept but never charged. | Fares are the same day and night. |
 | 2 | **Push notifications** need a Firebase project to be created. | Until then, notifications only appear while the app is open. |
 | 3 | **The service area (`GEOFENCE_ENABLED`) and operating-hours blocking are off** by default. While the service area is off, the app shows Guiuan's boundary but doesn't block anything (for testing from outside Guiuan). | Turn both on before real use. |
 | 4 | **The release build isn't ready:** the package name is still `com.example...`, the build is signed with the debug key, and the API uses plain HTTP (no HTTPS). | Can't be published on the Play Store yet. |

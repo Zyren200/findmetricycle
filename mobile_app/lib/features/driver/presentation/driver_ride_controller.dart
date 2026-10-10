@@ -8,6 +8,7 @@ import "package:image_picker/image_picker.dart";
 import "package:latlong2/latlong.dart" as ll;
 import "package:permission_handler/permission_handler.dart";
 import "../../../core/network/socket_client.dart";
+import "../../../core/safety/sos_delivery.dart";
 import "../../../core/state/dispose_safe_notifier.dart";
 import "../repositories/driver_repository.dart";
 
@@ -87,7 +88,9 @@ class DriverRideController extends ChangeNotifier with DisposeSafeNotifier {
   }
 
   Future<void> loadMoreRideHistory() async {
-    if (isLoadingMoreRideHistory || isLoadingRideHistory || !rideHistoryHasMore) {
+    if (isLoadingMoreRideHistory ||
+        isLoadingRideHistory ||
+        !rideHistoryHasMore) {
       return;
     }
     isLoadingMoreRideHistory = true;
@@ -345,11 +348,12 @@ class DriverRideController extends ChangeNotifier with DisposeSafeNotifier {
     // The passenger can cancel up to the rider's arrival, and the admin can
     // force-close a ride at any point — without these, the "Active Ride"
     // card (or a request card) would stay stuck on a ride that's gone.
-    _bookingCancelledSub ??=
-        _socketClient.on("driver:booking_cancelled").listen((event) =>
-            _onRideClosedElsewhere(event, "The passenger cancelled this ride."));
-    _bookingClosedSub ??=
-        _socketClient.on("driver:booking_closed").listen((event) =>
+    _bookingCancelledSub ??= _socketClient
+        .on("driver:booking_cancelled")
+        .listen((event) => _onRideClosedElsewhere(
+            event, "The passenger cancelled this ride."));
+    _bookingClosedSub ??= _socketClient.on("driver:booking_closed").listen(
+        (event) =>
             _onRideClosedElsewhere(event, "The admin closed this ride."));
 
     _approvalSub ??= _socketClient.on("driver:approval_status").listen((event) {
@@ -930,8 +934,28 @@ class DriverRideController extends ChangeNotifier with DisposeSafeNotifier {
   bool isSendingSos = false;
   String? sosMessage;
 
-  Future<bool> sendSos({String? message}) async {
+  /// The SOS alert on its way to the admin team (retries until delivered).
+  late final SosDelivery sosDelivery = SosDelivery(onChanged: notifyListeners);
+
+  /// Why the last SOS attempt failed, if it did.
+  String? sosError;
+
+  /// Starts sending an SOS alert for the active ride and returns at once —
+  /// the caller opens the dialer meanwhile. Retries keep that ride even if
+  /// it ends before the alert gets through.
+  void startSos() {
     final bookingId = int.tryParse(activeBooking?["id"]?.toString() ?? "");
+    if (bookingId == null) {
+      // Nothing to retry: the server only takes rider SOS for a ride.
+      error = "SOS is only available during an active ride.";
+      notifyListeners();
+      return;
+    }
+    unawaited(sosDelivery.send(() => sendSos(bookingId: bookingId)));
+  }
+
+  Future<bool> sendSos({String? message, int? bookingId}) async {
+    bookingId ??= int.tryParse(activeBooking?["id"]?.toString() ?? "");
     if (bookingId == null) {
       error = "SOS is only available during an active ride.";
       notifyListeners();
@@ -955,9 +979,11 @@ class DriverRideController extends ChangeNotifier with DisposeSafeNotifier {
             response["message"]?.toString() ?? "Failed to send SOS alert.");
       }
       sosMessage = "SOS alert sent. Admin has been notified.";
+      sosError = null;
       return true;
     } catch (e) {
       error = e.toString().replaceFirst("Exception: ", "");
+      sosError = error;
       return false;
     } finally {
       isSendingSos = false;
@@ -1033,6 +1059,7 @@ class DriverRideController extends ChangeNotifier with DisposeSafeNotifier {
 
   @override
   void dispose() {
+    sosDelivery.dispose();
     // Best-effort — this controller (and the shell that owns it) is torn
     // down when the driver switches to Passenger Mode or logs out from
     // somewhere that didn't already call setOnline(false) itself. Fire it

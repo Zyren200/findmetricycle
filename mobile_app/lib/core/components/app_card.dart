@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/design_tokens.dart';
+import 'sunrise.dart';
 
-/// Stat card component
+/// Stat card: label above a big number.
 class StatCard extends StatelessWidget {
   final String label;
   final String value;
@@ -21,55 +22,39 @@ class StatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(DesignTokens.spacing16),
       decoration: BoxDecoration(
-        color: DesignTokens.bg2,
-        border: Border.all(color: DesignTokens.border, width: 1),
+        color: DesignTokens.surface,
+        border: Border.all(color: DesignTokens.line),
         borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
+        boxShadow: DesignTokens.shadow1,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          // Top accent bar
-          Container(
-            height: 4,
-            width: 48,
-            decoration: BoxDecoration(
-              color: accentColor ?? DesignTokens.accent,
-              borderRadius: BorderRadius.circular(2.0),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: DesignTokens.fontSize12,
+                    fontWeight: DesignTokens.fw700,
+                    color: DesignTokens.ink2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: DesignTokens.fw800,
+                    color: accentColor ?? DesignTokens.ink,
+                    fontFeatures: DesignTokens.tabular,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: DesignTokens.spacing14),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: DesignTokens.fontSize12,
-                        fontWeight: DesignTokens.fw500,
-                        color: DesignTokens.muted,
-                        fontFamily: DesignTokens.fontDmSans,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      value,
-                      style: TextStyle(
-                        fontSize: DesignTokens.fontSize18,
-                        fontWeight: DesignTokens.fw700,
-                        color: DesignTokens.text,
-                        fontFamily: DesignTokens.fontSyne,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (trailing != null) trailing!,
-            ],
-          ),
+          if (trailing != null) trailing!,
         ],
       ),
     );
@@ -85,7 +70,7 @@ class AppDivider extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: height,
-      color: DesignTokens.border,
+      color: DesignTokens.line,
       margin: const EdgeInsets.symmetric(vertical: DesignTokens.spacing12),
     );
   }
@@ -108,24 +93,13 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return SunCard(
       onTap: onTap,
-      child: Container(
-        padding: padding ?? const EdgeInsets.all(DesignTokens.spacing14),
-        decoration: BoxDecoration(
-          color: backgroundColor ?? DesignTokens.bg2,
-          border: Border.all(color: DesignTokens.border, width: 1),
-          borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
-          boxShadow: const [
-            BoxShadow(
-              color: Color.fromRGBO(0, 0, 0, 0.12),
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            ),
-          ],
-        ),
-        child: child,
-      ),
+      color: backgroundColor,
+      radius: DesignTokens.radiusCard,
+      padding:
+          padding ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: child,
     );
   }
 }

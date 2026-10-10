@@ -1,10 +1,12 @@
 import { Shield } from "lucide-react";
+import ThemeToggle from "./ThemeToggle";
 
 /// Two-panel frame for the sign-in / sign-up / reset screens: brand panel
 /// on the left (large screens), the form on the right.
 export default function AuthShell({ children }) {
   return (
     <div className="adm-auth">
+      <ThemeToggle className="adm-icon-btn adm-theme-btn adm-auth-theme" />
       <aside className="adm-auth-side">
         <div className="adm-auth-brand">
           <div className="mark">

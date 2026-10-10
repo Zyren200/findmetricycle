@@ -1,6 +1,11 @@
 require("./setup-env");
 
-const { calculateFare, calculateFareBreakdown } = require("../src/utils/fare");
+const {
+  calculateFare,
+  calculateFareBreakdown,
+  resolveTripDistanceKm,
+  ratesForBooking,
+} = require("../src/utils/fare");
 const { findRideSchema } = require("../src/validations/passenger.schema");
 const { fareUpdateSchema } = require("../src/validations/admin.schema");
 
@@ -84,5 +89,41 @@ describe("Admin fare update additionalPassengerFee validation", () => {
         body: { baseFare: 20, perKmRate: 12, additionalPassengerFee: -1 },
       }).success
     ).toBe(false);
+  });
+});
+
+describe("resolveTripDistanceKm", () => {
+  it("prices by the road route the app quoted", () => {
+    // Poblacion -> Sulangan: 13.42 km straight, 21.16 km by road.
+    expect(resolveTripDistanceKm(13.42, 21.16)).toBe(21.16);
+  });
+
+  it("falls back to the straight line without a route", () => {
+    expect(resolveTripDistanceKm(2.28, undefined)).toBe(2.28);
+    expect(resolveTripDistanceKm(2.28, "abc")).toBe(2.28);
+    expect(resolveTripDistanceKm(2.28, -4)).toBe(2.28);
+  });
+
+  it("never prices below the straight line", () => {
+    expect(resolveTripDistanceKm(5, 1)).toBe(5);
+  });
+
+  it("caps an implausibly long route", () => {
+    expect(resolveTripDistanceKm(2, 400)).toBe(6); // 2 * 2.5 + 1
+  });
+});
+
+describe("ratesForBooking", () => {
+  const current = { base_fare: 50, per_km_rate: 40 };
+
+  it("uses the rates saved with the booking", () => {
+    expect(
+      ratesForBooking({ fare_breakdown_json: { baseFare: 15, perKmRate: 15, additionalPassengerFee: 5, minimumFare: 10 } }, current)
+    ).toEqual({ base_fare: 15, per_km_rate: 15, additional_passenger_fee: 5, minimum_fare: 10 });
+  });
+
+  it("falls back to current rates for older bookings", () => {
+    expect(ratesForBooking({ fare_breakdown_json: null }, current)).toBe(current);
+    expect(ratesForBooking({ fare_breakdown_json: "not json" }, current)).toBe(current);
   });
 });

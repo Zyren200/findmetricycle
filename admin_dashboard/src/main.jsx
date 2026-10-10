@@ -10,6 +10,7 @@ import "@fontsource/dm-mono/400.css";
 import "@fontsource/dm-mono/500.css";
 import "./styles.css";
 import "./theme.css";
+import "./theme-light.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

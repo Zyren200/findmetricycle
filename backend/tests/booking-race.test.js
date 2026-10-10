@@ -67,6 +67,24 @@ describe("completeRide", () => {
     const [, fare] = bookingModel.markCompleted.mock.calls[0];
     expect(fare).toBe(60);
   });
+
+  it("charges the rates the ride was booked at, not ones changed since", async () => {
+    bookingModel.markCompleted.mockResolvedValue({ changed: true });
+    bookingModel.findActiveByDriver.mockResolvedValue({
+      id: BOOKING_ID,
+      status: "ongoing",
+      distance_km: 2,
+      passenger_count: 1,
+      fare_breakdown_json: JSON.stringify({ baseFare: 15, perKmRate: 15, additionalPassengerFee: 5, minimumFare: 0 }),
+    });
+    // The admin raised fares mid-ride.
+    fareModel.getCurrentFareSettings.mockResolvedValue({ base_fare: 50, per_km_rate: 40 });
+
+    await bookingService.completeRide({ driverId: DRIVER_ID, bookingId: BOOKING_ID });
+
+    const [, fare] = bookingModel.markCompleted.mock.calls[0];
+    expect(fare).toBe(45); // 15 + 2 * 15
+  });
 });
 
 describe("driverRespond", () => {

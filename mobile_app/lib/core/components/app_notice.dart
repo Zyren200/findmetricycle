@@ -13,18 +13,17 @@ class AppNotice extends StatelessWidget {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(top: DesignTokens.spacing12),
-      padding: const EdgeInsets.all(DesignTokens.spacing12),
+      padding: const EdgeInsets.all(DesignTokens.spacing14),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: color.withAlpha(DesignTokens.isDark ? 40 : 28),
         borderRadius: BorderRadius.circular(DesignTokens.radius),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(
         message,
         style: TextStyle(
-          color: color,
-          fontFamily: DesignTokens.fontDmSans,
-          fontWeight: DesignTokens.fw600,
+          color: DesignTokens.ink,
+          fontSize: 13,
+          fontWeight: DesignTokens.fw700,
         ),
       ),
     );

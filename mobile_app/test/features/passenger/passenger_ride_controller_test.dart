@@ -43,6 +43,7 @@ class FakePassengerRepository extends PassengerRepository {
     required double dropoffLat,
     required double dropoffLng,
     int passengerCount = 1,
+    double? routeDistanceKm,
     bool autoAssign = true,
   }) async =>
       findRideResponse;
@@ -130,7 +131,10 @@ void main() {
     await findRideWith([rider(1, "Ana", 0.3)]);
     repo.chooseResponse = {
       "success": true,
-      "data": {"booking": pendingBooking(driverId: 1), "driver": rider(1, "Ana", 0.3)},
+      "data": {
+        "booking": pendingBooking(driverId: 1),
+        "driver": rider(1, "Ana", 0.3)
+      },
     };
 
     await controller.chooseDriver(1);
@@ -141,11 +145,13 @@ void main() {
     expect(controller.nearbyDrivers, isEmpty);
   });
 
-  test("a rejected choice keeps the passenger choosing with an error", () async {
+  test("a rejected choice keeps the passenger choosing with an error",
+      () async {
     await findRideWith([rider(1, "Ana", 0.3)]);
     repo.chooseResponse = {
       "success": false,
-      "message": "This rider is no longer available. Please choose another rider.",
+      "message":
+          "This rider is no longer available. Please choose another rider.",
     };
 
     await controller.chooseDriver(1);
@@ -159,7 +165,10 @@ void main() {
     await findRideWith([rider(1, "Ana", 0.3), rider(2, "Ben", 1.1)]);
     repo.chooseResponse = {
       "success": true,
-      "data": {"booking": pendingBooking(driverId: 1), "driver": rider(1, "Ana", 0.3)},
+      "data": {
+        "booking": pendingBooking(driverId: 1),
+        "driver": rider(1, "Ana", 0.3)
+      },
     };
     await controller.chooseDriver(1);
     final pickerRequests = controller.driverPickerRequest;
@@ -181,7 +190,10 @@ void main() {
     await findRideWith([rider(7, "Ana", 0.3)]);
     repo.chooseResponse = {
       "success": true,
-      "data": {"booking": pendingBooking(driverId: 7), "driver": rider(7, "Ana", 0.3)},
+      "data": {
+        "booking": pendingBooking(driverId: 7),
+        "driver": rider(7, "Ana", 0.3)
+      },
     };
     await controller.chooseDriver(7);
 
@@ -237,7 +249,8 @@ void main() {
             "nearbyDrivers": [],
           },
         };
-      final restarted = PassengerRideController(restartedRepo, FakeSocketClient());
+      final restarted =
+          PassengerRideController(restartedRepo, FakeSocketClient());
       await restarted.initialize();
 
       expect(restarted.activeBookingId, 10);
@@ -247,12 +260,14 @@ void main() {
       restarted.dispose();
     });
 
-    test("rider arrival re-sends the PIN and asks the page to show it", () async {
+    test("rider arrival re-sends the PIN and asks the page to show it",
+        () async {
       await findRideWith([rider(1, "Ana", 0.3)]);
       controller.pickupPin = null; // e.g. lost somehow
       final prompts = controller.pinPromptRequest;
 
-      socket.push("passenger:driver_arrived", {"bookingId": 10, "pickupPin": "7302"});
+      socket.push(
+          "passenger:driver_arrived", {"bookingId": 10, "pickupPin": "7302"});
       await Future<void>.delayed(Duration.zero);
 
       expect(controller.bookingStatus, "arriving");
@@ -278,7 +293,8 @@ void main() {
       expect(controller.locationError, isNotNull);
     });
 
-    test("ride actions clearing errors don't hide the location problem", () async {
+    test("ride actions clearing errors don't hide the location problem",
+        () async {
       await findRideWith([rider(1, "Ana", 0.3)]);
 
       expect(controller.error, isNull);

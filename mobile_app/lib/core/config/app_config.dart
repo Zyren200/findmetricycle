@@ -1,5 +1,7 @@
 import "package:flutter/foundation.dart";
 
+import "../theme/design_tokens.dart";
+
 class AppConfig {
   static const String _defaultPort = "5000";
   static const String _webHost = "localhost";
@@ -67,6 +69,12 @@ class AppConfig {
   static const double defaultPerKmRate = 12.0;
   static const String openFreeMapStyleUrl =
       "https://tiles.openfreemap.org/styles/liberty";
+  static const String openFreeMapDarkStyleUrl =
+      "https://tiles.openfreemap.org/styles/dark";
+
+  /// The map style for the current theme: Liberty in light, Dark in dark.
+  static String get mapStyleUrl =>
+      DesignTokens.isDark ? openFreeMapDarkStyleUrl : openFreeMapStyleUrl;
 
   static const String _driverApplyUrlOverride =
       String.fromEnvironment("DRIVER_APPLY_URL", defaultValue: "");

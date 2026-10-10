@@ -6,7 +6,12 @@ const fareModel = require("../models/fare.model");
 const ratingModel = require("../models/rating.model");
 const matchingService = require("./matching.service");
 const { haversineKm } = require("../utils/haversine");
-const { calculateFare, calculateFareBreakdown } = require("../utils/fare");
+const {
+  calculateFare,
+  calculateFareBreakdown,
+  resolveTripDistanceKm,
+  ratesForBooking,
+} = require("../utils/fare");
 const { decorateBookingRecord } = require("../utils/ride-progress");
 const ApiError = require("../utils/api-error");
 const serviceAreaService = require("./service-area.service");
@@ -148,11 +153,16 @@ async function createBookingAndFindDriver(payload) {
     throw new ApiError(400, `passengerCount must be between ${MIN_PASSENGERS} and ${MAX_PASSENGERS}.`);
   }
 
-  const distanceKm = haversineKm(
-    Number(payload.pickupLat),
-    Number(payload.pickupLng),
-    Number(payload.dropoffLat),
-    Number(payload.dropoffLng)
+  // Priced by the road route the app showed the passenger, so the fare
+  // they agreed to is the fare that is recorded and paid.
+  const distanceKm = resolveTripDistanceKm(
+    haversineKm(
+      Number(payload.pickupLat),
+      Number(payload.pickupLng),
+      Number(payload.dropoffLat),
+      Number(payload.dropoffLng)
+    ),
+    payload.routeDistanceKm
   );
 
   const fareSettings = await fareModel.getCurrentFareSettings();
@@ -550,7 +560,8 @@ async function completeRide(payload) {
     throw new ApiError(400, "Ride can only be completed from ongoing state.");
   }
 
-  const fareSettings = await fareModel.getCurrentFareSettings();
+  // The rates the ride was booked at, not whatever the admin set since.
+  const fareSettings = ratesForBooking(driverActive, await fareModel.getCurrentFareSettings());
   const estimatedDistanceKm = Number(driverActive.distance_km);
   let finalDistanceKm = payload.actualDistanceKm
     ? Number(payload.actualDistanceKm)

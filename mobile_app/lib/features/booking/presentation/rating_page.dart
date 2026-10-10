@@ -63,102 +63,97 @@ class _RatingPageState extends State<RatingPage> {
     }
   }
 
+  static const _words = ["Poor", "Fair", "Okay", "Good", "Excellent"];
+
   @override
   Widget build(BuildContext context) {
     final driverName = widget.driverName?.trim();
+    final hasName = driverName != null && driverName.isNotEmpty;
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
+      backgroundColor: Colors.transparent,
       body: Column(
         children: [
-          const AppTopBar(title: "Rate Your Driver", showBack: true),
+          const AppTopBar(title: "Rate your rider", showBack: true),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+              padding: const EdgeInsets.fromLTRB(18, 20, 18, 24),
               children: [
-                if (driverName != null && driverName.isNotEmpty) ...[
+                if (hasName) ...[
                   Center(
                     child: Container(
-                      width: 64,
-                      height: 64,
-                      alignment: Alignment.center,
+                      padding: const EdgeInsets.all(4.5),
                       decoration: BoxDecoration(
-                        color: DesignTokens.bg3,
                         shape: BoxShape.circle,
+                        border: Border.all(
+                            color: DesignTokens.lagoon.withValues(alpha: .7),
+                            width: 1.5),
                       ),
-                      child: Text(
-                        driverName[0].toUpperCase(),
+                      child: ToneAvatar(
+                          name: driverName, size: 72, circle: true),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(driverName,
+                      textAlign: TextAlign.center, style: DesignTokens.title),
+                  if (widget.vehicle != null) ...[
+                    const SizedBox(height: 4),
+                    Text(widget.vehicle!,
+                        textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: DesignTokens.text,
-                          fontSize: 24,
-                          fontWeight: DesignTokens.fw700,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    driverName,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: DesignTokens.text,
-                      fontWeight: DesignTokens.fw600,
-                    ),
-                  ),
-                  if (widget.vehicle != null)
-                    Text(
-                      widget.vehicle!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: DesignTokens.muted, fontSize: 13),
-                    ),
+                            color: DesignTokens.ink2, fontSize: 13.5)),
+                  ],
                   const SizedBox(height: 24),
                 ],
-                Text(
-                  "How was your ride?",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: DesignTokens.muted, fontSize: 14),
+                Text("How was your ride?",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: DesignTokens.ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 10),
+                RateStars(
+                  value: _stars,
+                  onChanged: (v) => setState(() => _stars = v),
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(
-                    5,
-                    (index) => IconButton(
-                      iconSize: 40,
-                      onPressed: () => setState(() => _stars = index + 1),
-                      icon: Icon(
-                        index < _stars
-                            ? Icons.star_rounded
-                            : Icons.star_border_rounded,
-                        color:
-                            index < _stars ? Colors.amber : DesignTokens.muted,
-                      ),
-                    ),
+                const SizedBox(height: 4),
+                AnimatedDefaultTextStyle(
+                  duration: DesignTokens.quick,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: DesignTokens.font,
+                    color: _stars > 0 ? DesignTokens.amberInk : DesignTokens.ink2,
+                    fontSize: 13,
+                    fontWeight: _stars > 0 ? FontWeight.w600 : FontWeight.w400,
                   ),
+                  child: Text(_stars == 0
+                      ? "Tap a star to rate"
+                      : "$_stars star${_stars > 1 ? "s" : ""} · ${_words[_stars - 1]}"),
                 ),
                 const SizedBox(height: 20),
-                AppTextField(
-                  label: "Feedback (optional)",
-                  placeholder: "Optional feedback...",
+                SunField(
+                  label: "Comment (optional)",
                   controller: _feedbackController,
+                  hint: "Add a comment",
                   maxLines: 3,
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
                   ErrorBox(message: _error!),
                 ],
-                const SizedBox(height: 24),
-                PrimaryActionButton(
-                  label: _isSubmitting ? "Submitting..." : "Submit Rating",
+                const SizedBox(height: 22),
+                SunButton(
+                  label: "Submit rating",
                   loading: _isSubmitting,
-                  onPressed: _submit,
+                  onPressed: _stars == 0 || _isSubmitting ? null : _submit,
                 ),
-                const SizedBox(height: 8),
-                TextButton(
+                const SizedBox(height: 6),
+                SunButton(
+                  label: "Skip",
+                  tone: SunTone.ghost,
+                  height: 44,
                   onPressed: _isSubmitting
                       ? null
                       : () => Navigator.pop(context, false),
-                  child:
-                      Text("Skip", style: TextStyle(color: DesignTokens.muted)),
                 ),
               ],
             ),

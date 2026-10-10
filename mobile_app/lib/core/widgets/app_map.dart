@@ -17,10 +17,6 @@ class AppMap extends StatefulWidget {
   final ml.LatLng? initialPosition;
   final double initialZoom;
 
-  /// Distance (logical px) of the map-credits ⓘ button from the bottom
-  /// edge, so it can sit above panels/cards that cover the map's bottom.
-  final double attributionBottomInset;
-
   /// Where the camera may go (null: anywhere) and how far it may zoom out —
   /// keeps the map on the service area.
   final ml.LatLngBounds? cameraBounds;
@@ -34,7 +30,6 @@ class AppMap extends StatefulWidget {
     required this.initialStyleUrl,
     this.initialPosition,
     this.initialZoom = 14.0,
-    this.attributionBottomInset = 12,
     this.cameraBounds,
     this.minZoom = 3.0,
     this.maxZoom = 20.0,
@@ -66,14 +61,17 @@ class _AppMapState extends State<AppMap> {
       tiltGesturesEnabled: true,
       compassEnabled: true,
       myLocationEnabled: false,
-      // The data licences require the "© OpenStreetMap contributors" credit;
-      // MapLibre shows it behind this small ⓘ button (tap to open). Same
-      // corner on Android and iOS, lifted clear of the app's bottom UI.
+      // No on-map ⓘ attribution button: it sat above the tab bar and kept
+      // getting tapped by mistake. maplibre_gl can't switch it off, so it's
+      // pushed past the map's edge (Android/iOS) — web ignores the margins,
+      // so web/index.html hides it with CSS. The "© OpenStreetMap
+      // contributors" credit is in Settings → Map (MapCreditsSection).
       logoEnabled: false,
       attributionButtonPosition: ml.AttributionButtonPosition.bottomRight,
-      attributionButtonMargins: math.Point(12, widget.attributionBottomInset),
+      attributionButtonMargins: const math.Point(-400, -400),
       trackCameraPosition: true,
-      minMaxZoomPreference: ml.MinMaxZoomPreference(widget.minZoom, widget.maxZoom),
+      minMaxZoomPreference:
+          ml.MinMaxZoomPreference(widget.minZoom, widget.maxZoom),
       cameraTargetBounds: ml.CameraTargetBounds(widget.cameraBounds),
     );
   }
@@ -230,7 +228,8 @@ class AppMapController {
 
   /// Dims everything outside the service area and outlines it, below the
   /// markers. Safe to call again after a style reload.
-  Future<void> addServiceAreaLayers(ServiceArea area, {required bool dark}) async {
+  Future<void> addServiceAreaLayers(ServiceArea area,
+      {required bool dark}) async {
     const maskSource = "service-area-mask";
     const outlineSource = "service-area-outline";
     try {
@@ -246,8 +245,8 @@ class AppMapController {
       maskSource,
       "$maskSource-fill",
       ml.FillLayerProperties(
-        fillColor: dark ? "#020617" : "#0F172A",
-        fillOpacity: dark ? 0.42 : 0.22,
+        fillColor: dark ? "#02030A" : "#3C2D6E",
+        fillOpacity: dark ? 0.55 : 0.10,
       ),
       enableInteraction: false,
     );
@@ -255,11 +254,12 @@ class AppMapController {
     await _ctrl.addLineLayer(
       outlineSource,
       "$outlineSource-line",
-      const ml.LineLayerProperties(
-        lineColor: "#0E8C46",
-        lineWidth: 1.6,
-        lineOpacity: 0.85,
-        lineDasharray: [2, 1.5],
+      ml.LineLayerProperties(
+        // The dusk dashed edge of the service area (".m-edge").
+        lineColor: dark ? "#ADA2FF" : "#6A57F0",
+        lineWidth: 1.5,
+        lineOpacity: 0.55,
+        lineDasharray: [2.5, 3],
       ),
       enableInteraction: false,
     );

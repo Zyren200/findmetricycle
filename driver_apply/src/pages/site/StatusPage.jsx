@@ -1,71 +1,85 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../../api/client";
+import { firstName } from "../../components/Layout";
+import { ICON } from "../../components/Icons";
+import { Alert, Head, useToast } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
-import { Link, useDocumentTitle } from "../../router";
+import { Link, navigate, useDocumentTitle } from "../../router";
 
-const STATUS = {
-  none: {
-    icon: "📋",
-    label: "No Application",
-    tone: "muted",
-    heading: "No Application Found",
-    message: "You have not submitted a driver application yet.",
-  },
+const ST = {
+  none: { cls: "st-none", badge: "NO APPLICATION", title: "You haven't applied yet", text: "Start your driver application. It takes about 10 minutes.", ic: "doc" },
   pending: {
-    icon: "⏳",
-    label: "Pending Review",
-    tone: "sky",
-    heading: "Application Submitted",
-    message: "Your driver application is waiting for review by our admin team. We'll email you when there's an update.",
+    cls: "st-pending",
+    badge: "PENDING REVIEW",
+    title: "We're reviewing your application",
+    text: "The admin team will email you when there is an update. You don't need to do anything right now.",
+    ic: "clock",
   },
   approved: {
-    icon: "✅",
-    label: "Approved",
-    tone: "teal",
-    heading: "Application Approved!",
-    message: "Congratulations! Your driver application has been approved. Driver Mode is now available in your FindMeTricycle account.",
+    cls: "st-approved",
+    badge: "APPROVED",
+    title: "You're approved to drive",
+    text: "Open the FindMeTricycle app, go to Profile, and tap Switch to Driver Mode.",
+    ic: "check",
   },
   rejected: {
-    icon: "❌",
-    label: "Not Approved",
-    tone: "coral",
-    heading: "Application Not Approved",
-    message: "Your driver application was not approved at this time.",
+    cls: "st-rejected",
+    badge: "NOT APPROVED",
+    title: "Your application was not approved",
+    text: "Read the reason below. You can update and resubmit your application.",
+    ic: "x",
   },
   needs_correction: {
-    icon: "🔄",
-    label: "Action Required",
-    tone: "amber",
-    heading: "Resubmission Required",
-    message: "Your application requires corrections. Please review the note below and update your application.",
+    cls: "st-action",
+    badge: "ACTION REQUIRED",
+    title: "Please update your application",
+    text: "The admin asked for a correction. Fix the items in the note and resubmit.",
+    ic: "alert",
   },
 };
 
 const TIMELINE_LABELS = {
-  pending: "Submitted — Pending review",
+  pending: "Submitted · pending review",
   approved: "Approved",
   rejected: "Not approved",
-  needs_correction: "Corrections requested",
+  needs_correction: "Correction requested",
   archived: "Archived",
 };
 
-function formatDate(value, withTime = false) {
+const pill = (tone, text) => <span className={`pill ${tone}`}>{text}</span>;
+
+// Server-side document check (verified | suspicious | unreadable | error).
+function docCheck(uploaded, status) {
+  if (!uploaded) return "Not uploaded";
+  if (status === "verified") return pill("ok", "Passed");
+  if (status === "suspicious" || status === "unreadable") return pill("warn", "Flagged for admin");
+  return pill("", "Uploaded");
+}
+
+function faceCheck(status) {
+  if (status === "passed") return pill("ok", "Passed");
+  if (status === "failed") return pill("bad", "Failed");
+  if (status === "needs_review") return pill("warn", "Needs review");
+  return pill("", "Pending");
+}
+
+function fmt(value) {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-PH", withTime ? { dateStyle: "medium", timeStyle: "short" } : { dateStyle: "long" });
+  return d.toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export default function StatusPage() {
-  useDocumentTitle("Application Status — FindMeTricycle");
+  useDocumentTitle("FindMeTricycle · My Application");
   const { isAuthenticated, user } = useAuth();
+  const toast = useToast();
   const [application, setApplication] = useState(null);
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
     setError(null);
     try {
       const [{ data: statusRes }, timelineRes] = await Promise.all([
@@ -76,8 +90,10 @@ export default function StatusPage() {
       setApplication(app && app.status !== "archived" ? app : null);
       const items = timelineRes?.data?.data;
       setTimeline(Array.isArray(items) ? items : []);
+      return true;
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load your application status.");
+      return false;
     } finally {
       setLoading(false);
     }
@@ -90,175 +106,144 @@ export default function StatusPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="form-page">
-        <div className="container" style={{ maxWidth: 448 }}>
-          <div className="center-block">
-            <div className="big">🔒</div>
-            <h1>Sign In Required</h1>
-            <p>You need to be signed in to check your driver application status.</p>
-            <Link to="/driver/apply" className="cta cta-primary">
-              Log In to Check Status
-            </Link>
+      <section>
+        <div className="wrap">
+          <div className="form-card glass" style={{ textAlign: "center" }}>
+            <span className="ic v" style={{ margin: "0 auto" }}>
+              {ICON.user}
+            </span>
+            <h2 style={{ marginTop: 16 }}>Sign in to see your application</h2>
+            <p className="muted" style={{ marginTop: 8 }}>
+              Use the passenger account you applied with.
+            </p>
+            <div className="row" style={{ justifyContent: "center", marginTop: 22 }}>
+              <button className="btn btn-hot" type="button" onClick={() => navigate("/driver/apply?return=status")}>
+                Sign In {ICON.arrow}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
     );
   }
 
   if (loading) {
     return (
-      <div className="form-page">
-        <div className="center-block">
-          <div className="spinner" />
-          <p>Loading your application status...</p>
+      <section>
+        <div className="wrap">
+          <div className="form-card glass" style={{ textAlign: "center" }}>
+            <div className="spinner" aria-hidden="true" />
+            <p className="muted" style={{ marginTop: 14 }}>
+              Loading your application status…
+            </p>
+          </div>
         </div>
-      </div>
+      </section>
     );
   }
 
   const status = application?.status || "none";
-  const cfg = STATUS[status] || STATUS.pending;
+  const s = ST[status] || ST.pending;
   const canUpdate = status === "needs_correction" || status === "rejected";
-  const adminNote =
-    status === "rejected" ? application?.rejection_reason : status === "needs_correction" ? application?.correction_note : null;
+  const note = status === "rejected" ? application?.rejection_reason : status === "needs_correction" ? application?.correction_note : null;
 
   return (
-    <div className="form-page">
-      <div className="container container-form">
-        <div className="form-page-head">
-          <Link to="/driver" className="back-link">
-            ← Driver Information
-          </Link>
-          <h1>Application Status</h1>
-          <p>
-            Hello{user?.fullName || user?.full_name ? `, ${user.fullName || user.full_name}` : ""}. Here is the
-            current status of your driver application.
-          </p>
-        </div>
-
+    <section>
+      <div className="wrap">
+        <Head eyebrow="My application" title={`Hi, ${firstName(user)}`} />
         {error ? (
-          <div className="banner banner-error">
-            {error}{" "}
-            <button type="button" className="link-btn" onClick={load}>
-              Retry
-            </button>
-          </div>
+          <Alert tone="err" style={{ marginBottom: 16 }}>
+            {error}
+          </Alert>
         ) : null}
-
-        <div className="stack">
-          <div className={`status-card tone-${cfg.tone}`}>
-            <div className="big">{cfg.icon}</div>
-            <div style={{ flex: 1 }}>
-              <h2>{cfg.heading}</h2>
-              <p>{cfg.message}</p>
-              {status === "approved" ? (
-                <div className="inner-note">
-                  <b style={{ color: "var(--teal)" }}>Driver Mode is ready</b>
-                  <p>
-                    Open FindMeTricycle on your phone and go to your Profile to switch to Driver Mode. Your
-                    passenger account remains fully functional.
-                  </p>
-                </div>
-              ) : null}
-              {adminNote ? (
-                <div className="inner-note">
-                  <b style={{ color: status === "rejected" ? "var(--coral)" : "var(--amber)" }}>Admin Note</b>
-                  <p>{adminNote}</p>
-                </div>
-              ) : null}
-            </div>
+        <div className={`glass status-hero ${s.cls}`}>
+          <span className="status-ic">{ICON[s.ic]}</span>
+          <div>
+            <span className="badge">{s.badge}</span>
+            <h2 style={{ fontSize: 26, marginTop: 10 }}>{s.title}</h2>
+            <p className="muted" style={{ marginTop: 6 }}>
+              {s.text}
+            </p>
           </div>
-
-          {application ? (
-            <div className="panel">
-              <div className="panel-head">Application Details</div>
-              <div className="panel-body">
-                <div className="kv">
-                  <span>Reference Number</span>
-                  <span>#{application.id}</span>
-                </div>
-                <div className="kv">
-                  <span>Status</span>
-                  <span className={`badge status-${status}`}>{cfg.label}</span>
-                </div>
-                <div className="kv">
-                  <span>Plate Number</span>
-                  <span>{application.plate_number || "—"}</span>
-                </div>
-                <div className="kv">
-                  <span>Submitted</span>
-                  <span>{formatDate(application.submitted_at)}</span>
-                </div>
-                {application.reviewed_at ? (
-                  <div className="kv">
-                    <span>Last Updated</span>
-                    <span>{formatDate(application.reviewed_at)}</span>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {application ? (
-            <div className="panel">
-              <div className="panel-head">Verification</div>
-              <div className="panel-body">
-                <div className="kv">
-                  <span>Driver&apos;s License</span>
-                  <span>{application.license_image_url ? "↑ Uploaded" : "○ Not uploaded"}</span>
-                </div>
-                <div className="kv">
-                  <span>Franchise / Business Permit</span>
-                  <span>{application.business_permit_image_url ? "↑ Uploaded" : "○ Not uploaded"}</span>
-                </div>
-                <div className="kv">
-                  <span>Face Verification</span>
-                  <span>{(application.liveness_status || "pending").replace(/_/g, " ").toUpperCase()}</span>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {timeline.length > 0 ? (
-            <div className="panel">
-              <div className="panel-head">Application Timeline</div>
-              <div className="panel-body" style={{ paddingTop: 16 }}>
-                <div className="timeline">
-                  {timeline.map((item) => (
-                    <div className="timeline-item" key={item.id}>
-                      <div className="timeline-dot" />
-                      <div className="timeline-body">
-                        <div className="timeline-title">{TIMELINE_LABELS[item.status] || item.status}</div>
-                        <div className="timeline-time">{formatDate(item.created_at, true)}</div>
-                        {item.note ? <div className="timeline-note">{item.note}</div> : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="cta-row">
+          <div className="row">
             {status === "none" ? (
-              <Link to="/driver/apply" className="cta cta-primary">
-                Start Application
+              <Link className="btn btn-hot" to="/driver/apply">
+                Start Application {ICON.arrow}
               </Link>
             ) : null}
             {canUpdate ? (
-              <Link to="/driver/apply?resubmit=1" className="cta cta-primary">
-                {status === "needs_correction" ? "Update Application" : "Resubmit Application"}
+              <Link className="btn btn-hot" to="/driver/apply?resubmit=1">
+                {status === "needs_correction" ? "Update Application" : "Resubmit Application"} {ICON.arrow}
               </Link>
             ) : null}
-            <button type="button" className="cta cta-outline" onClick={load}>
+            <button
+              className="btn btn-glass"
+              type="button"
+              onClick={async () => {
+                if (await load()) toast("Status refreshed", fmt(new Date()));
+              }}
+            >
               Refresh Status
             </button>
-            <Link to="/contact" className="cta cta-outline" style={{ borderColor: "transparent" }}>
+            <Link className="btn btn-ghost" to="/contact">
               Contact Support
             </Link>
           </div>
         </div>
+
+        {note ? (
+          <Alert tone={status === "needs_correction" ? "warn" : "err"} title={status === "needs_correction" ? "Note from the admin" : "Reason"} style={{ marginTop: 16 }}>
+            {note}
+          </Alert>
+        ) : null}
+
+        {application ? (
+          <div className="grid g2" style={{ marginTop: 16 }}>
+            <div className="card glass">
+              <h3 style={{ marginTop: 0 }}>Details</h3>
+              <div className="kv" style={{ marginTop: 10 }}>
+                <span>Reference number</span>
+                <span className="mono">#{application.id}</span>
+                <span>Plate number</span>
+                <span>{application.plate_number || "—"}</span>
+                <span>Submitted</span>
+                <span>{fmt(application.submitted_at)}</span>
+                <span>Last update</span>
+                <span>{fmt(application.reviewed_at || application.updated_at || application.submitted_at)}</span>
+              </div>
+              <h3>Verification</h3>
+              <div className="kv" style={{ marginTop: 10 }}>
+                <span>Driver&apos;s license</span>
+                <span>{docCheck(application.license_image_url, application.license_check_status)}</span>
+                <span>Franchise / permit</span>
+                <span>{docCheck(application.business_permit_image_url, application.permit_check_status)}</span>
+                <span>Face check</span>
+                <span>{faceCheck(application.liveness_status)}</span>
+              </div>
+            </div>
+            <div className="card glass">
+              <h3 style={{ marginTop: 0 }}>Timeline</h3>
+              {timeline.length ? (
+                <ol className="timeline" style={{ marginTop: 14 }}>
+                  {[...timeline]
+                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                    .map((item) => (
+                      <li key={item.id}>
+                        <time>{fmt(item.created_at)}</time>
+                        <b style={{ display: "block" }}>{TIMELINE_LABELS[item.status] || item.status}</b>
+                        {item.note ? <p>{item.note}</p> : null}
+                      </li>
+                    ))}
+                </ol>
+              ) : (
+                <p className="muted" style={{ marginTop: 10 }}>
+                  No updates yet.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
-    </div>
+    </section>
   );
 }

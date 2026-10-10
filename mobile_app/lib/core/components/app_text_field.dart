@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/design_tokens.dart';
 
-/// Custom text input field
+/// Text input in the Sunrise style: bold label above a tinted, rounded
+/// field with an orange focus ring. Works inside a [Form] (validator).
 class AppTextField extends StatefulWidget {
   final String? label;
   final String placeholder;
@@ -40,12 +41,12 @@ class AppTextField extends StatefulWidget {
 }
 
 class _AppTextFieldState extends State<AppTextField> {
-  late FocusNode _focusNode;
+  final FocusNode _focusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
-    _focusNode = FocusNode();
+    _focusNode.addListener(() => setState(() {}));
   }
 
   @override
@@ -54,22 +55,26 @@ class _AppTextFieldState extends State<AppTextField> {
     super.dispose();
   }
 
+  OutlineInputBorder _border(Color color) => OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: color, width: 1.5),
+      );
+
   @override
   Widget build(BuildContext context) {
+    final focused = _focusNode.hasFocus;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (widget.label != null)
           Padding(
-            padding: const EdgeInsets.only(bottom: DesignTokens.spacing7),
+            padding: const EdgeInsets.only(bottom: 6),
             child: Text(
               widget.label!,
               style: TextStyle(
-                fontSize: DesignTokens.fontSize10,
-                fontWeight: DesignTokens.fw500,
-                color: DesignTokens.muted,
-                letterSpacing: 0.8,
-                fontFamily: DesignTokens.fontDmSans,
+                fontSize: 13,
+                fontWeight: DesignTokens.fw800,
+                color: DesignTokens.ink,
               ),
             ),
           ),
@@ -83,50 +88,31 @@ class _AppTextFieldState extends State<AppTextField> {
           maxLength: widget.maxLength,
           validator: widget.validator,
           onChanged: widget.onChanged,
+          cursorColor: DesignTokens.primaryBright,
           style: TextStyle(
-            fontSize: DesignTokens.fontSize14,
-            color: DesignTokens.text,
-            fontFamily: DesignTokens.fontDmSans,
+            fontSize: 15,
+            fontWeight: DesignTokens.fw600,
+            color: DesignTokens.ink,
           ),
           decoration: InputDecoration(
             hintText: widget.placeholder,
-            hintStyle: TextStyle(
-              color: DesignTokens.muted,
-              fontFamily: DesignTokens.fontDmSans,
-            ),
             filled: true,
-            fillColor: DesignTokens.bg3,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: DesignTokens.spacing14,
-              vertical: DesignTokens.spacing12,
-            ),
+            fillColor: focused ? DesignTokens.surface : DesignTokens.surface2,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 17),
             prefixIcon: widget.prefixIcon,
             suffixIcon: widget.suffixIcon,
             errorText: widget.errorText,
             errorMaxLines: 2,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(DesignTokens.radius),
-              borderSide: BorderSide(color: DesignTokens.border, width: 1),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(DesignTokens.radius),
-              borderSide: BorderSide(color: DesignTokens.border, width: 1),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(DesignTokens.radius),
-              borderSide: BorderSide(
-                color: DesignTokens.accent,
-                width: 2,
-              ),
-            ),
-            errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(DesignTokens.radius),
-              borderSide: BorderSide(color: DesignTokens.red, width: 1),
-            ),
-            focusedErrorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(DesignTokens.radius),
-              borderSide: BorderSide(color: DesignTokens.red, width: 2),
-            ),
+            errorStyle: TextStyle(
+                color: DesignTokens.sosText,
+                fontSize: 13,
+                fontWeight: DesignTokens.fw700),
+            border: _border(DesignTokens.lineStrong),
+            enabledBorder: _border(DesignTokens.lineStrong),
+            focusedBorder: _border(DesignTokens.primaryBright),
+            errorBorder: _border(DesignTokens.sos),
+            focusedErrorBorder: _border(DesignTokens.sos),
           ),
         ),
       ],

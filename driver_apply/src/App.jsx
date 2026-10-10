@@ -1,4 +1,5 @@
 import Layout from "./components/Layout";
+import { PageErrorBoundary } from "./components/ui";
 import { usePath } from "./router";
 import ApplyPage from "./pages/site/ApplyPage";
 import ContactPage from "./pages/site/ContactPage";
@@ -23,10 +24,15 @@ const routes = {
 export default function App() {
   const path = usePath();
   const Page = routes[path] || NotFoundPage;
-  // Keyed by path so each visit starts the page fresh (e.g. the apply flow).
+  // Keyed by path so each visit starts the page fresh (e.g. the apply flow)
+  // and the new page plays its entrance.
   return (
     <Layout>
-      <Page key={path} />
+      <div className="page" key={path}>
+        <PageErrorBoundary>
+          <Page />
+        </PageErrorBoundary>
+      </div>
     </Layout>
   );
 }

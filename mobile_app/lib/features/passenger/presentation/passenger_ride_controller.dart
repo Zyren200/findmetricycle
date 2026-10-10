@@ -5,6 +5,7 @@ import "package:latlong2/latlong.dart" as ll;
 import "../../../core/config/app_config.dart";
 import "../../../core/geo/service_area.dart";
 import "../../../core/network/socket_client.dart";
+import "../../../core/safety/sos_delivery.dart";
 import "../../../core/state/dispose_safe_notifier.dart";
 import "../../../core/state/service_area_store.dart";
 import "../../../core/utils/geo_utils.dart";
@@ -243,6 +244,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
   double _baseFare = AppConfig.defaultBaseFare;
   double _perKmRate = AppConfig.defaultPerKmRate;
   double _additionalPassengerFee = 0;
+  double _minimumFare = 0;
 
   static const int minPassengers = 1;
   static const int maxPassengers = 5;
@@ -293,6 +295,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
       perKmRate: _perKmRate,
       passengerCount: _passengerCount,
       additionalPassengerFee: _additionalPassengerFee,
+      minimumFare: _minimumFare,
     );
   }
 
@@ -305,9 +308,11 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
       final perKm = double.tryParse(fare["per_km_rate"]?.toString() ?? "");
       final additionalFee =
           double.tryParse(fare["additional_passenger_fee"]?.toString() ?? "");
+      final minimum = double.tryParse(fare["minimum_fare"]?.toString() ?? "");
       if (base != null) _baseFare = base;
       if (perKm != null) _perKmRate = perKm;
       if (additionalFee != null) _additionalPassengerFee = additionalFee;
+      if (minimum != null) _minimumFare = minimum;
     } catch (_) {
       // Keep the AppConfig defaults if the fare endpoint is unreachable.
     }
@@ -585,15 +590,32 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     }
   }
 
-  /// Reverse-geocodes a pickup/drop-off point into a short address for
-  /// display, replacing the raw-coordinates fallback once resolved. Guarded
-  /// by a request token so an earlier, still-in-flight lookup can't clobber
-  /// a newer selection if the user taps the map again before it returns.
+  /// OSM leaves Guiuan's rural barangays without their town; points in the
+  /// service area (or anywhere, before it has loaded) belong to Guiuan.
+  String? _fallbackTownFor(ll.LatLng point) {
+    final area = serviceArea;
+    return area == null || area.contains(point) ? kServiceAreaTown : null;
+  }
+
+  /// The readable address at [point], or null when the lookup fails.
+  Future<String?> _lookupAddress(ll.LatLng point, {String? landmark}) =>
+      reverseGeocode(point.latitude, point.longitude,
+          landmark: landmark, fallbackTown: _fallbackTownFor(point));
+
+  /// Reverse-geocodes a pickup/drop-off point into a readable address
+  /// (landmark or street, purok, barangay, town, province), retrying once
+  /// if the lookup fails. A failed lookup keeps whatever label is already
+  /// shown (e.g. a searched place's). Guarded by a request token so an
+  /// earlier, still-in-flight lookup can't clobber a newer selection if the
+  /// user taps the map again before it returns.
   Future<void> _resolveAddress({
     required bool isPickup,
     required ll.LatLng point,
+    String? landmark,
   }) async {
     final token = isPickup ? ++_pickupAddressToken : ++_dropoffAddressToken;
+    bool isCurrent() =>
+        token == (isPickup ? _pickupAddressToken : _dropoffAddressToken);
     if (isPickup) {
       isResolvingPickupAddress = true;
     } else {
@@ -601,15 +623,20 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     }
     notifyListeners();
 
-    final address = await reverseGeocode(point.latitude, point.longitude);
-    final currentToken = isPickup ? _pickupAddressToken : _dropoffAddressToken;
-    if (token != currentToken) return;
+    var address = await _lookupAddress(point, landmark: landmark);
+    if (address == null && isCurrent()) {
+      await Future.delayed(const Duration(seconds: 2));
+      if (isCurrent()) {
+        address = await _lookupAddress(point, landmark: landmark);
+      }
+    }
+    if (!isCurrent()) return;
 
     if (isPickup) {
-      pickupAddress = address;
+      if (address != null) pickupAddress = address;
       isResolvingPickupAddress = false;
     } else {
-      dropoffAddress = address;
+      if (address != null) dropoffAddress = address;
       isResolvingDropoffAddress = false;
     }
     notifyListeners();
@@ -689,7 +716,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     if (_outsideServiceArea(point)) return _refuseOutsideServiceArea();
     error = null;
     pickup = point;
-    pickupAddress = place.name;
+    pickupAddress = place.fullLabel;
     dropoff = null;
     dropoffAddress = null;
     routePolyline = null;
@@ -702,7 +729,15 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     nearbyDrivers = [];
     driverInfo = null;
     notifyListeners();
+    // Photon names the place; Nominatim knows its barangay better.
+    _resolveAddress(
+        isPickup: true, point: point, landmark: _searchLandmark(place));
   }
+
+  /// A searched spot's own name leads its address; a searched barangay
+  /// or sitio is already named by the address itself.
+  String? _searchLandmark(PlaceSuggestion place) =>
+      place.isArea ? null : place.name;
 
   /// Set drop-off from a typed/selected search result instead of a map tap.
   Future<void> setDropoffFromSearch(PlaceSuggestion place) async {
@@ -717,8 +752,10 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     error = null;
     pickup ??= _usableCurrentPosition;
     dropoff = point;
-    dropoffAddress = place.name;
+    dropoffAddress = place.fullLabel;
     notifyListeners();
+    _resolveAddress(
+        isPickup: false, point: point, landmark: _searchLandmark(place));
     _fetchRouteIfReady();
   }
 
@@ -781,6 +818,24 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     }
   }
 
+  /// The address a booking is sent with. One more lookup if the earlier
+  /// ones failed; failing that, the coordinates, which the server names
+  /// once it can (and the app shows as a pinned spot meanwhile).
+  Future<String> _addressForBooking({required bool isPickup}) async {
+    final point = isPickup ? pickup! : dropoff!;
+    final known = isPickup ? pickupAddress : dropoffAddress;
+    if (known != null && known.trim().isNotEmpty) return _fitAddress(known);
+
+    final looked = await _lookupAddress(point)
+        .timeout(const Duration(seconds: 8), onTimeout: () => null);
+    if (looked != null) {
+      if (isPickup && pickup == point) pickupAddress ??= looked;
+      if (!isPickup && dropoff == point) dropoffAddress ??= looked;
+      return _fitAddress(looked);
+    }
+    return "${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}";
+  }
+
   Future<void> findRide() async {
     if (pickup == null || dropoff == null) return;
     // The server refuses these too; say so without the round trip.
@@ -793,14 +848,10 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
     notifyListeners();
 
     try {
-      // The reverse-geocoded / searched place names, so ride history shows
-      // real places instead of raw coordinates (the fallback).
-      final pickupLabel = (pickupAddress?.trim().isNotEmpty ?? false)
-          ? _fitAddress(pickupAddress!)
-          : "${pickup!.latitude.toStringAsFixed(5)}, ${pickup!.longitude.toStringAsFixed(5)}";
-      final dropoffLabel = (dropoffAddress?.trim().isNotEmpty ?? false)
-          ? _fitAddress(dropoffAddress!)
-          : "${dropoff!.latitude.toStringAsFixed(5)}, ${dropoff!.longitude.toStringAsFixed(5)}";
+      // The reverse-geocoded / searched place names, so the rider and ride
+      // history show real places instead of raw coordinates.
+      final pickupLabel = await _addressForBooking(isPickup: true);
+      final dropoffLabel = await _addressForBooking(isPickup: false);
       final response = await _repository.findRide(
         pickupAddress: pickupLabel,
         pickupLat: pickup!.latitude,
@@ -809,6 +860,9 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
         dropoffLat: dropoff!.latitude,
         dropoffLng: dropoff!.longitude,
         passengerCount: _passengerCount,
+        // Only the road route the quote used; without one the server
+        // prices by straight-line distance, as the quote did too.
+        routeDistanceKm: routeDistanceKm,
         autoAssign: false,
       );
 
@@ -916,7 +970,41 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
   bool isSendingSos = false;
   String? sosMessage;
 
-  Future<bool> sendSos({String? message}) async {
+  /// The SOS alert on its way to the admin team (retries until delivered).
+  late final SosDelivery sosDelivery = SosDelivery(onChanged: notifyListeners);
+
+  /// Why the last SOS attempt failed, if it did.
+  String? sosError;
+
+  /// Starts sending an SOS alert and returns at once — the caller opens the
+  /// dialer meanwhile. Retries keep the ride the alert was raised in.
+  void startSos() {
+    final bookingId = activeBookingId;
+    unawaited(sosDelivery.send(() => sendSos(bookingId: bookingId)));
+  }
+
+  /// Sends a "Report a Problem" to the admin. Returns null once it's
+  /// filed, else why it wasn't — shown where the report was made, never in
+  /// the booking screens' error box.
+  Future<String?> reportIssue({
+    required String category,
+    required String description,
+    int? bookingId,
+  }) async {
+    try {
+      final response = await _repository.reportIssue(
+        bookingId: bookingId,
+        category: category,
+        description: description,
+      );
+      if (response["success"] == true) return null;
+      return response["message"]?.toString() ?? "Failed to send the report.";
+    } catch (_) {
+      return "Couldn't send the report. Check your internet and try again.";
+    }
+  }
+
+  Future<bool> sendSos({String? message, int? bookingId}) async {
     isSendingSos = true;
     error = null;
     sosMessage = null;
@@ -924,7 +1012,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
 
     try {
       final response = await _repository.triggerSos(
-        bookingId: activeBookingId,
+        bookingId: bookingId ?? activeBookingId,
         lat: pickup?.latitude ?? currentPosition?.latitude,
         lng: pickup?.longitude ?? currentPosition?.longitude,
         message: message,
@@ -937,9 +1025,11 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
       }
 
       sosMessage = "SOS alert sent. Admin has been notified.";
+      sosError = null;
       return true;
     } catch (e) {
       error = e.toString().replaceFirst("Exception: ", "");
+      sosError = error;
       return false;
     } finally {
       isSendingSos = false;
@@ -1046,9 +1136,11 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
       final perKm = double.tryParse(fare["per_km_rate"]?.toString() ?? "");
       final additionalFee =
           double.tryParse(fare["additional_passenger_fee"]?.toString() ?? "");
+      final minimum = double.tryParse(fare["minimum_fare"]?.toString() ?? "");
       if (base != null) _baseFare = base;
       if (perKm != null) _perKmRate = perKm;
       if (additionalFee != null) _additionalPassengerFee = additionalFee;
+      if (minimum != null) _minimumFare = minimum;
       notifyListeners();
     });
 
@@ -1072,8 +1164,8 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
         driverInfo = null;
         driverPosition = null;
         nearbyDrivers = [];
-        rideNotice = payload["message"]?.toString() ??
-            "Your ride has been cancelled.";
+        rideNotice =
+            payload["message"]?.toString() ?? "Your ride has been cancelled.";
         _stopNearbyRefresh();
       } else if (status == "pending" && booking["driver_id"] == null) {
         // The rider we picked declined, let the request time out, or backed
@@ -1191,6 +1283,7 @@ class PassengerRideController extends ChangeNotifier with DisposeSafeNotifier {
 
   @override
   void dispose() {
+    sosDelivery.dispose();
     _serviceAreaStore?.removeListener(notifyListeners);
     _positionSub?.cancel();
     _stopNearbyRefresh();

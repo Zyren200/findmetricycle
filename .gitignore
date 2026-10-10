@@ -60,3 +60,11 @@ backend/.ocr-cache/
 
 # Firebase service-account key (full access to the Firebase project)
 backend/firebase-service-account*.json
+
+# Deployment security
+.env.*
+!.env.example
+!.env.*.example
+
+# Private uploaded documents
+/uploads/

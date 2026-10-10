@@ -33,6 +33,9 @@ const PERMISSIONS = {
   SOS_ESCALATIONS_RECEIVE: "sos.escalations",
   COMPLAINTS_VIEW: "complaints.view",
   COMPLAINTS_RESOLVE: "complaints.resolve",
+  // Contact Support: messages from the website's Contact page.
+  SUPPORT_VIEW: "support.view",
+  SUPPORT_REPLY: "support.reply",
   NOTIFICATIONS_VIEW: "notifications.view",
   ANNOUNCEMENTS_MANAGE: "announcements.manage",
   REPORTS_VIEW: "reports.view",
@@ -62,6 +65,8 @@ const ROLE_PERMISSIONS = {
     P.RIDES_VIEW,
     P.COMPLAINTS_VIEW,
     P.COMPLAINTS_RESOLVE,
+    P.SUPPORT_VIEW,
+    P.SUPPORT_REPLY,
     P.NOTIFICATIONS_VIEW,
     P.ANNOUNCEMENTS_MANAGE,
     P.REPORTS_VIEW,
@@ -78,6 +83,7 @@ const NOTIFICATION_TYPE_PERMISSIONS = {
   sos_alert: P.SOS_VIEW,
   sos_escalation: P.SOS_ESCALATIONS_RECEIVE,
   driver_report: P.COMPLAINTS_VIEW,
+  contact_message: P.SUPPORT_VIEW,
   new_booking: P.BOOKINGS_VIEW,
   booking_cancelled: P.BOOKINGS_VIEW,
 };

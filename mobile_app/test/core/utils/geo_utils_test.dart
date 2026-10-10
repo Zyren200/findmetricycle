@@ -36,5 +36,18 @@ void main() {
 
       expect(fare, 120.0);
     });
+
+    test("never goes below the minimum fare, like the server", () {
+      expect(
+        calculateFare(
+            distanceKm: 0.2, baseFare: 15, perKmRate: 15, minimumFare: 40),
+        40.0,
+      );
+      expect(
+        calculateFare(
+            distanceKm: 3, baseFare: 15, perKmRate: 15, minimumFare: 40),
+        60.0,
+      );
+    });
   });
 }

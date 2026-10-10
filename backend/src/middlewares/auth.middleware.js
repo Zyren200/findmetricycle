@@ -17,7 +17,7 @@ async function authMiddleware(req, _res, next) {
     }
 
     const payload = jwt.verify(token, env.jwt.secret);
-    if (payload.type && payload.type !== "access") {
+    if (payload.type !== "access") {
       throw new ApiError(401, "Invalid token type.");
     }
 

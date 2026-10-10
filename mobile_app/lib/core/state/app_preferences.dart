@@ -15,6 +15,8 @@ class AppPreferences extends ChangeNotifier {
   static const _keyDefaultPassengerCount = "pref_default_passenger_count";
   static const _keyNotificationPrefix = "pref_notif_";
   static const _keyDriverAutoOnline = "pref_driver_auto_online";
+  static const _keyOnboardingSeen = "pref_onboarding_seen";
+  static const _keyLocationPromptSeen = "pref_location_prompt_seen";
 
   static const int minPassengers = 1;
   static const int maxPassengers = 5;
@@ -29,7 +31,7 @@ class AppPreferences extends ChangeNotifier {
     "announcements",
   ];
 
-  ThemeMode _themeMode = ThemeMode.dark;
+  ThemeMode _themeMode = ThemeMode.system;
   bool _soundEnabled = true;
   bool _vibrationEnabled = true;
   String _language = "en";
@@ -42,6 +44,12 @@ class AppPreferences extends ChangeNotifier {
   /// the driver always starts Offline and taps GO ONLINE themselves.
   bool _driverAutoOnline = false;
 
+  /// The first-launch intro slides have been shown (or skipped).
+  bool _onboardingSeen = false;
+
+  /// "Turn on your location" has been answered once (allowed or not now).
+  bool _locationPromptSeen = false;
+
   bool _loaded = false;
   SharedPreferences? _prefs;
   final Completer<void> _ready = Completer<void>();
@@ -49,6 +57,8 @@ class AppPreferences extends ChangeNotifier {
   /// Completes once the saved preferences have been read.
   Future<void> get ready => _ready.future;
   bool get driverAutoOnline => _driverAutoOnline;
+  bool get onboardingSeen => _onboardingSeen;
+  bool get locationPromptSeen => _locationPromptSeen;
 
   ThemeMode get themeMode => _themeMode;
   bool get soundEnabled => _soundEnabled;
@@ -64,11 +74,11 @@ class AppPreferences extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _prefs = prefs;
 
-    final modeStr = prefs.getString(_keyThemeMode) ?? "dark";
+    final modeStr = prefs.getString(_keyThemeMode) ?? "system";
     _themeMode = switch (modeStr) {
       "light" => ThemeMode.light,
-      "system" => ThemeMode.system,
-      _ => ThemeMode.dark,
+      "dark" => ThemeMode.dark,
+      _ => ThemeMode.system,
     };
     _soundEnabled = prefs.getBool(_keySound) ?? true;
     _vibrationEnabled = prefs.getBool(_keyVibration) ?? true;
@@ -82,6 +92,8 @@ class AppPreferences extends ChangeNotifier {
     }
 
     _driverAutoOnline = prefs.getBool(_keyDriverAutoOnline) ?? false;
+    _onboardingSeen = prefs.getBool(_keyOnboardingSeen) ?? false;
+    _locationPromptSeen = prefs.getBool(_keyLocationPromptSeen) ?? false;
 
     _loaded = true;
     if (!_ready.isCompleted) _ready.complete();
@@ -92,6 +104,18 @@ class AppPreferences extends ChangeNotifier {
     _driverAutoOnline = value;
     notifyListeners();
     await _prefs?.setBool(_keyDriverAutoOnline, value);
+  }
+
+  Future<void> setOnboardingSeen() async {
+    _onboardingSeen = true;
+    notifyListeners();
+    await _prefs?.setBool(_keyOnboardingSeen, true);
+  }
+
+  Future<void> setLocationPromptSeen() async {
+    _locationPromptSeen = true;
+    notifyListeners();
+    await _prefs?.setBool(_keyLocationPromptSeen, true);
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {

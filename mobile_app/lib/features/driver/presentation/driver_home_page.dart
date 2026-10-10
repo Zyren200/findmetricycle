@@ -6,17 +6,20 @@ import "package:provider/provider.dart";
 import "../../../core/components/index.dart";
 import "../../../core/network/socket_client.dart";
 import "../../../core/theme/design_tokens.dart";
+import "../../../core/utils/ride_format.dart";
 import "../../shared/presentation/notifications_screen.dart";
 import "../../shared/state/notifications_controller.dart";
 import "../../shared/state/session_store.dart";
 import "driver_ride_controller.dart";
+import "driver_shell_page.dart";
 import "pages/active_ride_page.dart";
 import "pages/ride_request_page.dart";
 import "widgets/driver_ride_actions.dart";
+import "widgets/driver_ride_map.dart";
 
-/// Home tab of Driver Mode: who's driving, the Online switch, device
-/// status, the active ride or an incoming request, and today's earnings.
-/// Reads the DriverRideController provided once by DriverShellPage.
+/// Drive tab: the rider's map with who's driving, today's earnings and the
+/// device status on top, and the Go online / You're online sheet (or the
+/// active ride, or a pending request) at the bottom.
 class DriverHomePage extends StatefulWidget {
   const DriverHomePage({super.key});
 
@@ -29,11 +32,12 @@ class _DriverHomePageState extends State<DriverHomePage> {
   StreamSubscription? _paymentSub;
   Timer? _tick;
   bool _handledRevocation = false;
+  bool? _wasOnline;
 
   @override
   void initState() {
     super.initState();
-    // Keeps the request countdown on the home card moving.
+    // Keeps the request countdown on the sheet moving.
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _rideController?.incomingBooking != null) setState(() {});
     });
@@ -44,8 +48,8 @@ class _DriverHomePageState extends State<DriverHomePage> {
     super.didChangeDependencies();
     final ctrl = context.read<DriverRideController>();
     if (_rideController != ctrl) {
-      _rideController?.removeListener(_checkApprovalRevoked);
-      _rideController = ctrl..addListener(_checkApprovalRevoked);
+      _rideController?.removeListener(_onControllerChanged);
+      _rideController = ctrl..addListener(_onControllerChanged);
     }
 
     final messenger = ScaffoldMessenger.of(context);
@@ -69,14 +73,23 @@ class _DriverHomePageState extends State<DriverHomePage> {
   void dispose() {
     _tick?.cancel();
     _paymentSub?.cancel();
-    _rideController?.removeListener(_checkApprovalRevoked);
+    _rideController?.removeListener(_onControllerChanged);
     super.dispose();
   }
 
-  // Admin revoked this rider's approval: re-read the account's driver
-  // access, which switches the app back to passenger mode.
-  void _checkApprovalRevoked() {
-    final status = _rideController?.approvalStatus;
+  void _onControllerChanged() {
+    final ctrl = _rideController;
+    if (ctrl == null) return;
+
+    // "You're online" toast when the switch actually flips on.
+    if (_wasOnline == false && ctrl.isOnline && mounted) {
+      showSunToast(context, "You're online");
+    }
+    _wasOnline = ctrl.isOnline;
+
+    // Admin revoked this rider's approval: re-read the account's driver
+    // access, which switches the app back to passenger mode.
+    final status = ctrl.approvalStatus;
     if (_handledRevocation ||
         (status != "needs_correction" && status != "rejected")) {
       return;
@@ -99,211 +112,366 @@ class _DriverHomePageState extends State<DriverHomePage> {
     final session = context.watch<SessionStore>().session;
     final profile = ctrl.driverProfile ?? {};
     final summary = ctrl.earningsSummary ?? {};
+    final top = MediaQuery.paddingOf(context).top;
 
     final name =
         bookingText(profile, "full_name") ?? session?.fullName ?? "Driver";
-    final rating = double.tryParse(summary["rating_avg"]?.toString() ?? "");
-    final tricycle = bookingText(profile, "tricycle_number");
     final today = summary["today"] is Map ? summary["today"] as Map : const {};
-    final week = summary["week"] is Map ? summary["week"] as Map : const {};
+    final online = ctrl.isOnline;
 
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
-      body: RefreshIndicator(
-        onRefresh: () => Future.wait([
-          ctrl.refreshEarnings(),
-          ctrl.refreshProfile(),
-        ]),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
-          children: [
-            // Header
-            Container(
-              color: DesignTokens.bg2,
-              padding: EdgeInsets.fromLTRB(
-                  16, MediaQuery.paddingOf(context).top + 20, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+      backgroundColor: DesignTokens.mapLand,
+      body: Stack(
+        children: [
+          const Positioned.fill(
+            child: DriverRideMap(
+              fitPadding: EdgeInsets.fromLTRB(60, 180, 60, 420),
+            ),
+          ),
+          // Offline: the map fades back.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 600),
+                opacity: online || ctrl.activeBooking != null ? 0 : 1,
+                child:
+                    ColoredBox(color: DesignTokens.background.withAlpha(110)),
+              ),
+            ),
+          ),
+
+          // Who's driving, today's earnings, alerts
+          Positioned(
+            top: top + 6,
+            left: 12,
+            right: 12,
+            child: FadeRise(
+              child: Row(
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("Driver Mode",
-                                style: TextStyle(
-                                    color: DesignTokens.muted, fontSize: 12)),
-                            Text(name,
-                                style: TextStyle(
-                                    color: DesignTokens.text,
-                                    fontSize: 18,
-                                    fontWeight: DesignTokens.fw700)),
-                            const SizedBox(height: 2),
-                            Row(
-                              children: [
-                                const Icon(Icons.star_rounded,
-                                    size: 14, color: Colors.amber),
-                                const SizedBox(width: 3),
-                                Text(
-                                    rating == null
-                                        ? "—"
-                                        : rating.toStringAsFixed(2),
-                                    style: TextStyle(
-                                        color: DesignTokens.text,
-                                        fontSize: 13)),
-                                const SizedBox(width: 4),
-                                Text("(${ctrl.ratings.length} ratings)",
-                                    style: TextStyle(
-                                        color: DesignTokens.muted,
-                                        fontSize: 12)),
-                              ],
-                            ),
-                          ],
-                        ),
+                  Flexible(
+                    child: Pressable(
+                      onTap: () => context.read<ValueNotifier<int>>().value =
+                          kEarningsTab,
+                      semanticLabel: "Today's earnings",
+                      child: PrismChip(
+                        leading: ToneAvatar(name: name, size: 34, circle: true),
+                        overline: "Today",
+                        title:
+                            "${shortName(name)} · ${shortPeso(today["earnings"])}",
                       ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          NotificationBell(
-                            controller: context.read<NotificationsController>(),
-                            onPressed: _openNotifications,
-                          ),
-                          if (tricycle != null) ...[
-                            Text("Tricycle",
-                                style: TextStyle(
-                                    color: DesignTokens.muted, fontSize: 11)),
-                            Text(tricycle,
-                                style: TextStyle(
-                                    color: DesignTokens.text,
-                                    fontSize: 13,
-                                    fontWeight: DesignTokens.fw500)),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  PrimaryActionButton(
-                    label: ctrl.isBusy
-                        ? "Updating..."
-                        : ctrl.isOnline
-                            ? "GO OFFLINE"
-                            : "GO ONLINE",
-                    icon: Icons.power_settings_new_rounded,
-                    color:
-                        ctrl.isOnline ? DesignTokens.red : DesignTokens.green,
-                    foregroundColor: Colors.white,
-                    loading: ctrl.isBusy,
-                    onPressed: ctrl.activeBooking != null
-                        ? null
-                        : () => ctrl.setOnline(!ctrl.isOnline),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    ctrl.isOnline
-                        ? "● Online — Waiting for ride requests..."
-                        : "○ Offline — Go online to receive rides",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: ctrl.isOnline
-                          ? DesignTokens.green
-                          : DesignTokens.muted,
-                      fontSize: 12,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _StatusPill(label: "GPS", ok: ctrl.gpsEnabled),
-                      _StatusPill(label: "Internet", ok: ctrl.hasInternet),
-                      _StatusPill(label: "Location Sharing", ok: ctrl.isOnline),
-                    ],
+                  const Spacer(),
+                  NotificationBell(
+                    controller: context.read<NotificationsController>(),
+                    onPressed: _openNotifications,
                   ),
                 ],
               ),
             ),
+          ),
 
-            if (ctrl.approvalMessage != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: _Banner(
-                  title: switch (ctrl.approvalStatus) {
-                    "approved" => "You're approved!",
-                    "rejected" => "Application not approved",
-                    "needs_correction" => "Documents need correction",
-                    _ => "Driver Account",
-                  },
-                  message: ctrl.approvalMessage!,
-                  color: switch (ctrl.approvalStatus) {
-                    "approved" => DesignTokens.green,
-                    "rejected" => DesignTokens.red,
-                    _ => DesignTokens.driverAccent,
-                  },
-                  onClose: ctrl.dismissApprovalMessage,
-                ),
-              ),
-            if (ctrl.error != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: ErrorBox(message: ctrl.error!),
-              ),
-
-            // Active ride
-            if (ctrl.activeBooking != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: _ActiveRideBanner(
-                  booking: ctrl.activeBooking!,
-                  onView: () => pushDriverPage(context, const ActiveRidePage()),
-                ),
-              )
-            // Incoming request
-            else if (ctrl.incomingBooking != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: _IncomingRequestCard(
-                  booking: ctrl.incomingBooking!,
-                  busy: ctrl.isBusy,
-                  onDecline: ctrl.declineIncomingBooking,
-                  onView: () =>
-                      openRideRequestPage(context, const RideRequestPage()),
-                ),
-              ),
-
-            // Earnings summary
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+          // Device status
+          Positioned(
+            top: top + 62,
+            left: 12,
+            right: 12,
+            child: FadeRise(
+              delay: const Duration(milliseconds: 150),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 6,
+                runSpacing: 6,
                 children: [
-                  const SectionLabel("Earnings Summary"),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _EarningCard(
-                          label: "Today",
-                          amount: today["earnings"],
-                          rides: today["rides"],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _EarningCard(
-                          label: "This Week",
-                          amount: week["earnings"],
-                          rides: week["rides"],
-                        ),
-                      ),
-                    ],
+                  _StatusPill(
+                      icon: Icons.gps_fixed_rounded,
+                      label: "GPS",
+                      ok: ctrl.gpsEnabled),
+                  _StatusPill(
+                      icon: Icons.wifi_rounded,
+                      label: "Internet",
+                      ok: ctrl.hasInternet),
+                  _StatusPill(
+                    icon: Icons.share_location_rounded,
+                    label: "Location sharing",
+                    ok: online,
+                    neutralWhenOff: true,
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+          ),
+
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.66),
+              child: SingleChildScrollView(child: _sheet(ctrl, today)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sheet(DriverRideController ctrl, Map today) {
+    final notices = <Widget>[
+      if (ctrl.approvalMessage != null)
+        _Banner(
+          title: switch (ctrl.approvalStatus) {
+            "approved" => "You're approved!",
+            "rejected" => "Application not approved",
+            "needs_correction" => "Documents need correction",
+            _ => "Driver Account",
+          },
+          message: ctrl.approvalMessage!,
+          good: ctrl.approvalStatus == "approved",
+          onClose: ctrl.dismissApprovalMessage,
+        ),
+      if (ctrl.error != null) ErrorBox(message: ctrl.error!),
+    ];
+
+    // Active ride
+    final active = ctrl.activeBooking;
+    if (active != null) {
+      final status = active["status"]?.toString() ?? "";
+      return MapSheet(
+        overTabs: true,
+        label: "Active ride",
+        children: [
+          ...notices,
+          Row(
+            children: [
+              const PulseDot(size: 10),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  switch (status) {
+                    "accepted" => "Head to pickup",
+                    "arriving" => "At the pickup point",
+                    "ongoing" => "On trip",
+                    _ => "Active ride",
+                  },
+                  style: DesignTokens.title,
+                ),
+              ),
+            ],
+          ),
+          RoutePoints(
+            pickup: bookingText(active, "pickup_address") ?? "-",
+            dropoff: bookingText(active, "dropoff_address") ?? "-",
+            pickupNote: bookingText(active, "passenger_name"),
+          ),
+          SunButton(
+            label: "Open ride",
+            trailingIcon: Icons.arrow_forward_rounded,
+            onPressed: () => pushDriverPage(context, const ActiveRidePage()),
+          ),
+        ],
+      );
+    }
+
+    // A request is waiting
+    final incoming = ctrl.incomingBooking;
+    if (incoming != null) {
+      final left = offerSecondsLeft(incoming);
+      return MapSheet(
+        overTabs: true,
+        label: "New ride request",
+        children: [
+          ...notices,
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Overline("New ride request",
+                        color: DesignTokens.primaryText),
+                    const SizedBox(height: 2),
+                    Text(
+                        "${shortPeso(bookingFare(incoming))} · ${bookingText(incoming, "passenger_count") ?? "1"} passenger",
+                        style: DesignTokens.title),
+                  ],
+                ),
+              ),
+              StatusChip("${left}s",
+                  tone: left <= 10 ? ChipTone.sos : ChipTone.primary),
+            ],
+          ),
+          RoutePoints(
+            pickup: bookingText(incoming, "pickup_address") ?? "-",
+            dropoff: bookingText(incoming, "dropoff_address") ?? "-",
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: SunButton(
+                  label: "Decline",
+                  tone: SunTone.quiet,
+                  onPressed: ctrl.isBusy ? null : ctrl.declineIncomingBooking,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: SunButton(
+                  label: "View & accept",
+                  onPressed: ctrl.isBusy
+                      ? null
+                      : () =>
+                          openRideRequestPage(context, const RideRequestPage()),
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
+
+    // Online
+    if (ctrl.isOnline) {
+      final rating = double.tryParse(
+          ctrl.earningsSummary?["rating_avg"]?.toString() ?? "");
+      return MapSheet(
+        overTabs: true,
+        label: "Online",
+        children: [
+          ...notices,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const _OnlineDot(),
+                  const SizedBox(width: 10),
+                  Expanded(
+                      child: Text("You're online", style: DesignTokens.title)),
+                  Text("Waiting for requests",
+                      style: TextStyle(
+                          color: DesignTokens.ink2, fontSize: 13.5)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text("Requests still arrive with your screen locked.",
+                  style: TextStyle(color: DesignTokens.ink2, fontSize: 13)),
+            ],
+          ),
+          Row(
+            children: [
+              Expanded(
+                  child: _Stat(
+                      label: "Earnings", value: shortPeso(today["earnings"]))),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: _Stat(
+                      label: "Trips",
+                      value:
+                          "${int.tryParse(today["rides"]?.toString() ?? "") ?? 0}")),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: _Stat(
+                      label: "Rating",
+                      value: rating == null || rating == 0
+                          ? "—"
+                          : rating.toStringAsFixed(1))),
+            ],
+          ),
+          SunButton(
+            label: ctrl.isBusy ? "Updating…" : "Go offline",
+            tone: SunTone.quiet,
+            loading: ctrl.isBusy,
+            onPressed: () => ctrl.setOnline(false),
+          ),
+        ],
+      );
+    }
+
+    // Offline
+    return MapSheet(
+      overTabs: true,
+      label: "Go online",
+      children: [
+        ...notices,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("You're offline", style: DesignTokens.title),
+            const SizedBox(height: 4),
+            Text("Go online to get ride requests in Guiuan.",
+                style: TextStyle(color: DesignTokens.ink2, fontSize: 13.5)),
+          ],
+        ),
+        Column(
+          children: [
+            _Check(label: "GPS is on", ok: ctrl.gpsEnabled),
+            _Check(
+                label: "Location permission allowed",
+                ok: ctrl.locationPermissionGranted),
+            _Check(label: "Connected to the internet", ok: ctrl.hasInternet),
+          ],
+        ),
+        SunButton(
+          label: ctrl.isBusy ? "Going online…" : "Go online",
+          tone: SunTone.lagoon,
+          loading: ctrl.isBusy,
+          onPressed: () => ctrl.setOnline(true),
+        ),
+      ],
+    );
+  }
+}
+
+/// "Ramon D." of "Ramon Dela Cruz" — fits the glass pill.
+String shortName(String name) {
+  final parts = name.trim().split(RegExp(r"\s+"));
+  if (parts.length < 2) return name.trim();
+  return "${parts.first} ${parts.last[0].toUpperCase()}.";
+}
+
+/// "₱420" — whole pesos for the compact chips.
+String shortPeso(dynamic amount) {
+  final value = double.tryParse(amount?.toString() ?? "") ?? 0;
+  return value == value.roundToDouble()
+      ? "₱${groupThousands(value.toStringAsFixed(0))}"
+      : peso(value);
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill(
+      {required this.icon,
+      required this.label,
+      required this.ok,
+      this.neutralWhenOff = false});
+
+  final IconData icon;
+  final String label;
+  final bool ok;
+  final bool neutralWhenOff;
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = ok
+        ? DesignTokens.ok
+        : neutralWhenOff
+            ? DesignTokens.ink2
+            : DesignTokens.danger;
+    return Semantics(
+      label: "$label ${ok ? "OK" : "off"}",
+      excludeSemantics: true,
+      child: Glass(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: tint),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(
+                    color: DesignTokens.ink1,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600)),
           ],
         ),
       ),
@@ -311,27 +479,109 @@ class _DriverHomePageState extends State<DriverHomePage> {
   }
 }
 
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.label, required this.ok});
+/// A green dot with a ping ring (".onl").
+class _OnlineDot extends StatelessWidget {
+  const _OnlineDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 22,
+      height: 22,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          HaloRing(
+              size: 12,
+              color: DesignTokens.ok,
+              from: 1,
+              to: 1.9,
+              period: const Duration(milliseconds: 2000)),
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: DesignTokens.ok,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: DesignTokens.ok, blurRadius: 12)],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Check extends StatelessWidget {
+  const _Check({required this.label, required this.ok});
 
   final String label;
   final bool ok;
 
   @override
   Widget build(BuildContext context) {
-    final color = ok ? DesignTokens.green : DesignTokens.red;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(ok ? Icons.check_circle_rounded : Icons.cancel_rounded,
-            color: color, size: 14),
-        const SizedBox(width: 4),
-        Text(label,
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: DesignTokens.muted)),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              color: ok ? DesignTokens.ok : DesignTokens.danger,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                    color: ok ? DesignTokens.glowOk : DesignTokens.glowDanger,
+                    blurRadius: 10),
+              ],
+            ),
+            child: Icon(ok ? Icons.check_rounded : Icons.close_rounded,
+                size: 12, color: ok ? DesignTokens.onOk : Colors.white),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(label,
+                style: TextStyle(color: DesignTokens.ink1, fontSize: 13.5)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      decoration: BoxDecoration(
+        color: DesignTokens.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: DesignTokens.line),
+      ),
+      child: Column(
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(value,
+                style: TextStyle(
+                    color: DesignTokens.ink,
+                    fontSize: 18,
+                    height: 1.2,
+                    letterSpacing: -0.5,
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: DesignTokens.tabular)),
+          ),
+          Text(label,
+              style: TextStyle(color: DesignTokens.ink2, fontSize: 11)),
+        ],
+      ),
     );
   }
 }
@@ -340,271 +590,32 @@ class _Banner extends StatelessWidget {
   const _Banner({
     required this.title,
     required this.message,
-    required this.color,
+    required this.good,
     this.onClose,
   });
 
   final String title;
   final String message;
-  final Color color;
+  final bool good;
   final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withAlpha(24),
-        borderRadius: BorderRadius.circular(DesignTokens.radius),
-        border: Border.all(color: color.withAlpha(70)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: TextStyle(
-                        color: color, fontWeight: DesignTokens.fw700)),
-                const SizedBox(height: 4),
-                Text(message,
-                    style: TextStyle(color: DesignTokens.text, fontSize: 13)),
-              ],
-            ),
-          ),
-          if (onClose != null)
-            InkWell(
+    return PrismAlert(
+      tone: good ? DesignTokens.ok : DesignTokens.warn,
+      title: title,
+      message: message,
+      trailing: onClose == null
+          ? null
+          : Pressable(
               onTap: onClose,
-              child: Icon(Icons.close_rounded,
-                  size: 18, color: DesignTokens.muted),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActiveRideBanner extends StatelessWidget {
-  const _ActiveRideBanner({required this.booking, required this.onView});
-
-  final Map<String, dynamic> booking;
-  final VoidCallback onView;
-
-  @override
-  Widget build(BuildContext context) {
-    final muted = DesignTokens.bg.withAlpha(190);
-    final status = booking["status"]?.toString() ?? "";
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: DesignTokens.driverAccent,
-        borderRadius: BorderRadius.circular(DesignTokens.radius),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Active Ride",
-                    style: TextStyle(color: muted, fontSize: 12)),
-                Text(status.replaceAll("_", " ").toUpperCase(),
-                    style: TextStyle(
-                        color: DesignTokens.bg,
-                        fontWeight: DesignTokens.fw600)),
-                Text(bookingText(booking, "dropoff_address") ?? "",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: muted, fontSize: 12)),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          ElevatedButton(
-            onPressed: onView,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: DesignTokens.bg,
-              foregroundColor: DesignTokens.driverAccent,
-              minimumSize: const Size(0, 40),
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(DesignTokens.radiusSm),
+              semanticLabel: "Dismiss",
+              child: Padding(
+                padding: const EdgeInsets.only(left: 6),
+                child: Icon(Icons.close_rounded,
+                    size: 18, color: DesignTokens.ink2),
               ),
             ),
-            child: const Text("View",
-                style: TextStyle(fontWeight: FontWeight.w700)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _IncomingRequestCard extends StatelessWidget {
-  const _IncomingRequestCard({
-    required this.booking,
-    required this.busy,
-    required this.onDecline,
-    required this.onView,
-  });
-
-  final Map<String, dynamic> booking;
-  final bool busy;
-  final VoidCallback onDecline;
-  final VoidCallback onView;
-
-  @override
-  Widget build(BuildContext context) {
-    final remaining = offerSecondsLeft(booking);
-    final pax = bookingText(booking, "passenger_count");
-    final distance = double.tryParse(booking["distance_km"]?.toString() ?? "");
-    final amber = DesignTokens.driverAccent;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: amber.withAlpha(24),
-        borderRadius: BorderRadius.circular(DesignTokens.radius),
-        border: Border.all(color: amber.withAlpha(110)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text("New Ride Request!",
-                    style: TextStyle(
-                        color: amber, fontWeight: DesignTokens.fw700)),
-              ),
-              Text(
-                "${remaining}s",
-                style: TextStyle(
-                  color: remaining <= 10 ? DesignTokens.red : amber,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(Icons.location_on_rounded,
-                  size: 14, color: Color(0xFF0E8C46)),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(bookingText(booking, "pickup_address") ?? "-",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: DesignTokens.text, fontSize: 13)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              const Icon(Icons.navigation_rounded,
-                  size: 14, color: Color(0xFFC94530)),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(bookingText(booking, "dropoff_address") ?? "-",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: DesignTokens.text, fontSize: 13)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 14,
-            children: [
-              if (pax != null)
-                Text("$pax pax",
-                    style: TextStyle(color: DesignTokens.muted, fontSize: 12)),
-              if (distance != null)
-                Text("${distance.toStringAsFixed(1)} km",
-                    style: TextStyle(color: DesignTokens.muted, fontSize: 12)),
-              Text("${pesoText(bookingFare(booking))} Cash",
-                  style: TextStyle(
-                      color: DesignTokens.green,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: busy ? null : onDecline,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(42),
-                    side: BorderSide(color: DesignTokens.border2),
-                  ),
-                  child: Text("Decline",
-                      style: TextStyle(color: DesignTokens.text)),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: busy ? null : onView,
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(42),
-                    backgroundColor: DesignTokens.green,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text("View & Accept",
-                      style: TextStyle(fontWeight: FontWeight.w700)),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EarningCard extends StatelessWidget {
-  const _EarningCard(
-      {required this.label, required this.amount, required this.rides});
-
-  final String label;
-  final dynamic amount;
-  final dynamic rides;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: DesignTokens.bg2,
-        borderRadius: BorderRadius.circular(DesignTokens.radius),
-        border: Border.all(color: DesignTokens.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label,
-              style: TextStyle(color: DesignTokens.muted, fontSize: 12)),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(pesoText(amount),
-                style: TextStyle(
-                    color: DesignTokens.text,
-                    fontSize: 20,
-                    fontWeight: DesignTokens.fw700)),
-          ),
-          Text("${int.tryParse(rides?.toString() ?? "") ?? 0} rides",
-              style: TextStyle(color: DesignTokens.muted, fontSize: 12)),
-        ],
-      ),
     );
   }
 }

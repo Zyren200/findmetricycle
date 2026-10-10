@@ -1,17 +1,21 @@
 import "dart:async";
+import "dart:math" as math;
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 
 import "../../../../core/components/index.dart";
 import "../../../../core/theme/design_tokens.dart";
+import "../../../../core/utils/geo_utils.dart";
+import "../driver_home_page.dart" show shortPeso;
 import "../driver_ride_controller.dart";
 import "../widgets/driver_ride_actions.dart";
 import "../widgets/driver_ride_map.dart";
 import "active_ride_page.dart";
 
-/// Full-screen view of an incoming ride offer with its countdown.
-/// Accepting continues on [ActiveRidePage].
+/// An incoming ride offer over the map: fare and distance, a ring that
+/// counts down the 20 seconds, the passenger and the route, then Decline
+/// or Accept. Accepting continues on [ActiveRidePage].
 class RideRequestPage extends StatefulWidget {
   const RideRequestPage({super.key});
 
@@ -52,6 +56,7 @@ class _RideRequestPageState extends State<RideRequestPage> {
     setState(() => _declining = true);
     await ctrl.declineIncomingBooking();
     if (!mounted) return;
+    showSunToast(context, "Request declined");
     Navigator.of(context).pop();
   }
 
@@ -60,253 +65,303 @@ class _RideRequestPageState extends State<RideRequestPage> {
     final ctrl = context.watch<DriverRideController>();
     final booking = ctrl.incomingBooking;
     final remaining = offerSecondsLeft(booking);
+    final expired = booking == null || remaining <= 0;
 
-    if (booking == null || remaining <= 0) {
-      return Scaffold(
-        backgroundColor: DesignTokens.bg,
-        body: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
+    return Scaffold(
+      backgroundColor: DesignTokens.mapLand,
+      body: Stack(
+        children: [
+          const Positioned.fill(
+            child: DriverRideMap(
+              fitPadding: EdgeInsets.fromLTRB(60, 80, 60, 470),
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: FadeRise(
+                offset: 0,
+                duration: const Duration(milliseconds: 250),
+                child: ColoredBox(color: DesignTokens.scrim),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: FadeRise(
+                  offset: 40,
+                  duration: const Duration(milliseconds: 450),
+                  child: expired
+                      ? _expiredCard(ctrl)
+                      : _requestCard(ctrl, booking, remaining),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _card({required List<Widget> children}) {
+    return Semantics(
+      scopesRoute: true,
+      namesRoute: true,
+      explicitChildNodes: true,
+      child: PrismGlass(
+        strong: true,
+        spin: true,
+        radius: DesignTokens.radiusSheet,
+        shadows: DesignTokens.shadowSheet,
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: DesignTokens.lineStrong,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _expiredCard(DriverRideController ctrl) {
+    return _card(children: [
+      const Center(
+        child: StatusRing(
+            icon: Icons.timer_off_outlined, fill: DesignTokens.emberFill),
+      ),
+      const SizedBox(height: 6),
+      Text("Request expired",
+          textAlign: TextAlign.center, style: DesignTokens.title),
+      const SizedBox(height: 6),
+      Text(
+        ctrl.error ?? "It went back to the passenger to choose another rider.",
+        textAlign: TextAlign.center,
+        style: DesignTokens.body,
+      ),
+      const SizedBox(height: 18),
+      SunButton(
+        label: "Back to requests",
+        tone: SunTone.quiet,
+        height: 52,
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+    ]);
+  }
+
+  Widget _requestCard(
+      DriverRideController ctrl, Map<String, dynamic> booking, int remaining) {
+    final pax =
+        int.tryParse(bookingText(booking, "passenger_count") ?? "") ?? 1;
+    final distance = double.tryParse(booking["distance_km"]?.toString() ?? "");
+    final passenger = bookingText(booking, "passenger_name") ?? "Passenger";
+    final busy = ctrl.isBusy || _accepting || _declining;
+
+    // How far the pickup is from the rider right now.
+    final here = ctrl.currentPosition;
+    final pickup = ctrl.pickupLocation;
+    final toPickup = here == null || pickup == null
+        ? null
+        : haversineKm(
+            lat1: here.latitude,
+            lng1: here.longitude,
+            lat2: pickup.latitude,
+            lng2: pickup.longitude);
+    String km(double d) =>
+        d < 1 ? "${(d * 1000).round()} m" : "${d.toStringAsFixed(1)} km";
+    int minutes(double d) => math.max(1, (d / 18 * 60).ceil());
+
+    return Shake(
+      child: _card(children: [
+        Row(
+          children: [
+            Expanded(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.close_rounded,
-                      size: 48, color: DesignTokens.muted),
-                  const SizedBox(height: 16),
-                  Text("Request Expired",
-                      style: TextStyle(
-                          color: DesignTokens.text,
-                          fontWeight: DesignTokens.fw600)),
-                  const SizedBox(height: 6),
+                  const Overline("Est. fare · cash"),
+                  const SizedBox(height: 4),
                   Text(
-                    ctrl.error ?? "This ride request is no longer available.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: DesignTokens.muted, fontSize: 13),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: 200,
-                    child: PrimaryActionButton(
-                      label: "Back to Home",
-                      color: DesignTokens.driverAccent,
-                      onPressed: () => Navigator.of(context).pop(),
+                    shortPeso(bookingFare(booking)),
+                    style: TextStyle(
+                      color: DesignTokens.ink,
+                      fontSize: 38,
+                      height: 1,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -1.9,
+                      fontFeatures: DesignTokens.tabular,
                     ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    [
+                      if (distance != null)
+                        "${distance.toStringAsFixed(1)} km trip",
+                      "$pax passenger${pax > 1 ? "s" : ""}",
+                    ].join(" · "),
+                    style:
+                        TextStyle(color: DesignTokens.ink2, fontSize: 13.5),
                   ),
                 ],
               ),
             ),
-          ),
+            _CountdownRing(secondsLeft: remaining, total: 20),
+          ],
         ),
-      );
-    }
+        const SizedBox(height: 16),
+        PersonRow(
+          name: passenger,
+          tone: AvatarTone.lagoon,
+          subtitle: "Passenger · pays cash",
+        ),
+        const SizedBox(height: 16),
+        const SizedBox(height: 14),
+        RoutePoints(
+          pickupLabel: toPickup == null
+              ? "Pickup"
+              : "Pickup · ${km(toPickup)} from you · ${minutes(toPickup)} min",
+          pickup: bookingText(booking, "pickup_address") ?? "-",
+          dropoffLabel: distance == null
+              ? "Drop-off"
+              : "Drop-off · about ${minutes(distance)} min",
+          dropoff: bookingText(booking, "dropoff_address") ?? "-",
+        ),
+        if (ctrl.error != null) ...[
+          const SizedBox(height: 12),
+          ErrorBox(message: ctrl.error!),
+        ],
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: SunButton(
+                label: "Decline",
+                tone: SunTone.quiet,
+                loading: _declining,
+                onPressed: busy ? null : () => _decline(ctrl),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: SunButton(
+                label: "Accept",
+                loading: _accepting,
+                onPressed: busy ? null : () => _accept(ctrl),
+              ),
+            ),
+          ],
+        ),
+      ]),
+    );
+  }
+}
 
-    final pax = bookingText(booking, "passenger_count");
-    final distance = double.tryParse(booking["distance_km"]?.toString() ?? "");
-    final busy = ctrl.isBusy || _accepting || _declining;
+/// 64 px ring that empties as the offer's seconds run out.
+class _CountdownRing extends StatelessWidget {
+  const _CountdownRing({required this.secondsLeft, required this.total});
 
-    return Scaffold(
-      backgroundColor: DesignTokens.bg,
-      body: Column(
-        children: [
-          AppTopBar(
-            title: "New Ride Request",
-            showBack: true,
-            badge: "${remaining}s",
-            badgeColor:
-                remaining <= 10 ? DesignTokens.red : DesignTokens.driverAccent,
-          ),
-          const SizedBox(height: 180, child: DriverRideMap()),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
+  final int secondsLeft;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final fraction = (secondsLeft / total).clamp(0.0, 1.0);
+    return Semantics(
+      label: "$secondsLeft seconds left to answer",
+      liveRegion: true,
+      excludeSemantics: true,
+      child: SizedBox(
+        width: 64,
+        height: 64,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            TweenAnimationBuilder<double>(
+              tween: Tween(end: fraction),
+              duration: const Duration(seconds: 1),
+              builder: (_, v, __) => CustomPaint(
+                size: const Size(64, 64),
+                painter: _RingPainter(
+                  value: v,
+                  track: DesignTokens.lineStrong,
+                  color: secondsLeft <= 5
+                      ? DesignTokens.danger
+                      : DesignTokens.ember,
+                ),
+              ),
+            ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                InfoBox(
-                  color: DesignTokens.green.withAlpha(24),
-                  borderColor: DesignTokens.green.withAlpha(70),
-                  spacing: 2,
-                  children: [
-                    Text("Trip Fare (Cash)",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            color: DesignTokens.green,
-                            fontSize: 13,
-                            fontWeight: DesignTokens.fw500)),
-                    Text(
-                      pesoText(bookingFare(booking)),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: DesignTokens.green,
-                          fontSize: 34,
-                          fontWeight: DesignTokens.fw700),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                InfoBox(
-                  spacing: 12,
-                  children: [
-                    _TripPoint(
-                      icon: Icons.location_on_rounded,
-                      color: const Color(0xFF0E8C46),
-                      label: "Pickup",
-                      value: bookingText(booking, "pickup_address") ?? "-",
-                    ),
-                    _TripPoint(
-                      icon: Icons.navigation_rounded,
-                      color: const Color(0xFFC94530),
-                      label: "Destination",
-                      value: bookingText(booking, "dropoff_address") ?? "-",
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _StatTile(
-                        icon: Icons.people_alt_rounded,
-                        value: pax ?? "-",
-                        label: "Passengers",
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _StatTile(
-                        icon: Icons.navigation_rounded,
-                        value: distance == null
-                            ? "-"
-                            : "${distance.toStringAsFixed(1)}km",
-                        label: "Distance",
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _StatTile(
-                        icon: Icons.timer_outlined,
-                        value: "${remaining}s",
-                        label: "To respond",
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  "Passenger: ${bookingText(booking, "passenger_name") ?? "-"} · Payment: Cash",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: DesignTokens.muted, fontSize: 12),
-                ),
-                if (ctrl.error != null) ...[
-                  const SizedBox(height: 12),
-                  ErrorBox(message: ctrl.error!),
-                ],
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: PrimaryActionButton(
-                        label: _declining ? "Declining..." : "Decline",
-                        outlined: true,
-                        color: DesignTokens.muted,
-                        foregroundColor: DesignTokens.text,
-                        loading: _declining,
-                        onPressed: busy ? null : () => _decline(ctrl),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: PrimaryActionButton(
-                        label: _accepting ? "Accepting..." : "Accept Ride",
-                        color: DesignTokens.green,
-                        loading: _accepting,
-                        onPressed: busy ? null : () => _accept(ctrl),
-                      ),
-                    ),
-                  ],
-                ),
+                Text("$secondsLeft",
+                    style: DesignTokens.mono
+                        .copyWith(fontSize: 20, height: 1, fontWeight: FontWeight.w600)),
+                Text("sec",
+                    style: TextStyle(
+                        color: DesignTokens.ink2,
+                        fontSize: 10,
+                        height: 1.2,
+                        fontWeight: FontWeight.w600)),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _TripPoint extends StatelessWidget {
-  const _TripPoint({
-    required this.icon,
-    required this.color,
-    required this.label,
-    required this.value,
-  });
+class _RingPainter extends CustomPainter {
+  _RingPainter({required this.value, required this.track, required this.color});
 
-  final IconData icon;
+  final double value;
+  final Color track;
   final Color color;
-  final String label;
-  final String value;
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: Icon(icon, size: 16, color: color),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: TextStyle(color: DesignTokens.muted, fontSize: 11)),
-              Text(value,
-                  style: TextStyle(
-                      color: DesignTokens.text,
-                      fontSize: 14,
-                      fontWeight: DesignTokens.fw500)),
-            ],
-          ),
-        ),
-      ],
-    );
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromCircle(
+        center: size.center(Offset.zero), radius: size.width / 2 - 6);
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(rect, 0, math.pi * 2, false, stroke..color = track);
+    final hot = color == DesignTokens.danger
+        ? null
+        : const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFFFC24F), Color(0xFFFF5A1F)],
+          ).createShader(rect);
+    canvas.drawArc(
+        rect,
+        -math.pi / 2,
+        math.pi * 2 * value,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 5
+          ..strokeCap = StrokeCap.round
+          ..color = color
+          ..shader = hot);
   }
-}
-
-class _StatTile extends StatelessWidget {
-  const _StatTile(
-      {required this.icon, required this.value, required this.label});
-
-  final IconData icon;
-  final String value;
-  final String label;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: DesignTokens.bg2,
-        borderRadius: BorderRadius.circular(DesignTokens.radius),
-        border: Border.all(color: DesignTokens.border),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 16, color: DesignTokens.driverAccent),
-          const SizedBox(height: 4),
-          FittedBox(
-            child: Text(value,
-                style: TextStyle(
-                    color: DesignTokens.text,
-                    fontSize: 17,
-                    fontWeight: DesignTokens.fw700)),
-          ),
-          Text(label,
-              style: TextStyle(color: DesignTokens.muted, fontSize: 11)),
-        ],
-      ),
-    );
-  }
+  bool shouldRepaint(_RingPainter old) =>
+      old.value != value || old.color != color || old.track != track;
 }

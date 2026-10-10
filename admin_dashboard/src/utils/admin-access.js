@@ -18,6 +18,8 @@ export const PERMISSIONS = {
   SOS_ESCALATIONS_RECEIVE: "sos.escalations",
   COMPLAINTS_VIEW: "complaints.view",
   COMPLAINTS_RESOLVE: "complaints.resolve",
+  SUPPORT_VIEW: "support.view",
+  SUPPORT_REPLY: "support.reply",
   NOTIFICATIONS_VIEW: "notifications.view",
   ANNOUNCEMENTS_MANAGE: "announcements.manage",
   REPORTS_VIEW: "reports.view",
@@ -41,6 +43,7 @@ export const SECTION_PERMISSIONS = {
   rides: P.RIDES_VIEW,
   sos: P.SOS_VIEW,
   complaints: P.COMPLAINTS_VIEW,
+  support: P.SUPPORT_VIEW,
   notifications: P.NOTIFICATIONS_VIEW,
   announcements: P.ANNOUNCEMENTS_MANAGE,
   reports: P.REPORTS_VIEW,
@@ -66,6 +69,6 @@ export function firstAllowedSection(can, orderedKeys) {
 // Plain-language summary of each role, for the Admin Accounts page.
 export const ROLE_DESCRIPTIONS = {
   super_admin: "Everything, including admin accounts, fares, barangays and system settings.",
-  operations_admin: "Day-to-day operations: users, drivers and applications, bookings, complaints, announcements and reports.",
+  operations_admin: "Day-to-day operations: users, drivers and applications, bookings, complaints, contact messages, announcements and reports.",
   sos_responder: "SOS alerts, the live map, and the bookings an SOS was raised on.",
 };

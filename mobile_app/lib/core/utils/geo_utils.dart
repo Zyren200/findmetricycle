@@ -23,10 +23,13 @@ double calculateFare({
   required double perKmRate,
   int passengerCount = 1,
   double additionalPassengerFee = 0,
+  double minimumFare = 0,
 }) {
+  // Same formula as the server (backend/src/utils/fare.js).
   final singlePassengerFare = baseFare + (distanceKm * perKmRate);
   final additionalPassengersCharge =
       (passengerCount - 1).clamp(0, 1 << 30) * additionalPassengerFee;
-  final total = singlePassengerFare + additionalPassengersCharge;
+  final total =
+      max(singlePassengerFare + additionalPassengersCharge, minimumFare);
   return double.parse(total.toStringAsFixed(2));
 }

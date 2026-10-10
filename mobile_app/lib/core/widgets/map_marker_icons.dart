@@ -11,51 +11,122 @@ import "app_map.dart";
 class MapMarkerIcons {
   MapMarkerIcons._();
 
-  /// "You are here" — blue location pin (passenger).
+  /// "You are here" — lagoon dot (passenger).
   static const String me = "fmt-me";
 
-  /// Pickup — green location pin.
+  /// Pickup — lagoon dot.
   static const String pickup = "fmt-pickup";
 
-  /// Drop-off — red pin with a flag.
+  /// Drop-off — orange pin.
   static const String dropoff = "fmt-dropoff";
 
   /// Online rider near the passenger.
   static const String rider = "fmt-rider";
 
-  /// Rider assigned to this passenger's ride (larger, amber).
+  /// Rider assigned to this passenger's ride (larger).
   static const String assignedRider = "fmt-rider-assigned";
 
   /// The rider's own position on the driver map.
   static const String self = "fmt-rider-self";
 
-  static const Color _blue = Color(0xFF1471C5);
-  static const Color _green = Color(0xFF0E8C46);
-  static const Color _red = Color(0xFFC94530);
-  static const Color _riderGreen = Color(0xFF136F3A);
-  static const Color _amber = Color(0xFFF0B429);
+  // Sunrise: lagoon for you and the pickup, orange for the drop-off and
+  // riders.
+  static const Color _lagoon = Color(0xFF1FC8B4);
+  static const Color _orange = Color(0xFFFF7A1A);
 
   /// Renders and registers every marker. [pixelRatio] should be the
   /// device's pixel ratio: the map plugin treats image pixels as physical
   /// pixels, so this keeps markers the same on-screen size on every phone.
   static Future<void> register(AppMapController map, double pixelRatio) async {
     final icons = <String, Future<Uint8List>>{
-      me: pin(_blue, Icons.person_rounded, pixelRatio),
-      pickup: pin(_green, Icons.circle, pixelRatio, glyphScale: 0.42),
-      dropoff: pin(_red, Icons.flag_rounded, pixelRatio),
-      rider: badge(_riderGreen, Icons.two_wheeler_rounded, pixelRatio),
-      assignedRider: badge(
-        _amber,
-        Icons.two_wheeler_rounded,
-        pixelRatio,
-        diameter: 30,
-      ),
-      self: badge(_blue, Icons.two_wheeler_rounded, pixelRatio, diameter: 28),
+      me: dot(_lagoon, pixelRatio, diameter: 22),
+      pickup: dot(_lagoon, pixelRatio, diameter: 22),
+      dropoff: dropPin(_orange, pixelRatio),
+      rider: trike(_orange, pixelRatio, diameter: 32),
+      assignedRider: trike(_orange, pixelRatio, diameter: 38),
+      self: trike(_orange, pixelRatio, diameter: 40),
     };
     for (final entry in icons.entries) {
       await map.addImage(entry.key, await entry.value);
     }
     await map.allowMarkerOverlap();
+  }
+
+  /// Solid dot with a thick white ring (you / pickup), anchor center.
+  static Future<Uint8List> dot(Color color, double pixelRatio,
+      {double diameter = 22}) {
+    final size = diameter + 4;
+    return _render(size, size, pixelRatio, (canvas) {
+      final center = Offset(size / 2, size / 2);
+      final radius = diameter / 2;
+      canvas.drawShadow(
+          Path()..addOval(Rect.fromCircle(center: center, radius: radius)),
+          Colors.black,
+          2,
+          false);
+      canvas.drawCircle(center, radius, Paint()..color = Colors.white);
+      canvas.drawCircle(center, radius - 4, Paint()..color = color);
+    });
+  }
+
+  /// Rider: white disc with a hairline, an orange core and a white heading
+  /// arrow (anchor center).
+  static Future<Uint8List> trike(Color color, double pixelRatio,
+      {double diameter = 32}) {
+    final size = diameter + 4;
+    return _render(size, size, pixelRatio, (canvas) {
+      final center = Offset(size / 2, size / 2);
+      final outer = diameter / 2;
+      final inner = outer * 0.72;
+      canvas.drawShadow(
+          Path()..addOval(Rect.fromCircle(center: center, radius: outer)),
+          Colors.black,
+          2.5,
+          false);
+      canvas.drawCircle(center, outer, Paint()..color = Colors.white);
+      canvas.drawCircle(
+          center,
+          outer - 0.5,
+          Paint()
+            ..color = const Color(0x291C1814)
+            ..style = PaintingStyle.stroke);
+      canvas.drawCircle(center, inner, Paint()..color = color);
+      final a = inner * 0.52;
+      final arrow = Path()
+        ..moveTo(center.dx, center.dy - a)
+        ..lineTo(center.dx + a * 0.85, center.dy + a * 0.85)
+        ..lineTo(center.dx, center.dy + a * 0.42)
+        ..lineTo(center.dx - a * 0.85, center.dy + a * 0.85)
+        ..close();
+      canvas.drawPath(arrow, Paint()..color = Colors.white);
+    });
+  }
+
+  /// Drop-off: orange teardrop with a white centre, tip at the bottom
+  /// (anchor bottom).
+  static Future<Uint8List> dropPin(Color color, double pixelRatio,
+      {double width = 32, double height = 42}) {
+    return _render(width, height, pixelRatio, (canvas) {
+      final r = width / 2 - 3;
+      final c = Offset(width / 2, r + 3);
+      final tip = Offset(width / 2, height - 2);
+      final path = Path()
+        ..moveTo(tip.dx, tip.dy)
+        ..quadraticBezierTo(c.dx - r * 0.95, c.dy + r * 0.9, c.dx - r, c.dy)
+        ..arcToPoint(Offset(c.dx + r, c.dy), radius: Radius.circular(r))
+        ..quadraticBezierTo(c.dx + r * 0.95, c.dy + r * 0.9, tip.dx, tip.dy)
+        ..close();
+      canvas.drawShadow(path, Colors.black, 2.5, false);
+      canvas.drawPath(path, Paint()..color = color);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3,
+      );
+      canvas.drawCircle(c, r * 0.36, Paint()..color = Colors.white);
+    });
   }
 
   /// Teardrop location pin, [width]×[height] logical pixels, tip at the

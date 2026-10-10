@@ -175,7 +175,6 @@ export default function SettingsPage({ onOpenFares }) {
                   ["Base Fare", fare.base_fare, "Starting fare for any ride"],
                   ["Per Kilometer", fare.per_km_rate, "Additional charge per km traveled"],
                   ["Minimum Fare", fare.minimum_fare, "Absolute minimum ride cost"],
-                  ["Night Fee", fare.night_fee, "Premium for evening rides"],
                   ["Extra Passenger Fee", fare.additional_passenger_fee, "Per passenger after the first"],
                 ].map(([label, value, hint]) => (
                   <div className="info-card" key={label}>
@@ -268,10 +267,15 @@ export default function SettingsPage({ onOpenFares }) {
           height: 1rem;
         }
 
+        /* A row of buttons at their own width — .form-group above stacks
+           (and stretches) its children, which made these full-width. */
         .form-group.form-actions {
           grid-column: 1 / -1;
           display: flex;
-          gap: 1rem;
+          flex-direction: row;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.75rem;
           margin-top: 1rem;
         }
 

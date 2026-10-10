@@ -1,4 +1,6 @@
 import "package:flutter/material.dart";
+
+import "../../../shared/presentation/map_credits.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
 import "package:permission_handler/permission_handler.dart";
 import "package:provider/provider.dart";
@@ -109,15 +111,18 @@ class _DriverSettingsPageState extends State<DriverSettingsPage>
   }
 
   void _info(String title, String message) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
+    showSunSheet<void>(
+      context,
+      builder: (dialogContext) => SunSheetCard(
+        title: title,
+        message: message,
+        align: CrossAxisAlignment.start,
         actions: [
-          TextButton(
+          SunButton(
+            label: "Close",
+            tone: SunTone.quiet,
+            height: 48,
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text("Close"),
           ),
         ],
       ),
@@ -125,23 +130,15 @@ class _DriverSettingsPageState extends State<DriverSettingsPage>
   }
 
   Future<void> _logout() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text("Sign Out"),
-        content: const Text("Are you sure you want to sign out?"),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text("Cancel")),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text("Sign Out", style: TextStyle(color: DesignTokens.red)),
-          ),
-        ],
-      ),
+    final confirmed = await confirmSun(
+      context,
+      title: "Log out?",
+      message: "You'll go offline and stop getting ride requests.",
+      confirmLabel: "Log out",
+      destructive: true,
+      icon: Icons.logout_rounded,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
 
     // Go offline first so the rider stops showing up as available.
     final ctrl = context.read<DriverRideController>();
@@ -160,7 +157,7 @@ class _DriverSettingsPageState extends State<DriverSettingsPage>
     final ctrl = context.watch<DriverRideController>();
 
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
+      backgroundColor: Colors.transparent,
       body: Column(
         children: [
           const AppTopBar(title: "Settings", showBack: true),
@@ -213,11 +210,22 @@ class _DriverSettingsPageState extends State<DriverSettingsPage>
                         },
                       ),
                     ),
-                    _Toggle(
-                      label: "Dark Mode",
-                      value: DesignTokens.isDark,
-                      onChanged: (v) => prefs
-                          .setThemeMode(v ? ThemeMode.dark : ThemeMode.light),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Segmented<ThemeMode>(
+                        semanticLabel: "Theme",
+                        value: prefs.themeMode,
+                        onChanged: prefs.setThemeMode,
+                        options: const [
+                          (ThemeMode.light, "Light", Icons.light_mode_outlined),
+                          (ThemeMode.dark, "Dark", Icons.dark_mode_outlined),
+                          (
+                            ThemeMode.system,
+                            "System",
+                            Icons.smartphone_rounded
+                          ),
+                        ],
+                      ),
                     ),
                     _Toggle(
                       label: "Sound Effects",
@@ -291,12 +299,11 @@ class _DriverSettingsPageState extends State<DriverSettingsPage>
                       label: "Update Documents",
                       onTap: () => _openUrl(AppConfig.driverApplyUrl),
                     ),
-                    NavListItem(
+                    const NavListItem(
                       icon: Icons.payments_outlined,
                       label: "Payment Method",
                       onTap: null,
-                      trailing: Text("💵 Cash",
-                          style: TextStyle(color: DesignTokens.text)),
+                      trailing: StatusChip("Cash", tone: ChipTone.primary),
                     ),
                   ],
                 ),
@@ -326,6 +333,10 @@ class _DriverSettingsPageState extends State<DriverSettingsPage>
                     ),
                   ],
                 ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 20, 20, 0),
+                  child: MapCreditsSection(),
+                ),
                 _Group(
                   title: "About",
                   children: [
@@ -348,12 +359,12 @@ class _DriverSettingsPageState extends State<DriverSettingsPage>
                   ],
                 ),
                 Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: PrimaryActionButton(
-                    label: "Sign Out",
-                    icon: Icons.logout_rounded,
-                    outlined: true,
-                    color: DesignTokens.red,
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+                  child: SunButton(
+                    label: "Log out",
+                    tone: SunTone.outline,
+                    height: 48,
+                    foreground: DesignTokens.sosText,
                     onPressed: _logout,
                   ),
                 ),
@@ -376,10 +387,24 @@ class _Group extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [SectionLabel(title), ...children],
+        children: [
+          SectionLabel(title),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: DesignTokens.surface,
+              borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
+              border: Border.all(color: DesignTokens.line),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: children,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -402,18 +427,34 @@ class _Toggle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: DesignTokens.border)),
+        border: Border(bottom: BorderSide(color: DesignTokens.line)),
       ),
-      child: SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        title: Text(label,
-            style: TextStyle(color: DesignTokens.text, fontSize: 14)),
-        subtitle: subtitle == null
-            ? null
-            : Text(subtitle!,
-                style: TextStyle(color: DesignTokens.muted, fontSize: 12)),
-        value: value,
-        onChanged: onChanged,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          color: DesignTokens.ink,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600)),
+                  if (subtitle != null)
+                    Text(subtitle!,
+                        style: TextStyle(
+                            color: DesignTokens.ink2,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            SunSwitch(value: value, onChanged: onChanged, label: label),
+          ],
+        ),
       ),
     );
   }
@@ -437,22 +478,26 @@ class _Permission extends StatelessWidget {
     final granted = status?.isGranted ?? false;
     return Container(
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: DesignTokens.border)),
+        border: Border(bottom: BorderSide(color: DesignTokens.line)),
       ),
       child: ListTile(
         contentPadding: EdgeInsets.zero,
         title: Text(label,
-            style: TextStyle(color: DesignTokens.text, fontSize: 14)),
+            style: TextStyle(
+                color: DesignTokens.ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w600)),
         subtitle: Text(
           status == null
               ? "Checking…"
               : (granted ? "Allowed" : "Permission required — $hint"),
           style: TextStyle(
-              color: granted ? DesignTokens.green : DesignTokens.red,
-              fontSize: 12),
+              color: granted ? DesignTokens.lagoonText : DesignTokens.sosText,
+              fontSize: 12,
+              fontWeight: FontWeight.w600),
         ),
         trailing: granted
-            ? Icon(Icons.check_circle, color: DesignTokens.green)
+            ? const StatusChip("Allowed", tone: ChipTone.ok)
             : TextButton(
                 onPressed: () {
                   if (status?.isPermanentlyDenied ?? false) {
@@ -461,7 +506,7 @@ class _Permission extends StatelessWidget {
                     onFix();
                   }
                 },
-                child: const Text("Fix"),
+                child: const Text("Allow"),
               ),
       ),
     );

@@ -1,6 +1,8 @@
 const express = require("express");
 const adminController = require("../controllers/admin.controller");
 const adminAccountsController = require("../controllers/admin-accounts.controller");
+const contactController = require("../controllers/contact.controller");
+const contactSchema = require("../validations/contact.schema");
 const authMiddleware = require("../middlewares/auth.middleware");
 const requireRole = require("../middlewares/role.middleware");
 const roles = require("../constants/roles");
@@ -148,6 +150,21 @@ router.post(
   can(P.COMPLAINTS_RESOLVE),
   validate(adminSchema.complaintResolveSchema),
   adminController.resolveComplaint
+);
+// Contact Support: messages from the website's Contact page. A reply is
+// emailed to the sender.
+router.get("/contact-messages", can(P.SUPPORT_VIEW), contactController.listMessages);
+router.post(
+  "/contact-messages/:id/reply",
+  can(P.SUPPORT_REPLY),
+  validate(contactSchema.contactReplySchema),
+  contactController.replyToMessage
+);
+router.post(
+  "/contact-messages/:id/status",
+  can(P.SUPPORT_REPLY),
+  validate(contactSchema.contactStatusSchema),
+  contactController.setMessageStatus
 );
 // Each admin sees only the notification types their permissions cover,
 // with their own read state.

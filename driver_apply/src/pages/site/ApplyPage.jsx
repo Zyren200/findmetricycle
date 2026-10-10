@@ -1,182 +1,152 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../../api/client";
+import { ICON } from "../../components/Icons";
+import { Alert, useToast } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
 import { Link, navigate, useDocumentTitle } from "../../router";
-import CaptchaPage from "../CaptchaPage";
-import LoginPage from "../LoginPage";
-import OtpPage from "../OtpPage";
+import GatePage from "../GatePage";
 import WizardShell from "../wizard/WizardShell";
 
-const PRE_STEP_LABELS = {
-  captcha: "Verification",
-  login: "Account",
-  otp: "Email OTP",
-  checking: "Account",
-};
-
-/// Driver application: CAPTCHA → sign in → email OTP → the application
-/// wizard. A signed-in rider who already has an application is sent to
-/// the status page instead, unless they're updating / resubmitting it.
+/// Driver application: sign in (account + CAPTCHA, then the email code) →
+/// the application wizard. A signed-in rider who already has an application
+/// is sent to the status page instead, unless they're updating it.
 export default function ApplyPage() {
-  useDocumentTitle("Driver Application — FindMeTricycle");
-  const { isAuthenticated, isCaptchaVerified, user, logout } = useAuth();
-  const resubmit = new URLSearchParams(window.location.search).get("resubmit") === "1";
+  useDocumentTitle("FindMeTricycle · Apply");
+  const { isAuthenticated, user, logout } = useAuth();
+  const toast = useToast();
+  const params = new URLSearchParams(window.location.search);
+  const resubmit = params.get("resubmit") === "1";
+  const returnToStatus = params.get("return") === "status";
 
-  const [step, setStep] = useState(isAuthenticated ? "checking" : isCaptchaVerified ? "login" : "captcha");
-  const [otpContext, setOtpContext] = useState(null);
+  const [phase, setPhase] = useState("checking"); // checking | wizard | error
   const [wizardMode, setWizardMode] = useState("new");
+  // The application being corrected, so the wizard starts from its answers.
+  const [previousApp, setPreviousApp] = useState(null);
   const [checkError, setCheckError] = useState(null);
   const [submitted, setSubmitted] = useState(null);
 
   const checkApplication = useCallback(async () => {
-    setStep("checking");
+    if (returnToStatus) {
+      navigate("/driver/status", { replace: true });
+      return;
+    }
+    setPhase("checking");
     setCheckError(null);
     try {
       const { data } = await apiClient.get("/auth/v2/driver-status");
       const app = data?.data || null;
       if (!app || app.status === "archived") {
         setWizardMode("new");
-        setStep("wizard");
+        setPhase("wizard");
       } else if (resubmit && (app.status === "needs_correction" || app.status === "rejected")) {
         setWizardMode("resubmit");
-        setStep("wizard");
+        setPreviousApp(app);
+        setPhase("wizard");
       } else {
         navigate("/driver/status", { replace: true });
       }
     } catch (err) {
       setCheckError(err?.response?.data?.message || "Failed to load your application status.");
+      setPhase("error");
     }
-  }, [resubmit]);
+  }, [resubmit, returnToStatus]);
 
   useEffect(() => {
     if (isAuthenticated && !submitted) checkApplication();
-    if (!isAuthenticated && step !== "captcha" && step !== "login" && step !== "otp") {
-      setStep(isCaptchaVerified ? "login" : "captcha");
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  const preForm = PRE_STEP_LABELS[step];
+  if (submitted) return <Submitted application={submitted.app} manualReview={submitted.manualReview} />;
+  if (!isAuthenticated) return <GatePage />;
+
+  if (phase === "wizard") {
+    return (
+      <WizardShell
+        user={user}
+        mode={wizardMode}
+        previous={previousApp}
+        onSubmitted={(app, { manualReview }) => {
+          setSubmitted({ app, manualReview });
+          toast("Application received", app?.id ? `Reference #${app.id}. We emailed you a copy.` : "We emailed you a copy.");
+          window.scrollTo({ top: 0 });
+        }}
+        onExit={() => {
+          logout();
+          toast("Signed out", "You can start again any time by signing in.");
+          navigate("/driver");
+        }}
+      />
+    );
+  }
 
   return (
-    <div className="form-page">
-      <div className="container container-form">
-        <div className="form-page-head">
-          <Link to="/driver" className="back-link">
-            ← Back to Driver Information
-          </Link>
-          <h1>Driver Application</h1>
-          <p>FindMeTricycle · Guiuan, Eastern Samar</p>
-        </div>
-
-        {preForm && !submitted ? (
-          <div className="progress-head" style={{ marginBottom: 24 }}>
-            <span>{preForm}</span>
-          </div>
-        ) : null}
-
-        <div className="embed">
-          {submitted ? (
-            <Submitted application={submitted} />
-          ) : step === "captcha" ? (
-            <CaptchaPage onVerified={() => setStep("login")} onBack={() => navigate("/driver")} />
-          ) : step === "login" ? (
+    <section>
+      <div className="wrap">
+        <div className="form-card glass" style={{ textAlign: "center" }}>
+          {phase === "error" ? (
+            <div className="stack">
+              <Alert tone="err">{checkError}</Alert>
+              <button type="button" className="btn btn-hot" onClick={checkApplication}>
+                Retry
+              </button>
+            </div>
+          ) : (
             <>
-              <LoginPage
-                onOtpRequired={(ctx) => {
-                  setOtpContext(ctx);
-                  setStep("otp");
-                }}
-                onBack={() => setStep("captcha")}
-              />
-              <p className="field-hint center-text" style={{ marginTop: 16 }}>
-                Don&apos;t have an account yet? <Link to="/download">Download the app</Link> and sign up
-                there first — it&apos;s the same account you&apos;ll use to drive.
+              <div className="spinner" aria-hidden="true" />
+              <p className="muted" style={{ marginTop: 14 }}>
+                Checking your application status…
               </p>
             </>
-          ) : step === "otp" && otpContext ? (
-            <OtpPage
-              email={otpContext.email}
-              tempToken={otpContext.tempToken}
-              user={otpContext.user}
-              onVerified={() => {}}
-              onBack={() => setStep("login")}
-            />
-          ) : step === "wizard" ? (
-            <WizardShell
-              user={user}
-              mode={wizardMode}
-              onSubmitted={(app) => setSubmitted(app || {})}
-              onExit={() => {
-                logout();
-                navigate("/driver");
-              }}
-            />
-          ) : (
-            <div className="card center-text">
-              {checkError ? (
-                <>
-                  <div className="banner banner-error">{checkError}</div>
-                  <button type="button" className="btn btn-primary" onClick={checkApplication}>
-                    Retry
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="spinner" />
-                  <p className="muted" style={{ margin: "0 auto" }}>Checking your application status…</p>
-                </>
-              )}
-            </div>
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }
 
-function Submitted({ application }) {
+function Submitted({ application, manualReview }) {
   return (
-    <div className="center-block" style={{ paddingTop: 16 }}>
-      <div
-        style={{
-          width: 80,
-          height: 80,
-          borderRadius: "50%",
-          margin: "0 auto 24px",
-          display: "grid",
-          placeItems: "center",
-          fontSize: "2.2rem",
-          background: "var(--teal-bg)",
-          border: "2px solid color-mix(in srgb, var(--teal) 40%, transparent)",
-        }}
-      >
-        ✅
+    <section>
+      <div className="wrap">
+        <div className="form-card glass" style={{ maxWidth: 620, textAlign: "center" }}>
+          <span
+            className="status-ic"
+            style={{ margin: "0 auto", background: "linear-gradient(135deg,#34E3A5,#0E9E6E)", width: 72, height: 72, display: "grid", placeItems: "center", color: "#fff" }}
+          >
+            {ICON.check}
+          </span>
+          <h2 style={{ marginTop: 18, fontSize: 32 }}>Application Submitted!</h2>
+          <p className="muted" style={{ marginTop: 10 }}>
+            Keep your reference number. We also sent it to your email.
+          </p>
+          {application?.id ? (
+            <div className="copy" style={{ justifyContent: "center", marginTop: 16, fontSize: 20, fontWeight: 700 }}>
+              #{application.id}
+            </div>
+          ) : null}
+          <div style={{ textAlign: "left", marginTop: 24 }}>
+            <b>What happens next</b>
+            <ol className="list" style={{ marginTop: 10 }}>
+              <li>The admin team reviews your documents and face check.</li>
+              <li>You get an email when it is approved, or if something needs fixing.</li>
+              <li>Once approved, open the app → Profile → Switch to Driver Mode.</li>
+            </ol>
+          </div>
+          {manualReview ? (
+            <Alert tone="warn" title="Some items need a manual check" style={{ marginTop: 18, textAlign: "left" }}>
+              This can make the review take a little longer.
+            </Alert>
+          ) : null}
+          <div className="row" style={{ justifyContent: "center", marginTop: 24 }}>
+            <Link className="btn btn-hot" to="/driver/status">
+              View Application Status {ICON.arrow}
+            </Link>
+            <Link className="btn btn-glass" to="/">
+              Back to Home
+            </Link>
+          </div>
+        </div>
       </div>
-      <h1 style={{ fontSize: "1.9rem" }}>Application Submitted!</h1>
-      <p style={{ fontSize: "1.05rem", marginBottom: 4 }}>Your driver application has been received.</p>
-      {application?.id ? (
-        <p>
-          Reference: <strong style={{ color: "var(--ink)" }}>#{application.id}</strong>
-        </p>
-      ) : null}
-      <div className="info-box primary" style={{ maxWidth: 380, margin: "0 auto 32px", textAlign: "left" }}>
-        <b style={{ display: "block", marginBottom: 8 }}>What happens next?</b>
-        <ol style={{ margin: 0, paddingLeft: 18, color: "var(--ink-2)", fontSize: ".88rem" }}>
-          <li>Our admin team reviews your application</li>
-          <li>Your documents are verified</li>
-          <li>You receive an email at each step</li>
-          <li>If approved, Driver Mode activates in your app</li>
-        </ol>
-      </div>
-      <div className="cta-row center">
-        <Link to="/driver/status" className="cta cta-primary">
-          Check Application Status
-        </Link>
-        <Link to="/" className="cta cta-outline">
-          Go Home
-        </Link>
-      </div>
-    </div>
+    </section>
   );
 }

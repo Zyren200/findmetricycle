@@ -6,232 +6,271 @@ import "../../../core/theme/design_tokens.dart";
 import "../../../core/utils/ride_format.dart";
 import "driver_ride_controller.dart";
 
-/// Earnings tab: today / this week / this month, a 7-day chart, lifetime
-/// totals and the latest paid trips. All figures come from GET
-/// /driver/earnings, which totals the rider's completed bookings.
-class DriverEarningsPage extends StatelessWidget {
+enum _Period { today, week, month }
+
+/// Earnings tab: Today / This week / This month, a tappable 7-day chart,
+/// cancellation rate, lifetime totals, the next milestone and the latest
+/// paid trips. All figures come from GET /driver/earnings, which totals
+/// the rider's completed bookings.
+class DriverEarningsPage extends StatefulWidget {
   const DriverEarningsPage({super.key});
+
+  @override
+  State<DriverEarningsPage> createState() => _DriverEarningsPageState();
+}
+
+class _DriverEarningsPageState extends State<DriverEarningsPage> {
+  _Period _period = _Period.week;
+  int? _selectedDay;
 
   @override
   Widget build(BuildContext context) {
     final ctrl = context.watch<DriverRideController>();
     final summary = ctrl.earningsSummary ?? {};
     final performance = ctrl.performanceStats ?? {};
+    final top = MediaQuery.paddingOf(context).top;
 
-    final today = _Period.from(summary["today"]);
-    final week = _Period.from(summary["week"]);
-    final month = _Period.from(summary["month"]);
+    final today = _Totals.from(summary["today"]);
+    final week = _Totals.from(summary["week"]);
+    final month = _Totals.from(summary["month"]);
     final daily =
         (summary["daily"] is List ? summary["daily"] as List : const [])
-            .map((e) => _Period.from(e, withDate: true))
+            .map((e) => _Totals.from(e, withDate: true))
             .toList();
 
-    final totalRides = _int(summary["total_rides"]);
-    final totalEarnings = _double(summary["total_earnings"]);
-    final ratingAvg = _double(summary["rating_avg"]);
-    final cancellationRate = _double(performance["cancellationRate"]);
-    final fiveStarRatings = _int(performance["fiveStarRatings"]);
-    final completedRides = _int(performance["completedRides"]);
+    final totalRides = toInt(summary["total_rides"]);
+    final totalEarnings = toDouble(summary["total_earnings"]);
+    final ratingAvg = toDouble(summary["rating_avg"]);
+    final cancellationRate = toDouble(performance["cancellationRate"]);
+    final fiveStarRatings = toInt(performance["fiveStarRatings"]);
+    final completedRides = toInt(performance["completedRides"]);
     final recentTrips = ctrl.completedRides.take(10).toList();
 
+    final (label, period) = switch (_period) {
+      _Period.today => ("Today", today),
+      _Period.week => ("This week", week),
+      _Period.month => ("This month", month),
+    };
+
+    // Next milestone: the first one above the rider's completed trips.
+    final done = completedRides > totalRides ? completedRides : totalRides;
+    const milestones = [10, 50, 100, 150, 250, 500, 1000, 2000, 5000];
+    final next = milestones.firstWhere((m) => m > done,
+        orElse: () => ((done ~/ 1000) + 1) * 1000);
+
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
-      body: Column(
-        children: [
-          const AppTopBar(title: "Earnings"),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () => Future.wait([
-                ctrl.refreshEarnings(),
-                ctrl.refreshPerformance(),
-                ctrl.refreshProfile(notify: false),
-              ]),
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
+      backgroundColor: Colors.transparent,
+      body: RefreshIndicator(
+        onRefresh: () => Future.wait([
+          ctrl.refreshEarnings(),
+          ctrl.refreshPerformance(),
+          ctrl.refreshProfile(notify: false),
+        ]),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(
+              20, top + 28, 20, DesignTokens.tabBarClearance + 8),
+          children: [
+            const ScreenTitle("Earnings"),
+            const SizedBox(height: 16),
+            Segmented<_Period>(
+              semanticLabel: "Period",
+              height: 40,
+              value: _period,
+              onChanged: (p) => setState(() => _period = p),
+              options: const [
+                (_Period.today, "Today", null),
+                (_Period.week, "This week", null),
+                (_Period.month, "This month", null),
+              ],
+            ),
+            const SizedBox(height: 16),
+            ...Stagger.wrap([
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Overline("$label · cash"),
+                    const SizedBox(height: 4),
+                    AnimatedSwitcher(
+                      duration: DesignTokens.quick,
+                      child: Text(
+                        peso(period.earnings),
+                        key: ValueKey(_period),
+                        style: TextStyle(
+                          color: DesignTokens.ink,
+                          fontSize: 42,
+                          height: 1.05,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -2.1,
+                          fontFeatures: DesignTokens.tabular,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      period.rides == 1
+                          ? "1 ride completed"
+                          : "${period.rides} rides completed",
+                      style: TextStyle(
+                          color: DesignTokens.ink2, fontSize: 13.5),
+                    ),
+                  ],
+                ),
+              ),
+              _DailyChart(
+                days: daily,
+                selected: _selectedDay,
+                onSelect: (i) => setState(() => _selectedDay = i),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _TodayCard(period: today),
-                  Padding(
-                    padding: const EdgeInsets.all(DesignTokens.spacing16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _StatCard(
-                                label: "This Week",
-                                caption: "${week.rides} rides",
-                                value: _peso(week.earnings),
-                                icon: Icons.trending_up_rounded,
-                                color: DesignTokens.driverAccent,
-                              ),
-                            ),
-                            const SizedBox(width: DesignTokens.spacing12),
-                            Expanded(
-                              child: _StatCard(
-                                label: "This Month",
-                                caption: "${month.rides} rides",
-                                value: _peso(month.earnings),
-                                icon: Icons.payments_outlined,
-                                color: DesignTokens.green,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: DesignTokens.spacing16),
-                        const _SectionTitle("Last 7 days"),
-                        const SizedBox(height: 10),
-                        _DailyChart(days: daily),
-                        const SizedBox(height: DesignTokens.spacing16),
-                        const _SectionTitle("Lifetime"),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _StatCard(
-                                label: "Total Earnings",
-                                value: _peso(totalEarnings),
-                                icon: Icons.payments,
-                                color: DesignTokens.driverAccent,
-                              ),
-                            ),
-                            const SizedBox(width: DesignTokens.spacing12),
-                            Expanded(
-                              child: _StatCard(
-                                label: "Total Rides",
-                                value: "$totalRides",
-                                icon: Icons.route,
-                                color: DesignTokens.green,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: DesignTokens.spacing12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _StatCard(
-                                label: "Average Rating",
-                                value: ratingAvg.toStringAsFixed(2),
-                                icon: Icons.star_rounded,
-                                color: DesignTokens.warning,
-                              ),
-                            ),
-                            const SizedBox(width: DesignTokens.spacing12),
-                            Expanded(
-                              child: _StatCard(
-                                label: "Average per Ride",
-                                value: totalRides > 0
-                                    ? _peso(totalEarnings / totalRides)
-                                    : "—",
-                                icon: Icons.receipt_long_rounded,
-                                color: DesignTokens.driverAccent,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: DesignTokens.spacing16),
-                        const _SectionTitle("Performance"),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _StatCard(
-                                label: "Cancellation Rate",
-                                value:
-                                    "${cancellationRate.toStringAsFixed(1)}%",
-                                icon: Icons.cancel_outlined,
-                                color: cancellationRate > 20
-                                    ? DesignTokens.red
-                                    : DesignTokens.green,
-                              ),
-                            ),
-                            const SizedBox(width: DesignTokens.spacing12),
-                            Expanded(
-                              child: _StatCard(
-                                label: "5-Star Ratings",
-                                value: "$fiveStarRatings",
-                                icon: Icons.star_rounded,
-                                color: DesignTokens.driverAccent,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: DesignTokens.spacing16),
-                        if (completedRides > 0) ...[
-                          const _SectionTitle("Milestones"),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              if (completedRides >= 100)
-                                const _MilestoneBadge(
-                                    label: "100 Completed Rides"),
-                              if (completedRides >= 500)
-                                const _MilestoneBadge(
-                                    label: "500 Completed Rides"),
-                              if (fiveStarRatings >= 50)
-                                const _MilestoneBadge(
-                                    label: "50 Five-Star Ratings"),
-                              if (completedRides < 100)
-                                const _MilestoneBadge(
-                                  label: "100 Completed Rides",
-                                  achieved: false,
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: DesignTokens.spacing16),
-                        ],
-                        const _SectionTitle("Completed Rides"),
-                        if (recentTrips.isEmpty)
-                          const EmptyState(
-                            icon: Icons.check_circle_outline_rounded,
-                            message: "No completed rides yet",
-                          )
-                        else
-                          ...recentTrips
-                              .map((ride) => _TripEarningTile(ride: ride)),
-                        const SizedBox(height: DesignTokens.spacing16),
-                        Text(
-                          "Cash payment is collected directly from passengers.",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: DesignTokens.muted, fontSize: 12),
-                        ),
-                      ],
+                  Expanded(
+                    child: _Tile(
+                      label: "Cancellation rate",
+                      value:
+                          "${cancellationRate.toStringAsFixed(cancellationRate == cancellationRate.roundToDouble() ? 0 : 1)}%",
+                      caption: "Lower is better",
+                      tinted: true,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _Tile(
+                      label: "Lifetime",
+                      value: peso(totalEarnings),
+                      caption: "$totalRides trips",
                     ),
                   ),
                 ],
               ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _Tile(
+                      label: "Average rating",
+                      value: ratingAvg == 0
+                          ? "—"
+                          : "★ ${ratingAvg.toStringAsFixed(2)}",
+                      caption: "$fiveStarRatings five-star",
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _Tile(
+                      label: "Average per ride",
+                      value: totalRides > 0
+                          ? peso(totalEarnings / totalRides)
+                          : "—",
+                      caption: "Cash",
+                    ),
+                  ),
+                ],
+              ),
+              SunCard(
+                radius: 20,
+                shadow: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text("Next milestone: $next trips",
+                              style: TextStyle(
+                                  color: DesignTokens.ink,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                        Text("$done / $next",
+                            style: TextStyle(
+                                color: DesignTokens.ink2,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                fontFeatures: DesignTokens.tabular)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Semantics(
+                      label: "Milestone progress",
+                      value: "$done of $next",
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: SizedBox(
+                          height: 8,
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                  child:
+                                      ColoredBox(color: DesignTokens.surface2)),
+                              TweenAnimationBuilder<double>(
+                                tween: Tween(
+                                    end: next == 0
+                                        ? 0
+                                        : (done / next).clamp(0.0, 1.0)),
+                                duration: const Duration(milliseconds: 700),
+                                curve: DesignTokens.easeOut,
+                                builder: (_, v, __) => FractionallySizedBox(
+                                  widthFactor: v,
+                                  child: Container(
+                                      decoration: const BoxDecoration(
+                                          gradient: DesignTokens.hot)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ], gap: 14),
+            const SizedBox(height: 24),
+            const SectionLabel("Completed rides"),
+            if (recentTrips.isEmpty)
+              const EmptyState(
+                icon: Icons.check_circle_outline_rounded,
+                message: "No completed rides yet",
+              )
+            else
+              SunListCard(children: [
+                for (final ride in recentTrips) _TripEarningTile(ride: ride),
+              ]),
+            const SizedBox(height: 16),
+            Text(
+              "Cash payment is collected directly from passengers.",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: DesignTokens.ink2,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _Period {
-  const _Period({required this.rides, required this.earnings, this.date});
+class _Totals {
+  const _Totals({required this.rides, required this.earnings, this.date});
 
   final int rides;
   final double earnings;
   final DateTime? date;
 
-  static _Period from(dynamic raw, {bool withDate = false}) {
+  static _Totals from(dynamic raw, {bool withDate = false}) {
     final map = raw is Map ? raw : const {};
-    return _Period(
-      rides: _int(map["rides"]),
-      earnings: _double(map["earnings"]),
+    return _Totals(
+      rides: toInt(map["rides"]),
+      earnings: toDouble(map["earnings"]),
       date: withDate ? DateTime.tryParse(map["date"]?.toString() ?? "") : null,
     );
   }
 }
-
-int _int(dynamic v) => int.tryParse(v?.toString() ?? "") ?? 0;
-double _double(dynamic v) => double.tryParse(v?.toString() ?? "") ?? 0;
-String _peso(double v) => "₱${v.toStringAsFixed(2)}";
 
 const _weekdays = ["Lun", "Mar", "Miy", "Huw", "Biy", "Sab", "Lin"];
 const _months = [
@@ -249,151 +288,226 @@ const _months = [
   "Dis",
 ];
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.text);
+class _Tile extends StatelessWidget {
+  const _Tile({
+    required this.label,
+    required this.value,
+    required this.caption,
+    this.tinted = false,
+  });
 
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => SectionLabel(text);
-}
-
-class _TodayCard extends StatelessWidget {
-  const _TodayCard({required this.period});
-
-  final _Period period;
+  final String label;
+  final String value;
+  final String caption;
+  final bool tinted;
 
   @override
   Widget build(BuildContext context) {
-    final muted = DesignTokens.bg.withAlpha(190);
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
-      color: DesignTokens.driverAccent,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: DesignTokens.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: DesignTokens.line),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("Today's Earnings",
-              style: TextStyle(color: muted, fontSize: 13)),
-          const SizedBox(height: 4),
-          Text(
-            _peso(period.earnings),
-            style: TextStyle(
-              fontSize: 36,
-              fontWeight: FontWeight.w700,
-              color: DesignTokens.bg,
-            ),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(value,
+                style: TextStyle(
+                    color: tinted ? DesignTokens.lagoonText : DesignTokens.ink,
+                    fontSize: 18,
+                    height: 1.2,
+                    letterSpacing: -0.5,
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: DesignTokens.tabular)),
           ),
-          const SizedBox(height: 4),
-          Text(
-            period.rides == 1
-                ? "1 ride completed"
-                : "${period.rides} rides completed",
-            style: TextStyle(color: muted, fontSize: 13),
-          ),
+          const SizedBox(height: 2),
+          Text(label,
+              style: TextStyle(color: DesignTokens.ink2, fontSize: 11.5)),
+          Text(caption,
+              style: TextStyle(
+                  color: DesignTokens.ink2.withValues(alpha: .8),
+                  fontSize: 11)),
         ],
       ),
     );
   }
 }
 
-/// Simple bar chart of the last 7 days' earnings (no chart dependency).
+/// Last 7 days as bars; tap a bar to read its amount.
 class _DailyChart extends StatelessWidget {
-  const _DailyChart({required this.days});
+  const _DailyChart(
+      {required this.days, required this.selected, required this.onSelect});
 
-  final List<_Period> days;
+  final List<_Totals> days;
+  final int? selected;
+  final ValueChanged<int> onSelect;
 
-  static const double _maxBarHeight = 110;
+  static const double _maxBarHeight = 140;
 
   @override
   Widget build(BuildContext context) {
     final maxEarning =
         days.fold<double>(0, (m, d) => d.earnings > m ? d.earnings : m);
     final total = days.fold<double>(0, (sum, d) => sum + d.earnings);
+    final sel = days.isEmpty
+        ? null
+        : (selected ?? days.length - 1).clamp(0, days.length - 1);
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
-      decoration: BoxDecoration(
-        color: DesignTokens.bg2,
-        border: Border.all(color: DesignTokens.border),
-        borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
-      ),
+    String dayLabel(int i) {
+      final date = days[i].date;
+      if (i == days.length - 1) return "Today";
+      return date == null ? "" : _weekdays[date.weekday - 1];
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            "Kabuuan: ${_peso(total)}",
-            style: TextStyle(color: DesignTokens.muted, fontSize: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text("Last 7 days",
+                    style: TextStyle(
+                        color: DesignTokens.ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600)),
+              ),
+              if (sel != null)
+                Text("${dayLabel(sel)} · ${peso(days[sel].earnings)}",
+                    style: TextStyle(
+                        color: DesignTokens.ink,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: DesignTokens.tabular)),
+            ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 2),
+          Text("Kabuuan: ${peso(total)}",
+              style: TextStyle(
+                  color: DesignTokens.ink2,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 12),
           SizedBox(
-            height: _maxBarHeight + 44,
+            height: _maxBarHeight + 30,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                for (final (index, day) in days.indexed)
+                for (var i = 0; i < days.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
                   Expanded(
-                    child: _DayBar(
-                      day: day,
-                      height: maxEarning > 0
-                          ? (day.earnings / maxEarning) * _maxBarHeight
-                          : 0,
-                      isToday: index == days.length - 1,
+                    child: Semantics(
+                      button: true,
+                      selected: i == sel,
+                      label: "${dayLabel(i)}, ${peso(days[i].earnings)}",
+                      excludeSemantics: true,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => onSelect(i),
+                        child: Align(
+                          alignment: Alignment.bottomCenter,
+                          child: TweenAnimationBuilder<double>(
+                            tween: Tween(
+                              begin: 0,
+                              end: maxEarning > 0
+                                  ? (days[i].earnings / maxEarning) *
+                                      _maxBarHeight
+                                  : 0,
+                            ),
+                            duration: Duration(milliseconds: 700 + i * 50),
+                            curve: DesignTokens.easeOut,
+                            builder: (_, h, __) => Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AnimatedOpacity(
+                                  duration: DesignTokens.quick,
+                                  opacity: i == sel ? 1 : 0,
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 6),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: DesignTokens.pillBg,
+                                      borderRadius: BorderRadius.circular(999),
+                                      boxShadow: DesignTokens.shadow1,
+                                    ),
+                                    child: FittedBox(
+                                      child: Text(
+                                          "₱${days[i].earnings.toStringAsFixed(0)}",
+                                          style: DesignTokens.mono
+                                              .copyWith(fontSize: 11)),
+                                    ),
+                                  ),
+                                ),
+                                AnimatedContainer(
+                                  duration: DesignTokens.quick,
+                                  // A sliver even on empty days so the axis
+                                  // reads as a chart.
+                                  height: h < 4 ? 4 : h,
+                                  decoration: BoxDecoration(
+                                    color: i == sel && days[i].earnings > 0
+                                        ? null
+                                        : DesignTokens.surface3,
+                                    gradient: i == sel && days[i].earnings > 0
+                                        ? DesignTokens.hot
+                                        : null,
+                                    border: i == sel
+                                        ? null
+                                        : Border.all(color: DesignTokens.line),
+                                    borderRadius: const BorderRadius.vertical(
+                                        top: Radius.circular(9),
+                                        bottom: Radius.circular(5)),
+                                    boxShadow: i == sel
+                                        ? [
+                                            BoxShadow(
+                                                color: DesignTokens.glowEmber,
+                                                blurRadius: 22,
+                                                spreadRadius: -8,
+                                                offset: const Offset(0, 10)),
+                                          ]
+                                        : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
+                ],
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DayBar extends StatelessWidget {
-  const _DayBar(
-      {required this.day, required this.height, required this.isToday});
-
-  final _Period day;
-  final double height;
-  final bool isToday;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isToday ? DesignTokens.driverAccent : DesignTokens.green;
-    final amount = day.earnings >= 1000
-        ? "${(day.earnings / 1000).toStringAsFixed(1)}k"
-        : day.earnings.toStringAsFixed(0);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 3),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          if (day.earnings > 0)
-            FittedBox(
-              child: Text(
-                amount,
-                style: TextStyle(fontSize: 10, color: DesignTokens.text),
-              ),
-            ),
-          const SizedBox(height: 2),
-          Container(
-            // A sliver even on empty days so the axis reads as a chart.
-            height: height < 3 ? 3 : height,
-            decoration: BoxDecoration(
-              color: day.earnings > 0 ? color : DesignTokens.border,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(6)),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            day.date == null ? "" : _weekdays[day.date!.weekday - 1],
-            style: TextStyle(
-              fontSize: 11,
-              color: isToday ? DesignTokens.text : DesignTokens.muted,
-              fontWeight: isToday ? FontWeight.w800 : FontWeight.w500,
-            ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              for (var i = 0; i < days.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    dayLabel(i),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.visible,
+                    softWrap: false,
+                    style: TextStyle(
+                      fontFamily: DesignTokens.fontMono,
+                      fontSize: 10,
+                      letterSpacing: .6,
+                      color: i == sel ? DesignTokens.ink : DesignTokens.ink2,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
@@ -408,7 +522,7 @@ class _TripEarningTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fare = _double(ride["final_fare"] ?? ride["estimated_fare"]);
+    final fare = toDouble(ride["final_fare"] ?? ride["estimated_fare"]);
     final pickup = placeLabel(ride["pickup_address"]);
     final dropoff = placeLabel(ride["dropoff_address"]);
     final distance = double.tryParse(ride["distance_km"]?.toString() ?? "");
@@ -420,22 +534,17 @@ class _TripEarningTile extends StatelessWidget {
             "${completed.hour.toString().padLeft(2, "0")}:${completed.minute.toString().padLeft(2, "0")}";
     final pax = ride["passenger_count"]?.toString();
 
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: DesignTokens.border)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: DesignTokens.green.withAlpha(36),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.payments_outlined,
-                size: 18, color: DesignTokens.green),
+          IconTile(
+            icon: Icons.payments_outlined,
+            size: 40,
+            radius: 12,
+            iconSize: 18,
+            background: DesignTokens.lagoonSoft,
+            foreground: DesignTokens.lagoonText,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -447,9 +556,9 @@ class _TripEarningTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: DesignTokens.text,
+                    color: DesignTokens.ink,
                     fontSize: 14,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
@@ -461,116 +570,23 @@ class _TripEarningTile extends StatelessWidget {
                   ].join(" · "),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: DesignTokens.muted, fontSize: 12),
+                  style: TextStyle(
+                      color: DesignTokens.ink2,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 10),
           Text(
-            _peso(fare),
+            peso(fare),
             style: TextStyle(
-              color: DesignTokens.green,
+              color: DesignTokens.lagoonText,
               fontWeight: FontWeight.w700,
+              fontFeatures: DesignTokens.tabular,
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MilestoneBadge extends StatelessWidget {
-  const _MilestoneBadge({required this.label, this.achieved = true});
-
-  final String label;
-  final bool achieved;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = achieved ? DesignTokens.driverAccent : DesignTokens.muted;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withAlpha(24),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withAlpha(50)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            achieved ? Icons.emoji_events_rounded : Icons.lock_outline_rounded,
-            size: 16,
-            color: color,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-                color: color, fontSize: 12, fontWeight: FontWeight.w700),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-    this.caption,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final String? caption;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: DesignTokens.bg2,
-        border: Border.all(color: DesignTokens.border),
-        borderRadius: BorderRadius.circular(DesignTokens.radius),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(label,
-                    style: TextStyle(color: DesignTokens.muted, fontSize: 12)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                color: DesignTokens.text,
-              ),
-            ),
-          ),
-          if (caption != null) ...[
-            const SizedBox(height: 2),
-            Text(caption!,
-                style: TextStyle(color: DesignTokens.muted, fontSize: 12)),
-          ],
         ],
       ),
     );

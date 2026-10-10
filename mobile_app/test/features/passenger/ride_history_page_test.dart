@@ -7,6 +7,7 @@ import "package:findme_tricycle_mobile/features/passenger/presentation/passenger
 import "package:findme_tricycle_mobile/features/passenger/presentation/passenger_ride_controller.dart";
 import "package:findme_tricycle_mobile/features/passenger/repositories/favorites_repository.dart";
 import "package:findme_tricycle_mobile/features/passenger/repositories/passenger_repository.dart";
+import "package:findme_tricycle_mobile/core/components/index.dart";
 import "package:flutter/material.dart";
 import "package:flutter_test/flutter_test.dart";
 import "package:provider/provider.dart";
@@ -17,7 +18,8 @@ class FakeHistoryRepository extends PassengerRepository {
   int historyCalls = 0;
 
   @override
-  Future<Map<String, dynamic>> getBookingHistory({int limit = 20, int offset = 0}) async {
+  Future<Map<String, dynamic>> getBookingHistory(
+      {int limit = 20, int offset = 0}) async {
     historyCalls++;
     return {
       "success": true,
@@ -53,7 +55,13 @@ class FakeHistoryRepository extends PassengerRepository {
           "cancelled_by": "passenger",
         },
       ],
-      "meta": {"total": 2, "completed": 1, "cancelled": 1, "totalSpent": 45.5, "hasMore": false},
+      "meta": {
+        "total": 2,
+        "completed": 1,
+        "cancelled": 1,
+        "totalSpent": 45.5,
+        "hasMore": false
+      },
     };
   }
 }
@@ -91,12 +99,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets("shows readable history with totals, places and fares", (tester) async {
+  testWidgets("shows readable history with totals, places and fares",
+      (tester) async {
     await pumpHistory(tester);
 
     expect(find.text("₱45.50"), findsWidgets); // fare + total spent
-    expect(find.textContaining("COMPLETED", findRichText: true), findsOneWidget);
-    expect(find.textContaining("CANCELLED", findRichText: true), findsOneWidget);
+    expect(find.widgetWithText(StatusChip, "COMPLETED"), findsOneWidget);
+    expect(find.widgetWithText(StatusChip, "CANCELLED"), findsOneWidget);
     expect(find.text("Guiuan Public Market"), findsOneWidget);
     expect(find.text("Guiuan Plaza"), findsOneWidget);
     // Raw coordinates and ISO timestamps are never shown.
@@ -106,7 +115,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets("a completed ride's details show the rider and offer a rating", (tester) async {
+  testWidgets("a completed ride's details show the rider and offer a rating",
+      (tester) async {
     await pumpHistory(tester);
 
     await tester.tap(find.text("Guiuan Public Market"));
@@ -125,7 +135,7 @@ void main() {
   testWidgets("a cancelled ride isn't charged", (tester) async {
     await pumpHistory(tester);
 
-    await tester.tap(find.textContaining("CANCELLED", findRichText: true));
+    await tester.tap(find.widgetWithText(StatusChip, "CANCELLED"));
     await tester.pumpAndSettle();
 
     expect(find.text("No charge"), findsOneWidget);
@@ -135,14 +145,15 @@ void main() {
   testWidgets("filters by status", (tester) async {
     await pumpHistory(tester);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, "Cancelled"));
+    await tester.tap(find.descendant(of: find.byWidgetPredicate((w) => w is PrismSegment), matching: find.text("Cancelled")));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining("CANCELLED", findRichText: true), findsOneWidget);
-    expect(find.textContaining("COMPLETED", findRichText: true), findsNothing);
+    expect(find.widgetWithText(StatusChip, "CANCELLED"), findsOneWidget);
+    expect(find.widgetWithText(StatusChip, "COMPLETED"), findsNothing);
   });
 
-  testWidgets("reloads when the passenger opens the History tab again", (tester) async {
+  testWidgets("reloads when the passenger opens the History tab again",
+      (tester) async {
     await pumpHistory(tester);
     final callsBefore = repo.historyCalls;
 

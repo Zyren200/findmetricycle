@@ -2,15 +2,7 @@ const complaintModel = require("../models/complaint.model");
 const bookingModel = require("../models/booking.model");
 const notificationService = require("./notification.service");
 const ApiError = require("../utils/api-error");
-
-const CATEGORIES = [
-  "no_show",
-  "incorrect_pickup",
-  "fare_dispute",
-  "safety_concern",
-  "passenger_behavior",
-  "other",
-];
+const { REPORT_CATEGORIES: CATEGORIES } = require("../constants/report-categories");
 
 // Driver and passenger reports both funnel through here — the booking (if
 // any) tells us who the "other side" of the report is, so the reporter

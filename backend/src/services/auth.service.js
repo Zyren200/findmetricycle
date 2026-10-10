@@ -340,7 +340,7 @@ async function refreshAccessToken({ refreshToken }) {
     throw new ApiError(401, "Invalid or expired refresh token.");
   }
 
-  if (payload.type && payload.type !== "refresh") {
+    if (payload.type !== "refresh") {
     throw new ApiError(401, "Invalid token type for refresh.");
   }
 

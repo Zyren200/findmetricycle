@@ -328,7 +328,9 @@ async function updateFareSettings(
     baseFare: Number(baseFare),
     perKmRate: Number(perKmRate),
     minimumFare: Number(minimumFare),
-    nightFee: Number(nightFee),
+    // Night fee is shelved (never charged) and no longer sent by the admin
+    // dashboard; an omitted value keeps whatever is stored.
+    nightFee: nightFee == null || nightFee === "" ? null : Number(nightFee),
     additionalPassengerFee: Number(additionalPassengerFee || 0),
     updatedBy: adminUserId,
   });

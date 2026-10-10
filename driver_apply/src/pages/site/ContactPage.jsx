@@ -1,177 +1,141 @@
 import { useState } from "react";
+import { apiClient } from "../../api/client";
 import { config } from "../../config";
+import { ICON } from "../../components/Icons";
+import { Alert, Head, useToast } from "../../components/ui";
 import { useDocumentTitle } from "../../router";
 
-const faqs = [
-  {
-    q: "Is FindMeTricycle free to download?",
-    a: "Yes. The FindMeTricycle app is completely free to download and use as a passenger. You only pay for rides in cash.",
-  },
-  {
-    q: "Do I need a separate driver account?",
-    a: "No. FindMeTricycle uses one account. You start as a passenger, and if you want to drive, you apply through this website. Once approved, Driver Mode is added to your existing account.",
-  },
-  {
-    q: "How long does driver application review take?",
-    a: "The admin team reviews each application carefully. Review times may vary. You can check your application status at any time on the Application Status page, and you'll be emailed at each step.",
-  },
-  {
-    q: "What payment methods are accepted?",
-    a: "FindMeTricycle currently uses cash payment only. Pay your driver directly at the end of your trip.",
-  },
-  {
-    q: "Where is FindMeTricycle available?",
-    a: "FindMeTricycle is designed for and currently available in Guiuan, Eastern Samar, Philippines.",
-  },
-  {
-    q: "Can I reapply if my driver application was not approved?",
-    a: 'Yes. If your application was not approved or needs corrections, a "Resubmit" or "Update Application" option appears on your Application Status page.',
-  },
-];
+const TOPICS = ["Driver application", "Booking a ride", "Safety concern", "Other"];
+// [hpTrap] is a hidden field only bots fill in; its name means nothing to
+// browser autofill, which must never fill it.
+const EMPTY = { name: "", email: "", topic: TOPICS[0], message: "", hpTrap: "" };
 
 export default function ContactPage() {
-  useDocumentTitle("Contact — FindMeTricycle");
-  const [form, setForm] = useState({ name: "", email: "", subject: "", message: "" });
-  const [sent, setSent] = useState(false);
+  useDocumentTitle("FindMeTricycle · Contact");
+  const toast = useToast();
+  const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState("");
-  const [openFaq, setOpenFaq] = useState(null);
+  const [sentTo, setSentTo] = useState("");
+  const [sending, setSending] = useState(false);
 
-  function set(key) {
-    return (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
-  }
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  // There's no message inbox on the server, so the form hands the message
-  // to the visitor's email app, addressed to support.
-  function handleSubmit(e) {
+  // The message goes to the admin's Contact Support inbox; the reply is
+  // emailed to the address given here.
+  async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.name.trim() || !form.email.trim() || !form.message.trim()) {
-      setError("Please fill in your name, email and message.");
+    const name = form.name.trim();
+    const email = form.email.trim();
+    const message = form.message.trim();
+    if (!name || !/^\S+@\S+\.\S+$/.test(email) || !message) {
+      setError("Fill in your name, a valid email and your message.");
       return;
     }
     setError("");
-    const subject = form.subject.trim() || "FindMeTricycle inquiry";
-    const body = `${form.message.trim()}\n\n— ${form.name.trim()} (${form.email.trim()})`;
-    window.location.href = `mailto:${config.contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    setSent(true);
+    setSending(true);
+    try {
+      await apiClient.post("/contact", { name, email, subject: form.topic, message, hpTrap: form.hpTrap });
+      setSentTo(email);
+      setForm(EMPTY);
+      toast("Message sent", `We'll reply to ${email}.`);
+    } catch (err) {
+      setError(
+        err?.response?.data?.details?.issues?.[0]?.message ||
+          err?.response?.data?.message ||
+          "Couldn't send your message. Please check your connection and try again."
+      );
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function copyEmail() {
+    const done = () => toast("Copied", config.contactEmail);
+    try {
+      navigator.clipboard.writeText(config.contactEmail).then(done, () =>
+        toast("Copy not allowed here", "Select the address and copy it manually.")
+      );
+    } catch {
+      toast("Copy not allowed here");
+    }
   }
 
   return (
-    <>
-      <section className="page-hero">
-        <div className="container container-xs">
-          <h1>Contact Us</h1>
-          <p>Have a question, concern, or feedback? We&apos;re here to help.</p>
-        </div>
-      </section>
-
-      <section className="section-sm">
-        <div className="container container-md">
-          <div className="contact-grid">
-            <div>
-              <h2 style={{ fontSize: "1.25rem", marginBottom: 20 }}>Get in Touch</h2>
-              <div className="contact-item">
-                <i>✉️</i>
-                <div>
-                  <small>Email Support</small>
-                  <a href={`mailto:${config.contactEmail}`}>{config.contactEmail}</a>
-                </div>
-              </div>
-              <div className="contact-item">
-                <i>📍</i>
-                <div>
-                  <small>Service Area</small>
-                  <b>Guiuan, Eastern Samar, Philippines</b>
-                </div>
-              </div>
-              <div className="info-box primary" style={{ marginTop: 24 }}>
-                <b style={{ display: "block", marginBottom: 4 }}>Response Time</b>
-                We aim to respond to all inquiries within 1–2 business days.
-              </div>
+    <section>
+      <div className="wrap">
+        <Head eyebrow="Contact" title="Get in touch." sub="Questions, concerns or feedback? We reply within 1 to 2 business days." />
+        <div className="grid g2">
+          {sentTo ? (
+            <div className="card glass stack">
+              <Alert tone="ok" title="Message sent">
+                Thank you! Our support team will reply to <b style={{ display: "inline", margin: 0 }}>{sentTo}</b>. Check
+                your inbox, and your spam folder too.
+              </Alert>
+              <button type="button" className="btn btn-glass" onClick={() => setSentTo("")}>
+                Write another message
+              </button>
             </div>
-
-            <div>
-              <h2 style={{ fontSize: "1.25rem", marginBottom: 20 }}>Send a Message</h2>
-              {sent ? (
-                <div className="tile tile-driver center-tile">
-                  <span className="tile-emoji">✅</span>
-                  <h3>Message ready to send</h3>
-                  <p style={{ margin: "0 auto" }}>
-                    Your email app opened with your message addressed to {config.contactEmail}. Press Send
-                    there to deliver it.
-                  </p>
-                  <button type="button" className="link-btn" style={{ marginTop: 16 }} onClick={() => setSent(false)}>
-                    Write another message
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleSubmit} noValidate>
-                  <div className="form-grid two">
-                    <div className="field">
-                      <label htmlFor="c-name">Full Name *</label>
-                      <input id="c-name" value={form.name} onChange={set("name")} placeholder="Juan dela Cruz" />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="c-email">Email *</label>
-                      <input id="c-email" type="email" value={form.email} onChange={set("email")} placeholder="juan@example.com" />
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="c-subject">Subject</label>
-                    <input
-                      id="c-subject"
-                      value={form.subject}
-                      onChange={set("subject")}
-                      placeholder="Passenger support, Driver application, etc."
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="c-message">Message *</label>
-                    <textarea
-                      id="c-message"
-                      rows={5}
-                      value={form.message}
-                      onChange={set("message")}
-                      placeholder="Describe your question or concern..."
-                    />
-                  </div>
-                  {error ? <div className="banner banner-error">{error}</div> : null}
-                  <button type="submit" className="btn btn-primary">
-                    Send Message
-                  </button>
-                </form>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="section-sm section-alt section-border">
-        <div className="container container-xs">
-          <h2 className="text-center" style={{ marginBottom: 32 }}>
-            Frequently Asked Questions
-          </h2>
-          <div className="faq">
-            {faqs.map((faq, i) => (
-              <div className="faq-item" key={faq.q}>
-                <button
-                  type="button"
-                  className="faq-q"
-                  aria-expanded={openFaq === i}
-                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                >
-                  {faq.q}
-                  <span>▼</span>
+          ) : (
+            <form className="card glass stack" onSubmit={handleSubmit} noValidate>
+              <div className="fld">
+                <label htmlFor="cName">Your name</label>
+                <input id="cName" autoComplete="name" maxLength={120} value={form.name} onChange={set("name")} required />
+              </div>
+              <div className="fld">
+                <label htmlFor="cEmail">Your email</label>
+                <input id="cEmail" type="email" autoComplete="email" maxLength={190} value={form.email} onChange={set("email")} required />
+              </div>
+              <div className="fld">
+                <label htmlFor="cTopic">Topic</label>
+                <select id="cTopic" value={form.topic} onChange={set("topic")}>
+                  {TOPICS.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="fld">
+                <label htmlFor="cMsg">Message</label>
+                <textarea id="cMsg" maxLength={5000} value={form.message} onChange={set("message")} required />
+              </div>
+              {/* Hidden from people; only bots fill it in. */}
+              <input
+                type="text"
+                name="fmt_hp_check"
+                value={form.hpTrap}
+                onChange={set("hpTrap")}
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                style={{ position: "absolute", left: -10000, width: 1, height: 1, opacity: 0 }}
+              />
+              {error ? <Alert tone="err">{error}</Alert> : null}
+              <button className="btn btn-hot" type="submit" disabled={sending}>
+                {sending ? "Sending…" : "Send message"} {ICON.arrow}
+              </button>
+              <p className="muted" style={{ fontSize: 13 }}>
+                Our reply is emailed to the address you enter here.
+              </p>
+            </form>
+          )}
+          <div className="stack">
+            <div className="card glass">
+              <span className="ic o">{ICON.mail}</span>
+              <h3>Email support</h3>
+              <div className="copy" style={{ marginTop: 8 }}>
+                <span style={{ flex: 1 }}>{config.contactEmail}</span>
+                <button className="btn btn-glass btn-sm" type="button" onClick={copyEmail}>
+                  Copy
                 </button>
-                {openFaq === i ? (
-                  <div className="faq-a">
-                    <p>{faq.a}</p>
-                  </div>
-                ) : null}
               </div>
-            ))}
+            </div>
+            <div className="card glass">
+              <span className="ic t">{ICON.pin}</span>
+              <h3>Service area</h3>
+              <p>Guiuan, Eastern Samar, Philippines</p>
+            </div>
           </div>
         </div>
-      </section>
-    </>
+      </div>
+    </section>
   );
 }

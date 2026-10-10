@@ -21,29 +21,19 @@ class ChangePasswordOtpPage extends StatefulWidget {
 }
 
 class _ChangePasswordOtpPageState extends State<ChangePasswordOtpPage> {
-  final List<TextEditingController> _otpControllers =
-      List.generate(6, (_) => TextEditingController());
-  final List<FocusNode> _otpFocusNodes = List.generate(6, (_) => FocusNode());
+  final _code = TextEditingController();
 
   bool _isSubmitting = false;
   String? _error;
 
-  String get _otpCode =>
-      _otpControllers.map((controller) => controller.text).join();
-
   @override
   void dispose() {
-    for (final controller in _otpControllers) {
-      controller.dispose();
-    }
-    for (final node in _otpFocusNodes) {
-      node.dispose();
-    }
+    _code.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    final code = _otpCode;
+    final code = _code.text;
     if (code.length != 6) {
       setState(() => _error = "Enter the 6-digit code sent to your email.");
       return;
@@ -70,113 +60,59 @@ class _ChangePasswordOtpPageState extends State<ChangePasswordOtpPage> {
 
   @override
   Widget build(BuildContext context) {
+    final email = widget.maskedEmail;
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
-      appBar: const AppAppBar(title: "Verify It's You"),
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(DesignTokens.spacing16),
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: DesignTokens.spacing8),
-              Text(
-                "Enter the code",
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: DesignTokens.text,
-                      fontSize: 24,
-                    ),
+              Row(children: [
+                BackSquareButton(onTap: () => Navigator.of(context).maybePop()),
+              ]),
+              const SizedBox(height: 22),
+              Text("Enter the code",
+                  style: DesignTokens.display),
+              const SizedBox(height: 6),
+              Text.rich(
+                TextSpan(
+                  style: TextStyle(
+                      color: DesignTokens.ink2,
+                      fontSize: 15,
+                      height: 22 / 15,
+                      fontWeight: FontWeight.w500),
+                  children: [
+                    const TextSpan(text: "We sent a 6-digit code to "),
+                    TextSpan(
+                        text: email ?? "your email",
+                        style: TextStyle(
+                            color: DesignTokens.ink,
+                            fontWeight: FontWeight.w700)),
+                    const TextSpan(
+                        text:
+                            ". Your new password takes effect once it's verified."),
+                  ],
+                ),
               ),
-              const SizedBox(height: DesignTokens.spacing8),
-              Text(
-                widget.maskedEmail != null
-                    ? "We sent a 6-digit code to ${widget.maskedEmail}."
-                    : "We sent a 6-digit code to your email.",
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: DesignTokens.muted),
+              const SizedBox(height: 22),
+              OtpInput(
+                controller: _code,
+                error: _error != null,
+                onChanged: (_) {
+                  if (_error != null) setState(() => _error = null);
+                },
+                onCompleted: (_) => _submit(),
               ),
-              const SizedBox(height: DesignTokens.spacing24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: List.generate(6, (index) {
-                  return SizedBox(
-                    width: 42,
-                    height: 54,
-                    child: TextField(
-                      controller: _otpControllers[index],
-                      focusNode: _otpFocusNodes[index],
-                      textAlign: TextAlign.center,
-                      textAlignVertical: TextAlignVertical.center,
-                      keyboardType: TextInputType.number,
-                      maxLength: 1,
-                      style: TextStyle(
-                        color: DesignTokens.text,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: DesignTokens.fontDmSans,
-                      ),
-                      decoration: InputDecoration(
-                        counterText: "",
-                        isDense: true,
-                        contentPadding:
-                            const EdgeInsets.symmetric(vertical: 16),
-                        filled: true,
-                        fillColor: DesignTokens.bg2,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: DesignTokens.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: DesignTokens.border),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: DesignTokens.accent),
-                        ),
-                      ),
-                      onChanged: (value) {
-                        final sanitized = value.replaceAll(RegExp(r'\D'), '');
-                        if (sanitized.isEmpty) {
-                          if (value.isEmpty && index > 0) {
-                            _otpFocusNodes[index - 1].requestFocus();
-                          }
-                          return;
-                        }
-
-                        if (value.length > 1) {
-                          final pasted = value.replaceAll(RegExp(r'\D'), '');
-                          final chars = pasted.split('');
-                          for (var i = 0; i < 6; i++) {
-                            final controller = _otpControllers[i];
-                            controller.text = i < chars.length ? chars[i] : '';
-                          }
-                          final lastIndex =
-                              chars.length >= 6 ? 5 : chars.length - 1;
-                          if (lastIndex >= 0) {
-                            _otpFocusNodes[lastIndex].requestFocus();
-                          }
-                          return;
-                        }
-
-                        _otpControllers[index].text = sanitized;
-                        if (sanitized.isNotEmpty && index < 5) {
-                          _otpFocusNodes[index + 1].requestFocus();
-                        }
-                      },
-                    ),
-                  );
-                }),
-              ),
-              if (_error != null)
-                AppNotice(color: DesignTokens.red, message: _error!),
-              const SizedBox(height: DesignTokens.spacing20),
-              AppButton(
-                label: "Confirm",
-                style: AppButtonStyle.success,
-                isLoading: _isSubmitting,
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                ErrorBox(message: _error!),
+              ],
+              const SizedBox(height: 22),
+              SunButton(
+                label: "Verify",
+                loading: _isSubmitting,
                 onPressed: _isSubmitting ? null : _submit,
               ),
             ],

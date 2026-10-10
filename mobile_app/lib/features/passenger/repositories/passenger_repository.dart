@@ -13,6 +13,7 @@ class PassengerRepository {
     required double dropoffLat,
     required double dropoffLng,
     int passengerCount = 1,
+    double? routeDistanceKm,
     bool autoAssign = true,
   }) {
     return _apiClient.post(
@@ -25,6 +26,8 @@ class PassengerRepository {
         "dropoffLat": dropoffLat,
         "dropoffLng": dropoffLng,
         "passengerCount": passengerCount,
+        // The road route the fare was quoted on; the server prices by it.
+        if (routeDistanceKm != null) "routeDistanceKm": routeDistanceKm,
         "autoAssign": autoAssign,
       },
     );
@@ -75,6 +78,23 @@ class PassengerRepository {
     return _apiClient.post(
       "/passenger/bookings/$bookingId/choose-driver",
       data: {"driverId": driverId},
+    );
+  }
+
+  /// "Report a Problem": goes to the admin's Complaints inbox, tied to a
+  /// ride when [bookingId] is given.
+  Future<Map<String, dynamic>> reportIssue({
+    int? bookingId,
+    required String category,
+    required String description,
+  }) {
+    return _apiClient.post(
+      "/passenger/report",
+      data: {
+        if (bookingId != null) "bookingId": bookingId,
+        "category": category,
+        "description": description,
+      },
     );
   }
 

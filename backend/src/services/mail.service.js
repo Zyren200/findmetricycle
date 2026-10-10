@@ -14,14 +14,17 @@ function buildTransporter() {
   });
 }
 
-async function sendMail({ to, subject, html }) {
+// [fromName] is the sender name the recipient sees; the address is always
+// the Brevo sender.
+async function sendMail({ to, subject, html, replyTo, fromName = "FindMeTricycle" }) {
   try {
     const transporter = buildTransporter();
     await transporter.sendMail({
-      from: `"FindMeTricycle" <${env.mail.fromEmail}>`,
+      from: { name: fromName, address: env.mail.fromEmail },
       to,
       subject,
       html,
+      ...(replyTo ? { replyTo } : {}),
     });
     console.log(`✓ Email sent to ${to}: ${subject}`);
     return true;
@@ -122,8 +125,46 @@ async function sendAdminAccessEmail(email, fullName, { kind = "welcome", roleLab
   });
 }
 
+// Keeps the line breaks an admin typed.
+function paragraphs(text) {
+  return escapeHtml(text).replace(/\r?\n/g, "<br>");
+}
+
+// An admin's answer to a Contact page message, quoting what the person
+// wrote. It's a no-reply email: nobody reads replies to it, so it says to
+// send a new message from the Contact page instead.
+async function sendContactReplyEmail({ to, name, subject, originalMessage, reply }) {
+  const topic = subject || "your message";
+  return sendMail({
+    to,
+    fromName: env.mail.supportFromName,
+    subject: `Re: ${subject || "Your message to FindMeTricycle"}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #0E8C46;">FindMeTricycle Support</h2>
+        <p>Hi ${escapeHtml(name)},</p>
+        <p>Thank you for contacting us about ${escapeHtml(topic)}. Here is our reply:</p>
+        <div style="background: #f4f8f5; padding: 15px; border-radius: 6px; border-left: 4px solid #0E8C46;">
+          ${paragraphs(reply)}
+        </div>
+        <p style="margin-top: 24px; color: #666; font-size: 13px;">Your message:</p>
+        <div style="color: #666; font-size: 13px; padding-left: 12px; border-left: 3px solid #ccc;">
+          ${paragraphs(originalMessage)}
+        </div>
+        <p style="margin-top: 24px; color: #666; font-size: 12px;">
+          This is an automated email. Please don't reply to it — replies aren't read.
+          If you need more help, send us a new message from the Contact page on the FindMeTricycle website.
+        </p>
+        <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">
+        <p style="color: #666; font-size: 12px;">&copy; FindMeTricycle</p>
+      </div>
+    `,
+  });
+}
+
 module.exports = {
   sendMail,
+  sendContactReplyEmail,
   sendDriverApprovalEmail,
   sendDriverRejectionEmail,
   sendDriverCorrectionEmail,

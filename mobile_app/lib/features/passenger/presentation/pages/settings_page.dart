@@ -1,4 +1,6 @@
 import "package:flutter/material.dart";
+
+import "../../../shared/presentation/map_credits.dart";
 import "package:flutter_secure_storage/flutter_secure_storage.dart";
 import "package:permission_handler/permission_handler.dart";
 import "package:provider/provider.dart";
@@ -10,6 +12,7 @@ import "../../../shared/presentation/contact_support_sheet.dart";
 import "../../../shared/state/session_store.dart";
 import "../passenger_profile_controller.dart";
 import "../passenger_ride_controller.dart";
+import "../widgets/passenger_ride_widgets.dart";
 import "favorites_page.dart";
 
 class SettingsPage extends StatefulWidget {
@@ -58,102 +61,49 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
 
-    if (saved == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Password updated.")),
-      );
-    }
+    if (saved == true && mounted) showSunToast(context, "Password updated.");
   }
 
   Future<void> _logout() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text("Logout"),
-        content: const Text("Are you sure you want to log out?"),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text("Cancel")),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text("Logout", style: TextStyle(color: DesignTokens.red)),
-          ),
-        ],
-      ),
+    final confirmed = await confirmSun(
+      context,
+      title: "Log out?",
+      message: "You can log back in anytime with your email or mobile number.",
+      confirmLabel: "Log out",
+      destructive: true,
+      icon: Icons.logout_rounded,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
 
     final storage = context.read<FlutterSecureStorage>();
     final sessionStore = context.read<SessionStore>();
     await sessionStore.logout(storage);
-    if (mounted) {
-      // AppRouter shows the login screen once the session is gone.
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    }
   }
 
   Future<void> _deleteAccount() async {
-    final passwordCtrl = TextEditingController();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text("Delete Account"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "This permanently deactivates your FindMeTricycle account. This action cannot be undone from the app. Enter your password to confirm.",
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: passwordCtrl,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: "Password"),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text("Cancel")),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text("Delete Account",
-                style: TextStyle(color: DesignTokens.red)),
-          ),
-        ],
-      ),
+    final password = await showSunSheet<String>(
+      context,
+      builder: (_) => const _DeleteAccountCard(),
     );
-
-    if (confirmed != true || !mounted) return;
-    if (passwordCtrl.text.isEmpty) return;
+    if (password == null || password.isEmpty || !mounted) return;
 
     final ctrl = context.read<PassengerProfileController>();
-    final ok = await ctrl.deleteAccount(password: passwordCtrl.text);
+    final ok = await ctrl.deleteAccount(password: password);
     if (!mounted) return;
 
     if (ok) {
       final storage = context.read<FlutterSecureStorage>();
       final sessionStore = context.read<SessionStore>();
       await sessionStore.logout(storage);
-      if (mounted) {
-        // AppRouter shows the login screen once the session is gone.
-        Navigator.of(context).popUntil((route) => route.isFirst);
-      }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(ctrl.profileError ?? "Failed to delete account.")),
-      );
+      showSunToast(context, ctrl.profileError ?? "Failed to delete account.");
     }
   }
 
   /// FavoritesPage needs PassengerRideController and the shell's nav-index
   /// ValueNotifier, neither of which are ambient here — SettingsPage itself
-  /// only received PassengerProfileController from ProfilePage's push, so
-  /// the other two are threaded through by value as well before pushing.
+  /// only received the shell controllers by value, so they're threaded
+  /// through again before pushing.
   void _openFavorites(BuildContext context) {
     final profileController = context.read<PassengerProfileController>();
     final rideController = context.read<PassengerRideController>();
@@ -174,111 +124,109 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _showInfoDialog(String title, String message) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
+    showSunSheet<void>(
+      context,
+      builder: (dialogContext) => SunSheetCard(
+        title: title,
+        message: message,
+        align: CrossAxisAlignment.start,
         actions: [
-          TextButton(
+          SunButton(
+            label: "Close",
+            tone: SunTone.quiet,
+            height: 48,
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text("Close"),
           ),
         ],
       ),
     );
   }
 
-  void _reportProblem() {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => SimpleDialog(
-        title: const Text("Report a Problem"),
-        children: [
-          _ReportOptionTile(
-              label: "Booking issue",
-              onTap: () => Navigator.pop(dialogContext)),
-          _ReportOptionTile(
-              label: "Driver issue", onTap: () => Navigator.pop(dialogContext)),
-          _ReportOptionTile(
-              label: "Fare issue", onTap: () => Navigator.pop(dialogContext)),
-          _ReportOptionTile(
-              label: "App issue", onTap: () => Navigator.pop(dialogContext)),
-          _ReportOptionTile(
-              label: "Account issue",
-              onTap: () => Navigator.pop(dialogContext)),
-          _ReportOptionTile(
-              label: "Other", onTap: () => Navigator.pop(dialogContext)),
-        ],
-      ),
-    );
-  }
+  void _reportProblem() =>
+      reportPassengerProblem(context, context.read<PassengerRideController>());
 
   @override
   Widget build(BuildContext context) {
     final prefs = context.watch<AppPreferences>();
 
+    Widget section(String title, List<Widget> rows) => Padding(
+          padding: const EdgeInsets.only(bottom: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SectionLabel(title),
+              SunListCard(children: rows),
+            ],
+          ),
+        );
+
+    Widget toggle(String label, bool value, ValueChanged<bool> onChanged,
+            {IconData? icon}) =>
+        SunListRow(
+          icon: icon,
+          label: label,
+          trailing: SunSwitch(value: value, onChanged: onChanged, label: label),
+        );
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Settings")),
-      body: Container(
-        color: DesignTokens.bg,
-        child: ListView(
-          padding: const EdgeInsets.all(DesignTokens.spacing16),
-          children: [
-            const _SectionTitle("Account & Security"),
-            AppCard(
-              child: Column(
-                children: [
-                  _SettingsTile(
-                    icon: Icons.lock_outline,
+      backgroundColor: Colors.transparent,
+      body: Column(
+        children: [
+          const AppTopBar(title: "Settings", showBack: true),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+              children: [
+                const SectionLabel("Appearance"),
+                Segmented<ThemeMode>(
+                  semanticLabel: "Theme",
+                  value: prefs.themeMode,
+                  onChanged: prefs.setThemeMode,
+                  options: const [
+                    (ThemeMode.light, "Light", Icons.light_mode_outlined),
+                    (ThemeMode.dark, "Dark", Icons.dark_mode_outlined),
+                    (ThemeMode.system, "System", Icons.smartphone_rounded),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                section("Account & Security", [
+                  SunListRow(
+                    icon: Icons.lock_outline_rounded,
                     label: "Change Password",
                     onTap: _changePassword,
                   ),
-                  const _SettingsDivider(),
-                  _SettingsTile(
+                  const SunListRow(
                     icon: Icons.mark_email_read_outlined,
                     label: "Email Verification",
-                    trailing: Text("Verified",
-                        style: TextStyle(color: DesignTokens.green)),
+                    trailing: StatusChip("Verified", tone: ChipTone.ok),
                   ),
-                  const _SettingsDivider(),
-                  _SettingsTile(
+                  const SunListRow(
                     icon: Icons.phone_android_outlined,
                     label: "Mobile Number Verification",
-                    trailing: Text("Verified",
-                        style: TextStyle(color: DesignTokens.green)),
+                    trailing: StatusChip("Verified", tone: ChipTone.ok),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: DesignTokens.spacing20),
-            const _SectionTitle("Notifications"),
-            AppCard(
-              child: Column(
-                children: [
-                  for (final key in AppPreferences.notificationKeys) ...[
-                    _ToggleTile(
-                      label: _notificationLabel(key),
-                      value: prefs.isNotificationEnabled(key),
-                      onChanged: (v) => prefs.setNotificationEnabled(key, v),
+                ]),
+                section("Notifications", [
+                  for (final key in AppPreferences.notificationKeys)
+                    toggle(
+                      _notificationLabel(key),
+                      prefs.isNotificationEnabled(key),
+                      (v) => prefs.setNotificationEnabled(key, v),
                     ),
-                    if (key != AppPreferences.notificationKeys.last)
-                      const _SettingsDivider(),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: DesignTokens.spacing20),
-            const _SectionTitle("App Preferences"),
-            AppCard(
-              child: Column(
-                children: [
-                  _SettingsTile(
+                ]),
+                section("App Preferences", [
+                  SunListRow(
                     icon: Icons.language_outlined,
                     label: "Language",
                     trailing: DropdownButton<String>(
                       value: prefs.language,
                       underline: const SizedBox.shrink(),
+                      borderRadius: BorderRadius.circular(16),
+                      dropdownColor: DesignTokens.surface,
+                      style: TextStyle(
+                          color: DesignTokens.ink,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600),
                       items: const [
                         DropdownMenuItem(value: "en", child: Text("English")),
                         DropdownMenuItem(value: "fil", child: Text("Filipino")),
@@ -288,120 +236,61 @@ class _SettingsPageState extends State<SettingsPage> {
                       },
                     ),
                   ),
-                  const _SettingsDivider(),
-                  _SettingsTile(
-                    icon: Icons.dark_mode_outlined,
-                    label: "Dark Mode",
-                    trailing: Switch(
-                      value: DesignTokens.isDark,
-                      onChanged: (v) => prefs
-                          .setThemeMode(v ? ThemeMode.dark : ThemeMode.light),
-                    ),
-                  ),
-                  const _SettingsDivider(),
-                  _ToggleTile(
-                    label: "Sound Effects",
-                    value: prefs.soundEnabled,
-                    onChanged: prefs.setSoundEnabled,
-                  ),
-                  const _SettingsDivider(),
-                  _ToggleTile(
-                    label: "Vibration",
-                    value: prefs.vibrationEnabled,
-                    onChanged: prefs.setVibrationEnabled,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: DesignTokens.spacing20),
-            const _SectionTitle("Location & Permissions"),
-            AppCard(
-              child: Column(
-                children: [
+                  toggle("Sound Effects", prefs.soundEnabled,
+                      prefs.setSoundEnabled,
+                      icon: Icons.volume_up_outlined),
+                  toggle("Vibration", prefs.vibrationEnabled,
+                      prefs.setVibrationEnabled,
+                      icon: Icons.vibration_rounded),
+                ]),
+                section("Location & Permissions", [
                   _PermissionTile(
                     label: "Location",
+                    icon: Icons.location_on_outlined,
                     status: _locationStatus,
                     onFix: () async {
                       await Permission.locationWhenInUse.request();
                       _refreshPermissions();
                     },
                   ),
-                  const _SettingsDivider(),
                   _PermissionTile(
                     label: "Notifications",
+                    icon: Icons.notifications_none_rounded,
                     status: _notificationStatus,
                     onFix: () async {
                       await Permission.notification.request();
                       _refreshPermissions();
                     },
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: DesignTokens.spacing20),
-            const _SectionTitle("Ride Preferences"),
-            AppCard(
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text("Default Passenger Count"),
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.remove_circle_outline),
-                              onPressed: prefs.defaultPassengerCount <=
-                                      AppPreferences.minPassengers
-                                  ? null
-                                  : () => prefs.setDefaultPassengerCount(
-                                      prefs.defaultPassengerCount - 1),
-                            ),
-                            Text(
-                              "${prefs.defaultPassengerCount}",
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w700, fontSize: 16),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.add_circle_outline),
-                              onPressed: prefs.defaultPassengerCount >=
-                                      AppPreferences.maxPassengers
-                                  ? null
-                                  : () => prefs.setDefaultPassengerCount(
-                                      prefs.defaultPassengerCount + 1),
-                            ),
-                          ],
-                        ),
-                      ],
+                ]),
+                section("Ride Preferences", [
+                  SunListRow(
+                    icon: Icons.groups_outlined,
+                    label: "Default passengers",
+                    trailing: SizedBox(
+                      width: 136,
+                      child: CountStepper(
+                        value: prefs.defaultPassengerCount,
+                        min: AppPreferences.minPassengers,
+                        max: AppPreferences.maxPassengers,
+                        onChanged: prefs.setDefaultPassengerCount,
+                      ),
                     ),
                   ),
-                  const _SettingsDivider(),
-                  _SettingsTile(
+                  SunListRow(
                     icon: Icons.bookmark_border_rounded,
                     label: "Saved Places",
                     onTap: () => _openFavorites(context),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: DesignTokens.spacing20),
-            const _SectionTitle("Payment Method"),
-            const AppCard(
-              child: _SettingsTile(
-                icon: Icons.payments_outlined,
-                label: "Payment Method",
-                trailing: Text("💵 Cash"),
-              ),
-            ),
-            const SizedBox(height: DesignTokens.spacing20),
-            const _SectionTitle("Help & Support"),
-            AppCard(
-              child: Column(
-                children: [
-                  _SettingsTile(
-                    icon: Icons.help_outline,
+                  const SunListRow(
+                    icon: Icons.payments_outlined,
+                    label: "Payment Method",
+                    trailing: StatusChip("Cash", tone: ChipTone.primary),
+                  ),
+                ]),
+                section("Help & Support", [
+                  SunListRow(
+                    icon: Icons.help_outline_rounded,
                     label: "Help Center",
                     onTap: () => _showInfoDialog(
                       "Help Center",
@@ -409,48 +298,43 @@ class _SettingsPageState extends State<SettingsPage> {
                           "Tap Contact Support below to call or email us and we'll get back to you.",
                     ),
                   ),
-                  const _SettingsDivider(),
-                  _SettingsTile(
+                  SunListRow(
                     icon: Icons.quiz_outlined,
                     label: "FAQ",
                     onTap: () => _showInfoDialog(
                       "Frequently Asked Questions",
-                      "• How do I book a ride? Set your pickup and drop-off on the map, then tap Find Ride.\n\n"
+                      "• How do I book a ride? Tap Search destination on Home, choose where you're going, then tap Find a tricycle.\n\n"
                           "• How is the fare calculated? Base fare plus distance, with a small fee per extra passenger.\n\n"
                           "• How do I become a driver? Go to Profile and tap Become a Driver.\n\n"
                           "• More questions? Contact Support below.",
                     ),
                   ),
-                  const _SettingsDivider(),
-                  _SettingsTile(
-                      icon: Icons.report_problem_outlined,
-                      label: "Report a Problem",
-                      onTap: _reportProblem),
-                  const _SettingsDivider(),
-                  _SettingsTile(
+                  SunListRow(
+                    icon: Icons.report_problem_outlined,
+                    label: "Report a Problem",
+                    onTap: _reportProblem,
+                  ),
+                  SunListRow(
                     icon: Icons.support_agent_outlined,
                     label: "Contact Support",
                     onTap: () => showContactSupport(context),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: DesignTokens.spacing20),
-            const _SectionTitle("About"),
-            AppCard(
-              child: Column(
-                children: [
-                  _SettingsTile(
-                    icon: Icons.info_outline,
+                ]),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 20),
+                  child: MapCreditsSection(),
+                ),
+                section("About", [
+                  SunListRow(
+                    icon: Icons.info_outline_rounded,
                     label: "About FindMeTricycle",
                     onTap: () => _showInfoDialog(
                       "About FindMeTricycle",
-                      "FindMeTricycle connects passengers with local tricycle drivers for fast, "
+                      "FindMeTricycle connects passengers with local tricycle drivers in Guiuan for fast, "
                           "affordable rides. Version 1.0.0.",
                     ),
                   ),
-                  const _SettingsDivider(),
-                  _SettingsTile(
+                  SunListRow(
                     icon: Icons.description_outlined,
                     label: "Terms of Service",
                     onTap: () => _showInfoDialog(
@@ -459,8 +343,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           "For questions in the meantime, use Contact Support under Help & Support.",
                     ),
                   ),
-                  const _SettingsDivider(),
-                  _SettingsTile(
+                  SunListRow(
                     icon: Icons.privacy_tip_outlined,
                     label: "Privacy Policy",
                     onTap: () => _showInfoDialog(
@@ -469,33 +352,34 @@ class _SettingsPageState extends State<SettingsPage> {
                           "For questions in the meantime, use Contact Support under Help & Support.",
                     ),
                   ),
-                  const _SettingsDivider(),
-                  const _SettingsTile(
-                    icon: Icons.tag_outlined,
+                  SunListRow(
+                    icon: Icons.tag_rounded,
                     label: "App Version",
-                    trailing: Text("1.0.0"),
+                    trailing: Text("1.0.0",
+                        style: TextStyle(
+                            color: DesignTokens.ink2,
+                            fontWeight: FontWeight.w700)),
                   ),
-                ],
-              ),
+                ]),
+                SunButton(
+                  label: "Log out",
+                  tone: SunTone.outline,
+                  height: 48,
+                  foreground: DesignTokens.sosText,
+                  onPressed: _logout,
+                ),
+                const SizedBox(height: 10),
+                SunButton(
+                  label: "Delete Account",
+                  tone: SunTone.ghost,
+                  height: 44,
+                  foreground: DesignTokens.sosText,
+                  onPressed: _deleteAccount,
+                ),
+              ],
             ),
-            const SizedBox(height: DesignTokens.spacing20),
-            AppButton(
-                label: "Logout",
-                style: AppButtonStyle.destructive,
-                onPressed: _logout),
-            const SizedBox(height: 10),
-            OutlinedButton(
-              onPressed: _deleteAccount,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: DesignTokens.red,
-                side: BorderSide(color: DesignTokens.red),
-                minimumSize: const Size.fromHeight(48),
-              ),
-              child: const Text("Delete Account"),
-            ),
-            const SizedBox(height: DesignTokens.spacing24),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -522,97 +406,88 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.title);
-  final String title;
+/// Password prompt for "Delete Account"; pops with the password.
+class _DeleteAccountCard extends StatefulWidget {
+  const _DeleteAccountCard();
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8, top: 4),
-      child: Text(
-        title.toUpperCase(),
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: DesignTokens.muted,
-              letterSpacing: 0.5,
-            ),
-      ),
-    );
+  State<_DeleteAccountCard> createState() => _DeleteAccountCardState();
+}
+
+class _DeleteAccountCardState extends State<_DeleteAccountCard> {
+  final _password = TextEditingController();
+
+  @override
+  void dispose() {
+    _password.dispose();
+    super.dispose();
   }
-}
-
-class _SettingsDivider extends StatelessWidget {
-  const _SettingsDivider();
-  @override
-  Widget build(BuildContext context) =>
-      Divider(height: 1, color: DesignTokens.border);
-}
-
-class _SettingsTile extends StatelessWidget {
-  const _SettingsTile(
-      {required this.icon, required this.label, this.trailing, this.onTap});
-  final IconData icon;
-  final String label;
-  final Widget? trailing;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: DesignTokens.muted),
-      title: Text(label),
-      trailing: trailing ??
-          (onTap != null
-              ? Icon(Icons.chevron_right, color: DesignTokens.muted)
-              : null),
-      onTap: onTap,
-    );
-  }
-}
-
-class _ToggleTile extends StatelessWidget {
-  const _ToggleTile(
-      {required this.label, required this.value, required this.onChanged});
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SwitchListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(label),
-      value: value,
-      onChanged: onChanged,
+    return SunSheetCard(
+      title: "Delete Account",
+      message:
+          "This permanently deactivates your FindMeTricycle account. This action cannot be undone from the app. Enter your password to confirm.",
+      icon: Icons.delete_outline_rounded,
+      iconBg: DesignTokens.sosSoft,
+      iconFg: DesignTokens.sosText,
+      content: [
+        SunField(
+          label: "Password",
+          controller: _password,
+          obscure: true,
+          icon: Icons.lock_outline_rounded,
+          hint: "Enter your password",
+        ),
+      ],
+      actions: [
+        SunButton(
+          label: "Delete Account",
+          tone: SunTone.sos,
+          onPressed: () => Navigator.pop(context, _password.text),
+        ),
+        SunButton(
+          label: "Cancel",
+          tone: SunTone.quiet,
+          height: 48,
+          onPressed: () => Navigator.pop(context),
+        ),
+      ],
     );
   }
 }
 
 class _PermissionTile extends StatelessWidget {
-  const _PermissionTile(
-      {required this.label, required this.status, required this.onFix});
+  const _PermissionTile({
+    required this.label,
+    required this.icon,
+    required this.status,
+    required this.onFix,
+  });
   final String label;
+  final IconData icon;
   final PermissionStatus? status;
   final Future<void> Function() onFix;
 
   @override
   Widget build(BuildContext context) {
     final granted = status?.isGranted ?? false;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(label),
-      subtitle: Text(
-        status == null
-            ? "Checking…"
-            : (granted ? "Allowed" : "Permission Required"),
-        style:
-            TextStyle(color: granted ? DesignTokens.green : DesignTokens.red),
-      ),
+    return SunListRow(
+      icon: icon,
+      label: label,
+      subtitle: status == null
+          ? "Checking…"
+          : (granted ? "Allowed" : "Permission required"),
       trailing: granted
-          ? Icon(Icons.check_circle, color: DesignTokens.green)
-          : TextButton(
+          ? const StatusChip("Allowed", tone: ChipTone.ok)
+          : SunButton(
+              label: "Allow",
+              tone: SunTone.soft,
+              height: 36,
+              radius: 12,
+              fontSize: 13,
+              expand: false,
               onPressed: () {
                 if (status?.isPermanentlyDenied ?? false) {
                   openAppSettings();
@@ -620,22 +495,7 @@ class _PermissionTile extends StatelessWidget {
                   onFix();
                 }
               },
-              child: const Text("Fix"),
             ),
-    );
-  }
-}
-
-class _ReportOptionTile extends StatelessWidget {
-  const _ReportOptionTile({required this.label, required this.onTap});
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return SimpleDialogOption(
-      onPressed: onTap,
-      child: Text(label),
     );
   }
 }

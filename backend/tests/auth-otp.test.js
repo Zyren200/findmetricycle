@@ -20,6 +20,10 @@ jest.mock("../src/config/db", () => {
 jest.mock("../src/models/refresh-token.model", () => ({
   revokeAllByUserId: jest.fn(async () => {}),
 }));
+// Code emails go nowhere.
+jest.mock("nodemailer", () => ({
+  createTransport: () => ({ sendMail: async () => ({}) }),
+}));
 
 const db = require("../src/config/db");
 const refreshTokenModel = require("../src/models/refresh-token.model");
@@ -122,6 +126,120 @@ describe("password reset with OTP", () => {
     expect(result.success).toBe(true);
     expect(db.__calls.some((c) => /UPDATE users SET password_hash/.test(c.sql))).toBe(true);
     expect(refreshTokenModel.revokeAllByUserId).toHaveBeenCalledWith(42, expect.anything());
+  });
+
+  it("accepts a code verified in the previous step, for a limited time", async () => {
+    on(/SELECT \* FROM otp_codes/, (sql) => {
+      expect(sql).toMatch(/is_verified = 1 AND verified_at > NOW\(\) - INTERVAL 15 MINUTE/);
+      return [pendingCode({ is_verified: 1 })];
+    });
+    on(/SELECT id FROM users WHERE email/, () => [{ id: 42 }]);
+
+    const result = await authV2Service.resetPasswordWithOTP("juan@example.com", "123456", "newpassword1");
+
+    expect(result.success).toBe(true);
+    expect(db.__calls.some((c) => /DELETE FROM otp_codes/.test(c.sql))).toBe(true);
+  });
+});
+
+describe("sign-up checks the email before sending a code", () => {
+  it("refuses an email another account uses", async () => {
+    on(/SELECT id FROM users WHERE email/, () => [{ id: 42 }]);
+
+    await expect(authV2Service.assertEmailAvailable("juan@example.com")).rejects.toMatchObject({
+      statusCode: 409,
+      message: "This email is already registered. Log in instead.",
+      details: { field: "email" },
+    });
+  });
+
+  it("allows a new email", async () => {
+    on(/SELECT id FROM users WHERE email/, () => []);
+
+    await expect(authV2Service.assertEmailAvailable("new@example.com")).resolves.toBeUndefined();
+  });
+});
+
+describe("sign-up refuses made-up email domains", () => {
+  const dns = require("dns").promises;
+  const dnsError = (code) => Object.assign(new Error(code), { code });
+  afterEach(() => jest.restoreAllMocks());
+
+  it("allows a domain with a mail server", async () => {
+    jest.spyOn(dns, "resolveMx").mockResolvedValue([{ exchange: "mx.example.com", priority: 10 }]);
+    await expect(authV2Service.assertEmailDomainReceivesMail("juan@example.com")).resolves.toBeUndefined();
+  });
+
+  it("refuses a domain that doesn't exist", async () => {
+    jest.spyOn(dns, "resolveMx").mockRejectedValue(dnsError("ENOTFOUND"));
+    jest.spyOn(dns, "resolve4").mockRejectedValue(dnsError("ENOTFOUND"));
+    await expect(authV2Service.assertEmailDomainReceivesMail("juan@asdfqwe123.com")).rejects.toMatchObject({
+      statusCode: 400,
+      details: { field: "email" },
+    });
+  });
+
+  it("refuses a domain that says it takes no mail", async () => {
+    jest.spyOn(dns, "resolveMx").mockResolvedValue([{ exchange: ".", priority: 0 }]);
+    await expect(authV2Service.assertEmailDomainReceivesMail("juan@nomail.example")).rejects.toMatchObject({
+      statusCode: 400,
+    });
+  });
+
+  it("catches a misspelled big provider", async () => {
+    await expect(authV2Service.assertEmailDomainReceivesMail("juan@gmial.com")).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Check the email address — did you mean @gmail.com?",
+    });
+  });
+
+  it("lets the email through when DNS itself is down", async () => {
+    jest.spyOn(dns, "resolveMx").mockRejectedValue(dnsError("ETIMEOUT"));
+    jest.spyOn(dns.Resolver.prototype, "resolveMx").mockRejectedValue(dnsError("ETIMEOUT"));
+    await expect(authV2Service.assertEmailDomainReceivesMail("juan@example.com")).resolves.toBeUndefined();
+  });
+});
+
+describe("forgot password: verify the code first", () => {
+  it("marks the code verified without touching the password", async () => {
+    on(/SELECT \* FROM otp_codes/, (_sql, params) => {
+      expect(params).toContain(authV2Service.PASSWORD_RESET_PURPOSE);
+      return [{ id: 7, code: "123456", attempts: 0 }];
+    });
+
+    const result = await authV2Service.verifyPasswordResetCode("juan@example.com", "123456");
+
+    expect(result.success).toBe(true);
+    expect(db.__calls.some((c) => /SET is_verified = 1/.test(c.sql))).toBe(true);
+    expect(db.__calls.some((c) => /UPDATE users SET password_hash/.test(c.sql))).toBe(false);
+  });
+
+  it("rejects a wrong code and counts the attempt", async () => {
+    on(/SELECT \* FROM otp_codes/, () => [{ id: 7, code: "123456", attempts: 0 }]);
+
+    await expect(authV2Service.verifyPasswordResetCode("juan@example.com", "000000")).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Invalid or expired code",
+    });
+    expect(db.__calls.some((c) => /SET attempts = attempts \+ 1/.test(c.sql))).toBe(true);
+  });
+
+  it("locks out after too many wrong attempts", async () => {
+    on(/SELECT \* FROM otp_codes/, () => [{ id: 7, code: "123456", attempts: 5 }]);
+
+    await expect(authV2Service.verifyPasswordResetCode("juan@example.com", "123456")).rejects.toMatchObject({
+      statusCode: 429,
+    });
+  });
+
+  it("a new code request drops every older reset code, verified ones too", async () => {
+    on(/SELECT id FROM users WHERE email/, () => [{ id: 42 }]);
+
+    await authV2Service.requestPasswordReset("juan@example.com");
+
+    const drop = db.__calls.find((c) => /DELETE FROM otp_codes/.test(c.sql));
+    expect(drop.sql).not.toMatch(/is_verified/);
+    expect(drop.params).toEqual(["juan@example.com", authV2Service.PASSWORD_RESET_PURPOSE]);
   });
 });
 

@@ -137,7 +137,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
     return Scaffold(
       appBar: AppBar(title: const Text("Favorites")),
       body: Container(
-        color: DesignTokens.bg,
+        color: Colors.transparent,
         child: Column(
           children: [
             Padding(

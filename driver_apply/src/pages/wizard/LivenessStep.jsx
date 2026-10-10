@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { ICON } from "../../components/Icons";
+import { Alert } from "../../components/ui";
 
 // face-api.js (with TensorFlow) is large, so it's only fetched once the
-// applicant reaches this step; set by init() before any detection runs.
+// applicant starts the check; set by start() before any detection runs.
 let faceapi = null;
 
 const STEPS = ["look_straight", "blink", "turn_head"];
+const PROMPTS = ["Look straight", "Blink", "Turn your head"];
 const STEP_LABELS = {
   look_straight: "Look straight at the camera",
   blink: "Blink your eyes",
@@ -20,104 +23,121 @@ function eyeAspectRatio(eye) {
   return horizontal === 0 ? 0 : vertical / (2 * horizontal);
 }
 
-export default function LivenessStep({ onComplete, onSkipToReview }) {
+/**
+ * Live face check: look straight, blink, turn your head. The result
+ * (passed / needs_review / failed) and a selfie go with the application;
+ * anything but "passed" is reviewed by the admin.
+ */
+export default function LivenessStep({ formData, updateFormData, errors }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef = useRef(null);
-  const stateRef = useRef({
-    stepIndex: 0,
-    baselineX: null,
-    eyeWasClosed: false,
-    blinkDetected: false,
-    turnDetected: false,
-    startedAt: Date.now(),
-    stepStartedAt: Date.now(),
-  });
+  const aliveRef = useRef(true);
+  const stateRef = useRef(null);
 
-  const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [error, setError] = useState(null);
+  // idle | loading | running | error
+  const [phase, setPhase] = useState("idle");
+  const [cameraError, setCameraError] = useState(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [faceVisible, setFaceVisible] = useState(false);
-  const [result, setResult] = useState(null); // { status, selfieDataUrl }
+
+  const result = formData.livenessStatus || null;
+
+  function stopCamera() {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function init() {
-      try {
-        faceapi = faceapi || (await import("face-api.js"));
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
-          faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
-        ]);
-        if (cancelled) return;
-        setModelsLoaded(true);
-
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-        startDetectionLoop();
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err?.name === "NotAllowedError"
-              ? "Camera permission was denied. Please allow camera access and try again."
-              : err?.name === "NotFoundError"
-                ? "No camera was found on this device."
-                : "Could not start the camera. Please try again."
-          );
-        }
-      }
-    }
-
-    init();
-
+    aliveRef.current = true;
     return () => {
-      cancelled = true;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      aliveRef.current = false;
+      stopCamera();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function finish(status) {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+  async function start() {
+    setCameraError(null);
+    setStepIndex(0);
+    setFaceVisible(false);
+    setPhase("loading");
+    stateRef.current = {
+      stepIndex: 0,
+      baselineX: null,
+      eyeWasClosed: false,
+      blinkDetected: false,
+      turnDetected: false,
+      startedAt: Date.now(),
+      stepStartedAt: Date.now(),
+    };
+    try {
+      faceapi = faceapi || (await import("face-api.js"));
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
+        faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
+      ]);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      if (!aliveRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      streamRef.current = stream;
+      setPhase("running");
+      // The video is in the page once "running" renders.
+      requestAnimationFrame(async () => {
+        const video = videoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        try {
+          await video.play();
+        } catch {
+          // Autoplay quirks: the detection loop waits for frames anyway.
+        }
+        loop();
+      });
+    } catch (err) {
+      stopCamera();
+      if (!aliveRef.current) return;
+      setCameraError(
+        err?.name === "NotAllowedError"
+          ? "Camera permission was denied. Allow camera access in your browser and try again."
+          : err?.name === "NotFoundError"
+            ? "No camera was found on this device."
+            : "We couldn't start the camera. Try again."
+      );
+      setPhase("error");
+    }
+  }
 
+  function finish(status) {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     let selfieDataUrl = null;
-    if (video && canvas) {
-      canvas.width = video.videoWidth || 320;
-      canvas.height = video.videoHeight || 240;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    if (video && canvas && video.videoWidth) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
       selfieDataUrl = canvas.toDataURL("image/jpeg", 0.85);
     }
-
-    setResult({ status, selfieDataUrl });
-    onComplete({ status, selfieDataUrl });
+    stopCamera();
+    if (!aliveRef.current) return;
+    updateFormData({ livenessStatus: status, selfieDataUrl });
+    setPhase("idle");
   }
 
-  function startDetectionLoop() {
+  function loop() {
     async function tick() {
+      if (!aliveRef.current) return;
       const video = videoRef.current;
       if (!video || video.readyState < 2) {
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
-
       const now = Date.now();
       const s = stateRef.current;
-
       if (now - s.startedAt > TOTAL_TIMEOUT_MS) {
         finish("needs_review");
         return;
@@ -126,116 +146,142 @@ export default function LivenessStep({ onComplete, onSkipToReview }) {
       const detection = await faceapi
         .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224 }))
         .withFaceLandmarks();
-
+      if (!aliveRef.current || !streamRef.current) return;
       setFaceVisible(Boolean(detection));
 
       if (detection) {
-        const landmarks = detection.landmarks;
         const box = detection.detection.box;
-        const currentStep = STEPS[s.stepIndex];
-
-        if (currentStep === "look_straight") {
+        const current = STEPS[s.stepIndex];
+        if (current === "look_straight") {
           if (s.baselineX === null) {
             s.baselineX = box.x + box.width / 2;
             s.stepStartedAt = now;
           } else if (now - s.stepStartedAt > 800) {
-            advanceStep();
+            if (advance()) return;
           }
-        } else if (currentStep === "blink") {
-          const leftEAR = eyeAspectRatio(landmarks.getLeftEye());
-          const rightEAR = eyeAspectRatio(landmarks.getRightEye());
-          const ear = (leftEAR + rightEAR) / 2;
-
-          if (ear < 0.22) {
-            s.eyeWasClosed = true;
-          } else if (s.eyeWasClosed && ear > 0.27) {
-            s.blinkDetected = true;
-          }
-
-          if (s.blinkDetected) advanceStep();
-        } else if (currentStep === "turn_head") {
-          const currentX = box.x + box.width / 2;
-          const shift = Math.abs(currentX - (s.baselineX ?? currentX));
-          if (shift > box.width * 0.18) {
-            s.turnDetected = true;
-          }
-          if (s.turnDetected) advanceStep();
+        } else if (current === "blink") {
+          const ear = (eyeAspectRatio(detection.landmarks.getLeftEye()) + eyeAspectRatio(detection.landmarks.getRightEye())) / 2;
+          if (ear < 0.22) s.eyeWasClosed = true;
+          else if (s.eyeWasClosed && ear > 0.27) s.blinkDetected = true;
+          if (s.blinkDetected && advance()) return;
+        } else if (current === "turn_head") {
+          const shift = Math.abs(box.x + box.width / 2 - (s.baselineX ?? box.x + box.width / 2));
+          if (shift > box.width * 0.18) s.turnDetected = true;
+          if (s.turnDetected && advance()) return;
         }
       }
 
       if (now - s.stepStartedAt > STEP_TIMEOUT_MS && STEPS[s.stepIndex] !== "look_straight") {
-        // Couldn't confirm this step in time — still let them through, flagged for admin review.
+        // Couldn't confirm this step in time: still let them through, flagged for the admin.
         finish("needs_review");
         return;
       }
-
       rafRef.current = requestAnimationFrame(tick);
     }
 
-    function advanceStep() {
+    // Returns true once the last step is done (the check is over).
+    function advance() {
       const s = stateRef.current;
       if (s.stepIndex >= STEPS.length - 1) {
+        setStepIndex(STEPS.length);
         finish("passed");
-        return;
+        return true;
       }
       s.stepIndex += 1;
       s.stepStartedAt = Date.now();
       setStepIndex(s.stepIndex);
+      return false;
     }
 
     rafRef.current = requestAnimationFrame(tick);
   }
 
-  if (error) {
-    return (
-      <div className="card">
-        <h2>Identity Verification</h2>
-        <div className="banner banner-error">{error}</div>
-        <p>You can still submit your application — the liveness check will be flagged for manual review.</p>
-        <button type="button" className="btn btn-primary" onClick={() => onSkipToReview("failed")}>
-          Continue Without Camera
-        </button>
-      </div>
-    );
-  }
-
-  if (result) {
-    return (
-      <div className="card">
-        <h2>Identity Verification</h2>
-        <div className={`banner ${result.status === "passed" ? "banner-success" : "banner-warning"}`}>
-          {result.status === "passed"
-            ? "✓ Liveness check complete."
-            : "Liveness check recorded — this will be reviewed by an admin."}
-        </div>
-        {result.selfieDataUrl ? <img src={result.selfieDataUrl} alt="Captured selfie" className="doc-preview" /> : null}
-      </div>
-    );
-  }
+  const running = phase === "running";
+  const progress = running ? (stepIndex / STEPS.length) * 100 : result === "passed" ? 100 : 0;
+  const pillTone = (i) => {
+    if (running) return i < stepIndex ? "ok" : i === stepIndex ? "warn" : "";
+    return result === "passed" ? "ok" : "";
+  };
 
   return (
-    <div className="card">
-      <h2>Identity Verification</h2>
-      <p>Follow the on-screen instructions using your camera. This helps confirm you're a real person.</p>
-
-      <div style={{ position: "relative" }}>
-        <video ref={videoRef} className="otp-webcam" muted playsInline />
-        {!modelsLoaded ? (
-          <div className="center-text" style={{ marginTop: 12 }}>
-            Loading camera models…
-          </div>
+    <>
+      <h2>Identity verification</h2>
+      <p className="muted">A quick live check that the applicant is you. Look straight at the camera, blink, then turn your head.</p>
+      <div className="cam">
+        {running || phase === "loading" ? <video ref={videoRef} muted playsInline /> : null}
+        {!running && formData.selfieDataUrl ? (
+          <img src={formData.selfieDataUrl} alt="Your face check" style={{ width: "100%", height: "100%", objectFit: "cover", transform: "scaleX(-1)" }} />
         ) : null}
+        {!running && !formData.selfieDataUrl ? (
+          result === "passed" ? (
+            <span style={{ color: "var(--ok)" }}>{ICON.check}</span>
+          ) : result ? (
+            <span style={{ color: "var(--warn)" }}>{ICON.alert}</span>
+          ) : (
+            ICON.user
+          )
+        ) : null}
+        <div className="ring" style={{ "--p": `${progress}%` }} />
       </div>
       <canvas ref={canvasRef} style={{ display: "none" }} />
+      <div className="prompts">
+        {PROMPTS.map((p, i) => (
+          <span key={p} className={`pill ${pillTone(i)}`}>
+            {p}
+          </span>
+        ))}
+      </div>
 
-      {modelsLoaded ? (
-        <>
-          <div className="liveness-instruction">{STEP_LABELS[STEPS[stepIndex]]}</div>
-          <p className="center-text">
-            Step {stepIndex + 1} of {STEPS.length} {faceVisible ? "" : "— position your face in the frame"}
-          </p>
-        </>
+      <div>
+        {phase === "loading" ? <Alert tone="info" checking>Starting your camera…</Alert> : null}
+        {running ? (
+          <Alert tone="info" title={STEP_LABELS[STEPS[Math.min(stepIndex, STEPS.length - 1)]]}>
+            {faceVisible ? "Hold still…" : "Position your face inside the circle."}
+          </Alert>
+        ) : null}
+        {phase === "error" ? (
+          <>
+            <Alert tone="warn" title="We couldn't use your camera">
+              {cameraError} If it still doesn&apos;t work, you can continue and the admin will review your identity by hand.
+            </Alert>
+            <div className="row" style={{ justifyContent: "center", marginTop: 12 }}>
+              <button
+                type="button"
+                className="btn btn-glass btn-sm"
+                onClick={() => {
+                  updateFormData({ livenessStatus: "failed", selfieDataUrl: null });
+                  setPhase("idle");
+                }}
+              >
+                Continue without face check
+              </button>
+            </div>
+          </>
+        ) : null}
+        {!running && phase !== "loading" && phase !== "error" && result ? (
+          result === "passed" ? (
+            <Alert tone="ok" title="Face check passed">
+              All three actions were detected.
+            </Alert>
+          ) : (
+            <Alert tone="warn" title="Face check marked for review">
+              The admin will verify your identity from your documents. This can take longer.
+            </Alert>
+          )
+        ) : null}
+        {errors?.face ? (
+          <Alert tone="err" style={{ marginTop: 8 }}>
+            {errors.face}
+          </Alert>
+        ) : null}
+      </div>
+      {!running && phase !== "loading" ? (
+        <div className="row" style={{ justifyContent: "center" }}>
+          <button className="btn btn-glass" type="button" onClick={start}>
+            {result ? "Do it again" : "Start face check"}
+          </button>
+        </div>
       ) : null}
-    </div>
+    </>
   );
 }

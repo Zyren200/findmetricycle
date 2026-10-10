@@ -9,6 +9,7 @@ import {
   History,
   LayoutDashboard,
   LogOut,
+  Mail,
   Map as MapIcon,
   MapPin,
   Megaphone,
@@ -37,8 +38,10 @@ import ServiceAreaMap from "../components/ServiceAreaMap";
 import NotificationsInbox from "../components/NotificationsInbox";
 import NotificationsPanel from "../components/NotificationsPanel";
 import ReportsInbox from "../components/ReportsInbox";
+import SupportInbox from "../components/SupportInbox";
 import SummaryCards from "../components/SummaryCards";
 import PageHero from "../components/PageHero";
+import ThemeToggle from "../components/ThemeToggle";
 import { asText, formatDateTime, formatMoney, statusTone, formatPlace } from "../utils/admin-formatters";
 import { PERMISSIONS as P, canOpenSection } from "../utils/admin-access";
 import { isOutsideServiceArea, useServiceArea } from "../utils/service-area";
@@ -75,6 +78,7 @@ const sections = [
   { key: "rides", title: "Ride History", icon: History, group: "Operations" },
   { key: "sos", title: "SOS", icon: Siren, group: "Operations" },
   { key: "complaints", title: "Complaints", icon: MessageSquareWarning, group: "Operations" },
+  { key: "support", title: "Contact Support", icon: Mail, group: "Operations" },
   { key: "notifications", title: "Notifications", icon: Bell, group: "Operations" },
   { key: "announcements", title: "Announcements", icon: Megaphone, group: "Operations" },
   { key: "reports", title: "Reports", icon: BarChart3, group: "Insights" },
@@ -208,6 +212,8 @@ export default function DashboardShell() {
   const [bookings, setBookings] = useState([]);
   const [sosAlerts, setSosAlerts] = useState([]);
   const [complaints, setComplaints] = useState([]);
+  // Messages from the website's Contact page.
+  const [contactMessages, setContactMessages] = useState([]);
   const [passengers, setPassengers] = useState([]);
   const [userSearch, setUserSearch] = useState("");
   const [userStatusFilter, setUserStatusFilter] = useState("all");
@@ -230,6 +236,8 @@ export default function DashboardShell() {
   const [bookingStatus, setBookingStatus] = useState("all");
   // The report open in the Complaints inbox.
   const [selectedComplaintId, setSelectedComplaintId] = useState(null);
+  // The message open in the Contact Support inbox.
+  const [selectedContactId, setSelectedContactId] = useState(null);
   const [sosFilter, setSosFilter] = useState("all");
   // The SOS alert whose "Resolve" note dialog is open.
   const [resolveSosTarget, setResolveSosTarget] = useState(null);
@@ -324,6 +332,7 @@ export default function DashboardShell() {
       ["bookings", P.BOOKINGS_VIEW, "/admin/bookings"],
       ["sos", P.SOS_VIEW, "/admin/sos"],
       ["complaints", P.COMPLAINTS_VIEW, "/admin/complaints"],
+      ["support", P.SUPPORT_VIEW, "/admin/contact-messages"],
       ["notifications", P.NOTIFICATIONS_VIEW, "/admin/notifications"],
       ["drivers", P.DRIVERS_VIEW, "/admin/drivers"],
       ["passengers", P.USERS_VIEW, "/admin/passengers"],
@@ -348,6 +357,7 @@ export default function DashboardShell() {
       if (got.bookings) setBookings(got.bookings.data || []);
       if (got.sos) setSosAlerts(got.sos.data || []);
       if (got.complaints) setComplaints(got.complaints.data || []);
+      if (got.support) setContactMessages(got.support.data || []);
       if (got.notifications) {
         const notificationList = got.notifications.data || [];
         setNotifications(notificationList);
@@ -1199,6 +1209,29 @@ export default function DashboardShell() {
       );
     }
 
+    if (activeSectionKey === "support") {
+      const openMessages = contactMessages.filter((m) => m.status === "open").length;
+      return (
+        <div className="page-stack">
+          <PageHero
+            title="Contact Support"
+            description={
+              openMessages
+                ? `${openMessages} message${openMessages === 1 ? "" : "s"} waiting for a reply`
+                : "No messages waiting for a reply"
+            }
+          />
+          <SupportInbox
+            messages={contactMessages}
+            selectedId={selectedContactId}
+            onSelect={(message) => setSelectedContactId(message?.id ?? null)}
+            canReply={can(P.SUPPORT_REPLY)}
+            onChanged={loadData}
+          />
+        </div>
+      );
+    }
+
     if (activeSectionKey === "notifications") {
       return (
         <div className="page-stack">
@@ -1225,7 +1258,10 @@ export default function DashboardShell() {
                 }
               : null
           }
-          onOpenSection={setActiveSectionKey}
+          onOpenSection={(key, info) => {
+            if (key === "support" && info?.contactMessageId) setSelectedContactId(info.contactMessageId);
+            setActiveSectionKey(key);
+          }}
           canOpenSection={(key) => canOpenSection(can, key)}
         />
         </div>
@@ -1281,6 +1317,7 @@ export default function DashboardShell() {
     applications: pendingDrivers.length,
     // Alerts nobody is handling yet.
     sos: sosAlerts.filter((a) => a.status === "active").length,
+    support: contactMessages.filter((m) => m.status === "open").length,
     notifications: unreadCount,
   };
   const initials = (user?.full_name || "Admin")
@@ -1411,6 +1448,7 @@ export default function DashboardShell() {
               ) : null}
             </div>
 
+            <ThemeToggle />
             <span className="adm-live"><i /> LIVE</span>
 
             {can(P.NOTIFICATIONS_VIEW) ? (

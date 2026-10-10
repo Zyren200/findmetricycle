@@ -215,8 +215,14 @@ function NotificationReader({
             Open report #{info.complaintId}
           </button>
         ) : meta.section && canOpenSection(meta.section) && !(bookingId && meta.section === "bookings") ? (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOpenSection?.(meta.section)}>
-            {meta.section === "applications" ? "Review application" : meta.section === "sos" ? "Go to SOS alerts" : "Open page"}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOpenSection?.(meta.section, info)}>
+            {meta.section === "applications"
+              ? "Review application"
+              : meta.section === "sos"
+                ? "Go to SOS alerts"
+                : meta.section === "support"
+                  ? "Open message"
+                  : "Open page"}
           </button>
         ) : null}
       </div>

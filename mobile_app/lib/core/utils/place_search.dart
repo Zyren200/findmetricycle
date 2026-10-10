@@ -2,6 +2,7 @@ import "package:dio/dio.dart";
 import "package:latlong2/latlong.dart" as ll;
 
 import "../geo/service_area.dart";
+import "geocoding.dart";
 
 /// Search-as-you-type place lookup via Photon (Komoot's free OSM-based
 /// geocoder). Nominatim — already used elsewhere for reverse-geocoding —
@@ -23,6 +24,7 @@ final Dio _searchClient = Dio(
   BaseOptions(
     connectTimeout: const Duration(seconds: 8),
     receiveTimeout: const Duration(seconds: 8),
+    headers: const {"User-Agent": kOsmUserAgent},
   ),
 );
 
@@ -32,12 +34,21 @@ class PlaceSuggestion {
     required this.secondaryLabel,
     required this.lat,
     required this.lng,
-  });
+    String? fullLabel,
+    this.isArea = false,
+  }) : fullLabel = fullLabel ?? name;
 
   final String name;
   final String secondaryLabel;
   final double lat;
   final double lng;
+
+  /// The whole address, e.g. "Guiuan Church, Brgy. Poblacion Ward 10,
+  /// Guiuan, Eastern Samar" — what a pickup/drop-off is saved as.
+  final String fullLabel;
+
+  /// A barangay, sitio or town rather than a specific spot in one.
+  final bool isArea;
 }
 
 /// Only the suggestions inside Guiuan (with the service area's buffer).
@@ -94,19 +105,23 @@ Future<List<PlaceSuggestion>> searchPlaces(String query,
       final name = props["name"] as String?;
       if (name == null || name.isEmpty) continue;
 
-      final secondaryParts = <String>[
-        for (final key in ["street", "locality", "city", "state"])
-          if (props[key] is String && (props[key] as String).isNotEmpty)
-            props[key] as String,
-      ];
-      // Drop the street/locality if it duplicates the name itself.
-      secondaryParts.removeWhere((part) => part == name);
+      final place = parsePhotonPlace(props, fallbackTown: kServiceAreaTown);
+      final fullLabel = place?.format(fallbackTown: kServiceAreaTown) ?? name;
+      // Under the name, the rest of the address ("Brgy. Salug, Guiuan,
+      // Eastern Samar"); a barangay keeps its own "Brgy." line.
+      final secondaryLabel = fullLabel.startsWith("$name, ")
+          ? fullLabel.substring(name.length + 2)
+          : fullLabel == name
+              ? ""
+              : fullLabel;
 
       suggestions.add(PlaceSuggestion(
         name: name,
-        secondaryLabel: secondaryParts.take(2).join(", "),
+        secondaryLabel: secondaryLabel,
         lat: lat,
         lng: lng,
+        fullLabel: fullLabel,
+        isArea: props["osm_key"] == "place" || props["osm_key"] == "boundary",
       ));
     }
     // The bbox is a rectangle; the boundary is what counts.

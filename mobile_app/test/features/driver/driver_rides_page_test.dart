@@ -2,9 +2,11 @@ import "package:findme_tricycle_mobile/core/network/api_client.dart";
 import "package:findme_tricycle_mobile/core/network/socket_client.dart";
 import "package:findme_tricycle_mobile/features/driver/presentation/driver_ride_controller.dart";
 import "package:findme_tricycle_mobile/features/driver/presentation/driver_rides_page.dart";
+import "package:findme_tricycle_mobile/features/driver/presentation/driver_shell_page.dart";
 import "package:findme_tricycle_mobile/features/driver/repositories/driver_repository.dart";
 import "package:flutter/material.dart";
 import "package:flutter_test/flutter_test.dart";
+import "package:findme_tricycle_mobile/core/components/sunrise.dart" show PrismSegment;
 import "package:provider/provider.dart";
 
 class FakeRidesRepository extends DriverRepository {
@@ -55,7 +57,12 @@ class FakeRidesRepository extends DriverRepository {
           "passenger_name": "Juan",
         },
       ],
-      "meta": {"completed": 1, "cancelled": 2, "totalEarned": 55, "hasMore": false},
+      "meta": {
+        "completed": 1,
+        "cancelled": 2,
+        "totalEarned": 55,
+        "hasMore": false
+      },
     };
   }
 }
@@ -70,7 +77,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     repo = FakeRidesRepository();
-    navIndex = ValueNotifier<int>(1);
+    navIndex = ValueNotifier<int>(kHistoryTab);
     await tester.pumpWidget(
       MultiProvider(
         providers: [
@@ -92,10 +99,13 @@ void main() {
     // passenger and count, and the passenger's feedback.
     expect(find.text("Guiuan Public Market"), findsOneWidget);
     expect(find.text("₱55.00"), findsNWidgets(2));
-    expect(find.textContaining("Armae Corpuz · 2 pax · 2.3 km"), findsOneWidget);
+    expect(
+        find.textContaining("Armae Corpuz · 2 pax · 2.3 km"), findsOneWidget);
     expect(find.text("“Mabilis at maingat”"), findsOneWidget);
     // Cancelled trips say who cancelled.
+    await tester.scrollUntilVisible(find.text("Passenger no-show"), 300);
     expect(find.text("Passenger no-show"), findsOneWidget);
+    await tester.scrollUntilVisible(find.text("Cancelled by passenger"), 300);
     expect(find.text("Cancelled by passenger"), findsOneWidget);
     expect(find.textContaining("11.10853"), findsNothing);
     expect(find.textContaining("T07:"), findsNothing);
@@ -105,7 +115,7 @@ void main() {
   testWidgets("filters to completed trips", (tester) async {
     await pumpRides(tester);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, "Completed"));
+    await tester.tap(find.descendant(of: find.byWidgetPredicate((w) => w is PrismSegment), matching: find.text("Completed")));
     await tester.pumpAndSettle();
 
     expect(find.text("Guiuan Public Market"), findsOneWidget);
@@ -117,8 +127,8 @@ void main() {
     await pumpRides(tester);
     final before = repo.historyCalls;
 
-    navIndex.value = 0;
-    navIndex.value = 1;
+    navIndex.value = kDriveTab;
+    navIndex.value = kHistoryTab;
     await tester.pumpAndSettle();
 
     expect(repo.historyCalls, greaterThan(before));

@@ -1,13 +1,14 @@
 import "package:flutter/material.dart";
 import "../theme/design_tokens.dart";
+import "sunrise.dart";
 
 /// Layout building blocks shared by the passenger and driver screens: a
-/// sticky header bar, section labels, label/value rows, list navigation
-/// items, status banners and empty states. Colours always come from
-/// [DesignTokens]; only the structure is fixed here.
+/// header bar, section labels, label/value rows, list navigation items,
+/// status banners and empty states, in the Sunrise style. Colours always
+/// come from [DesignTokens]; only the structure is fixed here.
 
-/// Header bar: optional back button, title, optional pill badge and a
-/// trailing widget, with a hairline divider underneath.
+/// Header: a rounded back button, the title, an optional pill badge and a
+/// trailing widget.
 class AppTopBar extends StatelessWidget {
   const AppTopBar({
     super.key,
@@ -28,49 +29,71 @@ class AppTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: DesignTokens.bg,
-        border: Border(bottom: BorderSide(color: DesignTokens.border)),
-      ),
+    return ColoredBox(
+      color: Colors.transparent,
       child: SafeArea(
         bottom: false,
-        child: SizedBox(
-          height: 56,
-          child: Row(
-            children: [
-              if (showBack)
-                IconButton(
-                  icon:
-                      Icon(Icons.arrow_back_rounded, color: DesignTokens.text),
-                  onPressed: onBack ?? () => Navigator.of(context).maybePop(),
-                )
-              else
-                const SizedBox(width: DesignTokens.spacing16),
-              Flexible(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: DesignTokens.text,
-                    fontSize: 16,
-                    fontWeight: DesignTokens.fw700,
-                    fontFamily: DesignTokens.fontDmSans,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
+          child: SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                if (showBack) ...[
+                  BackSquareButton(
+                      onTap: onBack ?? () => Navigator.of(context).maybePop()),
+                  const SizedBox(width: 14),
+                ] else
+                  const SizedBox(width: 4),
+                Flexible(
+                  child: Semantics(
+                    header: true,
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: DesignTokens.title,
+                    ),
                   ),
                 ),
-              ),
-              if (badge != null) ...[
-                const SizedBox(width: 8),
-                AppPill(
-                    label: badge!, color: badgeColor ?? DesignTokens.accent),
+                if (badge != null) ...[
+                  const SizedBox(width: 8),
+                  AppPill(
+                      label: badge!, color: badgeColor ?? DesignTokens.primary),
+                ],
+                const Spacer(),
+                if (trailing != null) trailing!,
               ],
-              const Spacer(),
-              if (trailing != null) trailing!,
-              const SizedBox(width: DesignTokens.spacing8),
-            ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 42 px round back button with a hairline border.
+class BackSquareButton extends StatelessWidget {
+  const BackSquareButton({super.key, required this.onTap});
+
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: "Back",
+      // ".ibtn": a 42 px round button with a hairline and a top highlight.
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: DesignTokens.surface2,
+          shape: BoxShape.circle,
+          border: Border.all(color: DesignTokens.line),
+        ),
+        child:
+            Icon(Icons.chevron_left_rounded, size: 24, color: DesignTokens.ink),
       ),
     );
   }
@@ -85,8 +108,11 @@ class AppPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final fg = ThemeData.estimateBrightnessForColor(color) == Brightness.dark
+        ? Colors.white
+        : const Color(0xFF1A0D04);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(999),
@@ -94,9 +120,10 @@ class AppPill extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          color: DesignTokens.bg,
+          color: fg,
           fontSize: 11,
-          fontWeight: DesignTokens.fw700,
+          fontWeight: DesignTokens.fw800,
+          fontFeatures: DesignTokens.tabular,
         ),
       ),
     );
@@ -113,21 +140,13 @@ class SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: padding ?? const EdgeInsets.only(bottom: 8),
-      child: Text(
-        text.toUpperCase(),
-        style: TextStyle(
-          color: DesignTokens.muted,
-          fontSize: 11,
-          fontWeight: DesignTokens.fw600,
-          letterSpacing: 0.8,
-        ),
-      ),
+      padding: padding ?? const EdgeInsets.only(bottom: 10),
+      child: Overline(text),
     );
   }
 }
 
-/// Rounded, bordered box used for summaries and grouped details.
+/// Rounded card for summaries and grouped details.
 class InfoBox extends StatelessWidget {
   const InfoBox({
     super.key,
@@ -150,9 +169,9 @@ class InfoBox extends StatelessWidget {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: color ?? DesignTokens.bg2,
-        borderRadius: BorderRadius.circular(DesignTokens.radius),
-        border: Border.all(color: borderColor ?? DesignTokens.border),
+        color: color ?? DesignTokens.surface,
+        borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
+        border: Border.all(color: borderColor ?? DesignTokens.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -173,7 +192,7 @@ class InfoDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      Container(height: 1, color: DesignTokens.border);
+      Container(height: 1, color: DesignTokens.line);
 }
 
 /// "Label ........ value" row.
@@ -202,16 +221,21 @@ class InfoRow extends StatelessWidget {
           Padding(padding: const EdgeInsets.only(top: 1), child: icon!),
           const SizedBox(width: 10),
         ],
-        Text(label, style: TextStyle(color: DesignTokens.muted, fontSize: 13)),
+        Text(label,
+            style: TextStyle(
+                color: DesignTokens.ink2,
+                fontSize: 13,
+                fontWeight: DesignTokens.fw600)),
         const SizedBox(width: 16),
         Expanded(
           child: Text(
             value,
             textAlign: TextAlign.right,
             style: TextStyle(
-              color: valueColor ?? DesignTokens.text,
-              fontSize: bold ? 14 : 13,
-              fontWeight: bold ? DesignTokens.fw700 : DesignTokens.fw500,
+              color: valueColor ?? DesignTokens.ink,
+              fontSize: bold ? 15 : 14,
+              fontWeight: bold ? DesignTokens.fw800 : DesignTokens.fw700,
+              fontFeatures: DesignTokens.tabular,
             ),
           ),
         ),
@@ -220,7 +244,7 @@ class InfoRow extends StatelessWidget {
   }
 }
 
-/// Tappable list row: leading icon, label, chevron.
+/// Tappable list row: leading icon tile, label, chevron.
 class NavListItem extends StatelessWidget {
   const NavListItem({
     super.key,
@@ -242,24 +266,34 @@ class NavListItem extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: DesignTokens.border)),
+          border: Border(bottom: BorderSide(color: DesignTokens.line)),
         ),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: color ?? DesignTokens.muted),
-            const SizedBox(width: 12),
+            IconTile(
+              icon: icon,
+              size: 36,
+              radius: 11,
+              iconSize: 18,
+              background:
+                  color == null ? DesignTokens.surface2 : color!.withAlpha(30),
+              foreground: color ?? DesignTokens.ink,
+            ),
+            const SizedBox(width: 14),
             Expanded(
               child: Text(
                 label,
-                style:
-                    TextStyle(color: color ?? DesignTokens.text, fontSize: 14),
+                style: TextStyle(
+                    color: color ?? DesignTokens.ink,
+                    fontSize: 15,
+                    fontWeight: DesignTokens.fw700),
               ),
             ),
             trailing ??
                 Icon(Icons.chevron_right_rounded,
-                    size: 20, color: DesignTokens.muted),
+                    size: 20, color: DesignTokens.ink2),
           ],
         ),
       ),
@@ -267,7 +301,7 @@ class NavListItem extends StatelessWidget {
   }
 }
 
-/// Tinted, bordered banner for a status message.
+/// Tinted banner for a status message.
 class StatusBanner extends StatelessWidget {
   const StatusBanner({
     super.key,
@@ -286,48 +320,11 @@ class StatusBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withAlpha(24),
-        borderRadius: BorderRadius.circular(DesignTokens.radius),
-        border: Border.all(color: color.withAlpha(70)),
-      ),
-      child: Row(
-        children: [
-          if (showSpinner)
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2, color: color),
-            )
-          else if (icon != null)
-            Icon(icon, color: color, size: 20),
-          if (showSpinner || icon != null) const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 14,
-                    fontWeight: DesignTokens.fw600,
-                  ),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 2),
-                  Text(subtitle!,
-                      style:
-                          TextStyle(color: color.withAlpha(210), fontSize: 12)),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
+    return PrismAlert(
+      tone: color,
+      title: label,
+      message: subtitle,
+      spinner: showSpinner,
     );
   }
 }
@@ -342,14 +339,24 @@ class EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 72),
+      padding: const EdgeInsets.symmetric(vertical: 48),
       child: Column(
         children: [
-          Icon(icon, size: 40, color: DesignTokens.muted),
+          IconTile(
+            icon: icon,
+            size: 56,
+            radius: 18,
+            iconSize: 26,
+            background: DesignTokens.surface2,
+            foreground: DesignTokens.ink2,
+          ),
           const SizedBox(height: 12),
           Text(message,
               textAlign: TextAlign.center,
-              style: TextStyle(color: DesignTokens.muted, fontSize: 13)),
+              style: TextStyle(
+                  color: DesignTokens.ink2,
+                  fontSize: 14,
+                  fontWeight: DesignTokens.fw600)),
         ],
       ),
     );
@@ -365,35 +372,22 @@ class ErrorBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: DesignTokens.red.withAlpha(24),
-        borderRadius: BorderRadius.circular(DesignTokens.radius),
-        border: Border.all(color: DesignTokens.red.withAlpha(70)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.error_outline_rounded, color: DesignTokens.red, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(message,
-                style: TextStyle(color: DesignTokens.red, fontSize: 13)),
-          ),
-          if (onRetry != null)
-            TextButton(
-              onPressed: onRetry,
-              child: Text("Retry", style: TextStyle(color: DesignTokens.red)),
-            ),
-        ],
+    return Shake(
+      key: ValueKey(message),
+      child: PrismAlert(
+        tone: DesignTokens.danger,
+        message: message,
+        trailing: onRetry == null
+            ? null
+            : SunLink(
+                label: "Retry", color: DesignTokens.danger, onTap: onRetry),
       ),
     );
   }
 }
 
-/// Full-width primary action button (big, rounded) used at the bottom of
-/// flow steps.
+/// Full-width primary action button (56 px, rounded, orange glow) used at
+/// the bottom of flow steps.
 class PrimaryActionButton extends StatelessWidget {
   const PrimaryActionButton({
     super.key,
@@ -416,62 +410,74 @@ class PrimaryActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = color ?? DesignTokens.accent;
-    final fg = foregroundColor ?? (outlined ? bg : DesignTokens.bg);
-    final child = loading
-        ? SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2.4, color: fg),
-          )
-        : Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[
-                Icon(icon, size: 20, color: fg),
-                const SizedBox(width: 8),
-              ],
-              Flexible(
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: fg,
-                    fontSize: 15,
-                    fontWeight: DesignTokens.fw700,
-                  ),
+    if (color == null && foregroundColor == null) {
+      return SunButton(
+        label: label,
+        onPressed: onPressed,
+        loading: loading,
+        icon: icon,
+        tone: outlined ? SunTone.outline : SunTone.primary,
+      );
+    }
+    final bg = color ?? DesignTokens.primary;
+    final fg = foregroundColor ??
+        (outlined
+            ? bg
+            : ThemeData.estimateBrightnessForColor(bg) == Brightness.dark
+                ? Colors.white
+                : const Color(0xFF1A0D04));
+    final enabled = onPressed != null && !loading;
+    return Pressable(
+      onTap: enabled ? onPressed : null,
+      child: AnimatedOpacity(
+        duration: DesignTokens.quick,
+        opacity: onPressed == null && !loading ? 0.4 : 1,
+        child: Container(
+          width: double.infinity,
+          height: 56,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: outlined ? Colors.transparent : bg,
+            borderRadius: BorderRadius.circular(DesignTokens.radiusButton),
+            border: outlined ? Border.all(color: bg, width: 1.5) : null,
+            boxShadow: outlined || !enabled
+                ? null
+                : [
+                    BoxShadow(
+                        color: bg.withAlpha(80),
+                        blurRadius: 24,
+                        offset: const Offset(0, 10)),
+                  ],
+          ),
+          child: loading
+              ? SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2.6, color: fg),
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icon != null) ...[
+                      Icon(icon, size: 20, color: fg),
+                      const SizedBox(width: 10),
+                    ],
+                    Flexible(
+                      child: Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: fg,
+                          fontSize: 17,
+                          fontWeight: DesignTokens.fw800,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          );
-
-    final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(DesignTokens.radius),
-    );
-    return SizedBox(
-      width: double.infinity,
-      height: 54,
-      child: outlined
-          ? OutlinedButton(
-              onPressed: loading ? null : onPressed,
-              style: OutlinedButton.styleFrom(
-                shape: shape,
-                side: BorderSide(
-                    color: bg.withAlpha(onPressed == null ? 80 : 255)),
-              ),
-              child: child,
-            )
-          : ElevatedButton(
-              onPressed: loading ? null : onPressed,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: bg,
-                disabledBackgroundColor: bg.withAlpha(90),
-                foregroundColor: fg,
-                elevation: 0,
-                shape: shape,
-              ),
-              child: child,
-            ),
+        ),
+      ),
     );
   }
 }

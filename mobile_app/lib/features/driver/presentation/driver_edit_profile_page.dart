@@ -111,7 +111,7 @@ class _DriverEditProfilePageState extends State<DriverEditProfilePage> {
     return Scaffold(
       appBar: const AppAppBar(title: "Edit Profile"),
       body: Container(
-        color: DesignTokens.bg,
+        color: Colors.transparent,
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(DesignTokens.spacing16),
           child: AppCard(

@@ -1,25 +1,23 @@
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
-import "package:url_launcher/url_launcher.dart";
 
 import "../../../../core/components/index.dart";
+import "../../../../core/safety/emergency_dialer.dart";
+import "../../../../core/safety/sos_flow.dart";
 import "../../../../core/theme/design_tokens.dart";
 import "../passenger_ride_controller.dart";
 import "../widgets/passenger_ride_widgets.dart";
 
 /// Safety: emergency SOS (sent to the admin team with the passenger's
-/// location), emergency hotline and the current ride's details.
+/// location, then the dialer opens), the emergency hotline and the current
+/// ride's details.
 class SafetyPage extends StatelessWidget {
   const SafetyPage({super.key});
 
-  Future<void> _call(BuildContext context, String number) async {
-    final ok = await launchUrl(Uri(scheme: "tel", path: number));
-    if (!ok && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text("Could not open the dialer. Call $number directly.")),
-      );
-    }
+  /// The hotline row dials the same number SOS does.
+  Future<void> _callHotline(BuildContext context) async {
+    final ok = await openEmergencyDialer();
+    if (!ok && context.mounted) await showDialManuallyDialog(context);
   }
 
   @override
@@ -28,104 +26,124 @@ class SafetyPage extends StatelessWidget {
     final ongoing = hasOngoingBooking(ctrl);
 
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
+      backgroundColor: Colors.transparent,
       body: Column(
         children: [
-          const AppTopBar(title: "Safety", showBack: true),
+          const AppTopBar(title: "Safety and SOS", showBack: true),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
               children: [
-                InfoBox(
-                  color: DesignTokens.red.withAlpha(20),
-                  borderColor: DesignTokens.red.withAlpha(70),
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.warning_amber_rounded,
-                            color: DesignTokens.red),
-                        const SizedBox(width: 8),
-                        Text("Emergency SOS",
-                            style: TextStyle(
-                                color: DesignTokens.red,
-                                fontWeight: DesignTokens.fw600)),
-                      ],
-                    ),
-                    Text(
-                      "Press this button in an emergency. Your location will be sent to the "
-                      "FindMeTricycle admin team right away.",
-                      style: TextStyle(color: DesignTokens.red, fontSize: 12),
-                    ),
-                    PrimaryActionButton(
-                      label: ctrl.isSendingSos ? "Sending SOS..." : "SEND SOS",
-                      icon: Icons.warning_amber_rounded,
-                      color: DesignTokens.red,
-                      foregroundColor: Colors.white,
-                      loading: ctrl.isSendingSos,
-                      onPressed: () => confirmAndSendSos(context, ctrl),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                InfoBox(
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.phone_rounded,
-                            size: 16, color: DesignTokens.text),
-                        const SizedBox(width: 8),
-                        Text("Emergency Contacts",
-                            style: TextStyle(
-                                color: DesignTokens.text,
-                                fontWeight: DesignTokens.fw500)),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text("Emergency Hotline",
-                              style: TextStyle(
-                                  color: DesignTokens.muted, fontSize: 13)),
-                        ),
-                        TextButton(
-                          onPressed: () => _call(context, "911"),
-                          child: Text("911",
-                              style: TextStyle(
-                                  color: DesignTokens.accent,
-                                  fontWeight: DesignTokens.fw600)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                if (ongoing) ...[
-                  const SizedBox(height: 16),
-                  InfoBox(
-                    color: DesignTokens.blue.withAlpha(20),
-                    borderColor: DesignTokens.blue.withAlpha(70),
-                    spacing: 4,
+                SosStatusBanner(
+                    delivery: ctrl.sosDelivery, error: ctrl.sosError),
+                FadeRise(
+                  child: Column(
                     children: [
-                      Text("Current Ride Info",
-                          style: TextStyle(
-                              color: DesignTokens.blue,
-                              fontSize: 13,
-                              fontWeight: DesignTokens.fw600)),
-                      Text("Ride ID: ${ctrl.activeBookingId}",
-                          style: TextStyle(
-                              color: DesignTokens.blue, fontSize: 12)),
+                      SosBigButton(
+                        caption: ctrl.isSendingSos
+                            ? "Sending alert…"
+                            : "Tap in an emergency",
+                        onTap: ctrl.isSendingSos
+                            ? null
+                            : () => confirmAndSendSos(context, ctrl),
+                      ),
+                      Text(
+                        "We alert the FindMeTricycle admin with your location and ride, then open your dialer with $kEmergencyNumber.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            color: DesignTokens.ink2,
+                            fontSize: 13.5,
+                            height: 1.5),
+                      ),
+                      const SizedBox(height: 10),
+                      const EmergencyTestModeLabel(),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const SectionLabel("Emergency contacts"),
+                SunListCard(children: [
+                  SunListRow(
+                    icon: Icons.call_outlined,
+                    label: "Emergency hotline",
+                    subtitle: "Police, fire and medical",
+                    trailing: SunButton(
+                      label: kEmergencyNumber,
+                      tone: SunTone.danger,
+                      height: 36,
+                      expand: false,
+                      onPressed: () => _callHotline(context),
+                    ),
+                  ),
+                ]),
+                if (ongoing) ...[
+                  const SizedBox(height: 18),
+                  const SectionLabel("Current ride"),
+                  InfoBox(
+                    spacing: 8,
+                    children: [
+                      InfoRow(
+                          label: "Ride ID", value: "#${ctrl.activeBookingId}"),
                       if (ctrl.driverName != null)
-                        Text("Driver: ${ctrl.driverName}",
-                            style: TextStyle(
-                                color: DesignTokens.blue, fontSize: 12)),
+                        InfoRow(label: "Driver", value: ctrl.driverName!),
                       if (ctrl.driverTricycle != null)
-                        Text("Tricycle: ${ctrl.driverTricycle}",
-                            style: TextStyle(
-                                color: DesignTokens.blue, fontSize: 12)),
+                        InfoRow(label: "Tricycle", value: ctrl.driverTricycle!),
+                      InfoRow(label: "Status", value: rideStatusHeadline(ctrl)),
                     ],
                   ),
                 ],
+                const SizedBox(height: 18),
+                const SectionLabel("Ride safely"),
+                const _Tip(
+                  icon: Icons.verified_user_outlined,
+                  text:
+                      "Check the rider's name and tricycle number before you ride.",
+                ),
+                const _Tip(
+                  icon: Icons.pin_outlined,
+                  text:
+                      "Give your pickup PIN only when your rider has arrived.",
+                ),
+                const _Tip(
+                  icon: Icons.payments_outlined,
+                  text: "Pay in cash at drop-off — never before the trip.",
+                ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Tip extends StatelessWidget {
+  const _Tip({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          IconTile(
+            icon: icon,
+            size: 36,
+            radius: 11,
+            iconSize: 18,
+            background: DesignTokens.lagoonSoft,
+            foreground: DesignTokens.lagoonText,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(text,
+                style: TextStyle(
+                    color: DesignTokens.ink1,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w400)),
           ),
         ],
       ),

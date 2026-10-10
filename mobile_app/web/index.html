@@ -26,6 +26,16 @@
   <meta name="apple-mobile-web-app-title" content="findme_tricycle_mobile">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
   <link href="https://unpkg.com/maplibre-gl@^5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+  <style>
+    /* No on-map ⓘ attribution button: it sat over the tab bar and kept
+       getting tapped. On web maplibre_gl ignores attributionButtonMargins
+       (see AppMap), so it's hidden here; the "© OpenStreetMap contributors"
+       credit is in Settings → Map. */
+    .maplibregl-ctrl-attrib,
+    .maplibregl-ctrl-logo {
+      display: none !important;
+    }
+  </style>
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>

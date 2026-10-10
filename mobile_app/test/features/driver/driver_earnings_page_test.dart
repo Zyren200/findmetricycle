@@ -17,11 +17,16 @@ DriverRideController controllerWith({
 }) {
   return DriverRideController(_UnusedRepository(), SocketClient())
     ..earningsSummary = summary
-    ..performanceStats = {"completedRides": trips.length, "cancellationRate": 0, "fiveStarRatings": 1}
+    ..performanceStats = {
+      "completedRides": trips.length,
+      "cancellationRate": 0,
+      "fiveStarRatings": 1
+    }
     ..completedRides = trips;
 }
 
-Future<void> pumpPage(WidgetTester tester, DriverRideController controller) async {
+Future<void> pumpPage(
+    WidgetTester tester, DriverRideController controller) async {
   // A typical phone viewport.
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 3;
@@ -35,7 +40,8 @@ Future<void> pumpPage(WidgetTester tester, DriverRideController controller) asyn
 }
 
 void main() {
-  testWidgets("shows today, week, month, chart and recent trips", (tester) async {
+  testWidgets("shows today, week, month, chart and recent trips",
+      (tester) async {
     final controller = controllerWith(
       summary: {
         "total_rides": 12,
@@ -62,10 +68,15 @@ void main() {
     );
     await pumpPage(tester, controller);
 
+    // This week by default; Today and This month one tap away.
+    expect(find.text("₱520.25"), findsOneWidget); // week
+    expect(find.text("7 rides completed"), findsOneWidget);
+    await tester.tap(find.text("Today").first); // the period switch
+    await tester.pumpAndSettle();
     expect(find.text("₱150.00"), findsOneWidget); // today
     expect(find.text("3 rides completed"), findsOneWidget);
-    expect(find.text("₱520.25"), findsOneWidget); // week
-    expect(find.text("Kabuuan: ₱840.00"), findsOneWidget); // 7-day total (0+40+…+240)
+    expect(find.text("Kabuuan: ₱840.00"),
+        findsOneWidget); // 7-day total (0+40+…+240)
 
     // Completed ride: destination as the title, pickup and distance below.
     await tester.scrollUntilVisible(find.text("Palengke"), 300);
@@ -74,7 +85,8 @@ void main() {
     expect(tester.takeException(), isNull); // no layout overflow
   });
 
-  testWidgets("a new rider with no trips sees zeros, not errors", (tester) async {
+  testWidgets("a new rider with no trips sees zeros, not errors",
+      (tester) async {
     final controller = controllerWith(summary: {});
     await pumpPage(tester, controller);
 

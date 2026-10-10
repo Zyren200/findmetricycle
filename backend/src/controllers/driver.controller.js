@@ -1,12 +1,27 @@
 const bookingService = require("../services/booking.service");
 const driverService = require("../services/driver.service");
 const bookingModel = require("../models/booking.model");
+const bookingRouteModel = require("../models/booking-route.model");
+const bookingRouteService = require("../services/booking-route.service");
 const notificationModel = require("../models/notification.model");
 const sosService = require("../services/sos.service");
 const complaintService = require("../services/complaint.service");
 const { decorateBookingRecord } = require("../utils/ride-progress");
 const { getIO } = require("../sockets");
 const { PERMISSIONS, permissionRoom } = require("../constants/admin-permissions");
+
+async function recordRoutePointSafely(bookingId, driver) {
+  const lat = Number(driver.current_lat);
+  const lng = Number(driver.current_lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  try {
+    await bookingRouteService.recordPoint({ bookingId, lat, lng });
+  } catch (error) {
+    // Route history is supplementary: never make a valid ride transition
+    // look unsuccessful because one GPS-point write failed.
+    console.warn("Could not record booking route point:", error.message);
+  }
+}
 
 async function setOnlineStatus(req, res, next) {
   try {
@@ -94,6 +109,24 @@ async function getActiveBooking(req, res, next) {
     const driver = await driverService.getDriverByUserIdOrFail(req.user.id);
     const booking = await bookingService.getActiveRideForDriver(driver.id);
     res.json({ success: true, data: booking });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getBookingRoute(req, res, next) {
+  try {
+    const driver = await driverService.getDriverByUserIdOrFail(req.user.id);
+    const booking = await bookingModel.findById(Number(req.params.bookingId));
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found." });
+    }
+    if (Number(booking.driver_id) !== Number(driver.id)) {
+      return res.status(403).json({ success: false, message: "You can only view your own booking route." });
+    }
+
+    const points = await bookingRouteModel.listForBooking(booking.id);
+    res.json({ success: true, data: { bookingId: booking.id, points } });
   } catch (error) {
     next(error);
   }
@@ -231,6 +264,10 @@ async function startRide(req, res, next) {
       pin: req.body.pin,
     });
 
+    // Preserve the first known trip coordinate even if the next background
+    // GPS heartbeat arrives after the passenger's ride has already started.
+    await recordRoutePointSafely(booking.id, driver);
+
     getIO()
       .to(`passenger:${booking.passenger_id}`)
       .emit("passenger:ride_started", {
@@ -259,6 +296,11 @@ async function completeRide(req, res, next) {
       driverId: driver.id,
       actualDistanceKm: req.body.actualDistanceKm,
     });
+
+    // `completeRide` changes the status out of ongoing, so save the last
+    // known coordinate explicitly before later location updates stop being
+    // recorded for this booking.
+    await recordRoutePointSafely(booking.id, driver);
 
     getIO()
       .to(`passenger:${booking.passenger_id}`)
@@ -471,6 +513,7 @@ module.exports = {
   respondBooking,
   getIncomingBooking,
   getActiveBooking,
+  getBookingRoute,
   getRideHistory,
   arriveAtPickup,
   startRide,

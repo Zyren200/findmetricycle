@@ -29,70 +29,74 @@ class NotificationDetailPage extends StatelessWidget {
     final details = _details(notification["metadata"]);
 
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
+      backgroundColor: Colors.transparent,
       body: Column(
         children: [
           const AppTopBar(title: "Notification", showBack: true),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: style.color.withAlpha(36),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(style.icon, size: 20, color: style.color),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            style.label,
-                            style: TextStyle(
-                              color: style.color,
-                              fontSize: 12,
-                              fontWeight: DesignTokens.fw600,
+                FadeRise(
+                  child: SunCard(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            IconTile(
+                              icon: style.icon,
+                              size: 44,
+                              radius: 14,
+                              background: notificationTileColor(style.color),
+                              foreground: style.color,
                             ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    style.label,
+                                    style: TextStyle(
+                                      color: style.color,
+                                      fontSize: 13,
+                                      fontWeight: DesignTokens.fw800,
+                                    ),
+                                  ),
+                                  if (when != null)
+                                    Text(
+                                      when,
+                                      style: TextStyle(
+                                          color: DesignTokens.ink2,
+                                          fontSize: 12,
+                                          fontWeight: DesignTokens.fw600),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        Text(title,
+                            style: DesignTokens.title.copyWith(height: 1.3)),
+                        const SizedBox(height: 10),
+                        SelectableText(
+                          body.isEmpty ? "(No message)" : body,
+                          style: TextStyle(
+                            color: DesignTokens.ink,
+                            fontSize: 15,
+                            fontWeight: DesignTokens.fw500,
+                            height: 1.55,
                           ),
-                          if (when != null)
-                            Text(
-                              when,
-                              style: TextStyle(
-                                  color: DesignTokens.muted, fontSize: 12),
-                            ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: DesignTokens.text,
-                    fontSize: 20,
-                    fontWeight: DesignTokens.fw700,
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SelectableText(
-                  body.isEmpty ? "(No message)" : body,
-                  style: TextStyle(
-                    color: DesignTokens.text,
-                    fontSize: 15,
-                    height: 1.55,
                   ),
                 ),
                 if (details.isNotEmpty) ...[
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 14),
                   InfoBox(
                     children: [
                       for (final (label, value) in details)
@@ -101,10 +105,10 @@ class NotificationDetailPage extends StatelessWidget {
                   ),
                 ],
                 if (onOpenRide != null) ...[
-                  const SizedBox(height: 24),
-                  PrimaryActionButton(
+                  const SizedBox(height: 20),
+                  SunButton(
                     label: "View ride",
-                    icon: Icons.electric_rickshaw_rounded,
+                    trailingIcon: Icons.arrow_forward_rounded,
                     onPressed: () {
                       Navigator.of(context).pop();
                       onOpenRide!();
@@ -128,11 +132,14 @@ class NotificationDetailPage extends StatelessWidget {
     final fare = double.tryParse(raw["finalFare"]?.toString() ?? "");
     if (fare != null) details.add(("Fare", "₱${fare.toStringAsFixed(2)}"));
     final stars = int.tryParse(raw["stars"]?.toString() ?? "");
-    if (stars != null) details.add(("Rating", "${"★" * stars}${"☆" * (5 - stars)}"));
+    if (stars != null) {
+      details.add(("Rating", "${"★" * stars}${"☆" * (5 - stars)}"));
+    }
     final reason = raw["reason"]?.toString().trim();
     if (reason != null && reason.isNotEmpty) {
       final readable = reason.replaceAll("_", " ");
-      details.add(("Reason", readable[0].toUpperCase() + readable.substring(1)));
+      details
+          .add(("Reason", readable[0].toUpperCase() + readable.substring(1)));
     }
     return details;
   }

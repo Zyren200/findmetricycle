@@ -1,15 +1,20 @@
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:provider/provider.dart";
+import "package:url_launcher/url_launcher.dart";
 
 import "../../../../core/components/index.dart";
+import "../../../../core/safety/sos_delivery.dart";
+import "../../../../core/safety/sos_flow.dart";
 import "../../../../core/theme/design_tokens.dart";
+import "../driver_home_page.dart" show shortPeso;
 import "../driver_ride_controller.dart";
 import "../widgets/driver_ride_actions.dart";
 import "../widgets/driver_ride_map.dart";
 
-/// The accepted ride, step by step: head to pickup → arrived → verify the
-/// passenger's PIN (starts the trip) → complete → collect the cash fare.
+/// The accepted ride on the full-screen map, one sheet per step: head to
+/// pickup → at pickup, enter the passenger's PIN on the keypad (starts the
+/// trip) → on trip, complete → collect the cash fare.
 class ActiveRidePage extends StatefulWidget {
   const ActiveRidePage({super.key});
 
@@ -18,25 +23,41 @@ class ActiveRidePage extends StatefulWidget {
 }
 
 class _ActiveRidePageState extends State<ActiveRidePage> {
-  final _pinController = TextEditingController();
+  /// Digits typed on the keypad so far.
+  String _pin = "";
+  int _wrongPins = 0;
+  bool _pinError = false;
 
-  /// Last known state of the ride, kept for the "Trip Done" screen after
-  /// the controller clears it.
+  /// Last known state of the ride, kept for the "Ride completed" card
+  /// after the controller clears it.
   Map<String, dynamic>? _last;
   bool _completed = false;
 
-  @override
-  void dispose() {
-    _pinController.dispose();
-    super.dispose();
+  static const int _maxPinAttempts = 5;
+
+  void _press(String key) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _pinError = false;
+      if (key == "del") {
+        if (_pin.isNotEmpty) _pin = _pin.substring(0, _pin.length - 1);
+      } else if (_pin.length < 4) {
+        _pin += key;
+      }
+    });
   }
 
   Future<void> _verifyPinAndStart(DriverRideController ctrl) async {
-    final pin = _pinController.text.trim();
-    if (pin.length != 4) return;
-    final ok = await ctrl.startRide(pin);
+    if (_pin.length != 4) return;
+    final ok = await ctrl.startRide(_pin);
     if (!mounted) return;
-    if (ok) _pinController.clear();
+    setState(() {
+      _pin = "";
+      if (!ok) {
+        _wrongPins++;
+        _pinError = true;
+      }
+    });
   }
 
   Future<void> _complete(DriverRideController ctrl) async {
@@ -57,130 +78,103 @@ class _ActiveRidePageState extends State<ActiveRidePage> {
     if (ok && mounted) Navigator.of(context).pop();
   }
 
+  Future<void> _call(String? number) async {
+    if (number == null) return;
+    final ok = await launchUrl(Uri(scheme: "tel", path: number));
+    if (!ok && mounted) showSunToast(context, "Couldn't open the dialer.");
+  }
+
   @override
   Widget build(BuildContext context) {
     final ctrl = context.watch<DriverRideController>();
     final booking = ctrl.activeBooking;
     if (booking != null) _last = booking;
+    final top = MediaQuery.paddingOf(context).top;
 
-    if (booking == null) {
-      final last = _last;
-      if (_completed && last != null) return _tripDone(last);
+    if (booking == null && !(_completed && _last != null)) {
       return _ended(ctrl);
     }
 
-    final status = booking["status"]?.toString() ?? "";
-    final (statusLabel, statusColor) = switch (status) {
-      "accepted" => ("Ride accepted — Head to pickup", DesignTokens.blue),
-      "arriving" => ("Arrived — Ask for PIN", DesignTokens.warning),
-      "ongoing" => (
-          "Ride in progress — Head to destination",
-          DesignTokens.blue
+    final ride = booking ?? _last!;
+    final status = booking == null ? "done" : booking["status"]?.toString();
+    final passenger = bookingText(ride, "passenger_name") ?? "Passenger";
+    final first = passenger.split(RegExp(r"\s+")).first;
+    final dropoff = bookingText(ride, "dropoff_address") ?? "-";
+
+    final (title, sub) = switch (status) {
+      "accepted" => (
+          "Head to pickup",
+          bookingText(ride, "pickup_address") ?? ""
         ),
-      _ => (status.replaceAll("_", " "), DesignTokens.muted),
+      "arriving" => ("At the pickup point", "Ask $first for the 4-digit PIN"),
+      "ongoing" => ("On trip", "Drop off at ${dropoff.split(",").first}"),
+      "done" => (
+          "Ride completed",
+          "Collect ${shortPeso(bookingFare(ride))} in cash"
+        ),
+      _ => ("Active ride", status?.replaceAll("_", " ") ?? ""),
+    };
+
+    final Widget sheet = switch (status) {
+      "accepted" => _toPickup(ctrl, ride, passenger),
+      "arriving" => _enterPin(ctrl, first),
+      "ongoing" => _onTrip(ctrl, ride, first, dropoff),
+      "done" => _done(ride, first),
+      _ => _toPickup(ctrl, ride, passenger),
     };
 
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
-      body: Column(
+      backgroundColor: DesignTokens.mapLand,
+      body: Stack(
         children: [
-          AppTopBar(
-            title: "Active Ride",
-            showBack: true,
-            badge: status.toUpperCase(),
-            badgeColor: DesignTokens.driverAccent,
-            trailing: TextButton(
-              onPressed: ctrl.isSendingSos
-                  ? null
-                  : () => confirmAndSendDriverSos(context, ctrl),
-              child: Text("SOS",
-                  style: TextStyle(
-                      color: DesignTokens.red, fontWeight: DesignTokens.fw700)),
+          Positioned.fill(
+            child: DriverRideMap(
+              fitPadding: EdgeInsets.fromLTRB(50, top + 100, 50, 470),
             ),
           ),
-          const SizedBox(height: 200, child: DriverRideMap()),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                StatusBanner(label: statusLabel, color: statusColor),
-                const SizedBox(height: 16),
-                InfoBox(
-                  spacing: 8,
-                  children: [
-                    InfoRow(
-                        label: "Passenger:",
-                        value: bookingText(booking, "passenger_name") ?? "-"),
-                    InfoRow(
-                        label: "Pickup:",
-                        value: bookingText(booking, "pickup_address") ?? "-"),
-                    InfoRow(
-                        label: "Destination:",
-                        value: bookingText(booking, "dropoff_address") ?? "-"),
-                    if (bookingText(booking, "passenger_count") != null)
-                      InfoRow(
-                          label: "Passengers:",
-                          value: bookingText(booking, "passenger_count")!),
-                    InfoRow(
-                        label: "Fare:",
-                        value: "${pesoText(bookingFare(booking))} Cash"),
+          Positioned(
+            top: top + 6,
+            left: 12,
+            right: 12,
+            child: FadeRise(
+              child: Row(
+                children: [
+                  GlassIconButton(
+                    icon: Icons.chevron_left_rounded,
+                    label: "Back",
+                    onTap: () => Navigator.of(context).maybePop(),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Semantics(
+                      liveRegion: true,
+                      child: PrismChip(
+                        title: sub.isEmpty ? title : "$title · $sub",
+                        leading: const Padding(
+                          padding: EdgeInsets.only(left: 9),
+                          child: PulseDot(size: 9),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (status != "done") ...[
+                    const SizedBox(width: 8),
+                    SosPill(
+                      onTap: ctrl.isSendingSos
+                          ? null
+                          : () => confirmAndSendDriverSos(context, ctrl),
+                    ),
                   ],
-                ),
-                if (ctrl.error != null) ...[
-                  const SizedBox(height: 12),
-                  ErrorBox(message: ctrl.error!),
                 ],
-                const SizedBox(height: 16),
-                if (status == "accepted")
-                  PrimaryActionButton(
-                    label:
-                        ctrl.isBusy ? "Updating..." : "I've Arrived at Pickup",
-                    icon: Icons.location_on_rounded,
-                    color: DesignTokens.driverAccent,
-                    loading: ctrl.isBusy,
-                    onPressed: ctrl.markArrived,
-                  ),
-                if (status == "arriving") ...[
-                  _PinEntry(
-                    controller: _pinController,
-                    busy: ctrl.isBusy,
-                    onSubmit: () => _verifyPinAndStart(ctrl),
-                  ),
-                  const SizedBox(height: 12),
-                  PrimaryActionButton(
-                    label: "Passenger No-Show",
-                    outlined: true,
-                    color: DesignTokens.warning,
-                    onPressed: ctrl.isBusy ? null : () => _noShow(ctrl),
-                  ),
-                ],
-                if (status == "ongoing")
-                  PrimaryActionButton(
-                    label: ctrl.isBusy ? "Completing..." : "Complete Ride",
-                    icon: Icons.flag_rounded,
-                    color: DesignTokens.green,
-                    loading: ctrl.isBusy,
-                    onPressed: () => _complete(ctrl),
-                  ),
-                if (status == "accepted" || status == "arriving") ...[
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: ctrl.isBusy ? null : () => _cancelRide(ctrl),
-                    icon: Icon(Icons.close_rounded,
-                        size: 18, color: DesignTokens.red),
-                    label: Text("Cancel Ride",
-                        style: TextStyle(color: DesignTokens.red)),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: () => showDriverReportDialog(context, ctrl),
-                  icon: Icon(Icons.flag_outlined,
-                      size: 18, color: DesignTokens.muted),
-                  label: Text("Report an Issue",
-                      style: TextStyle(color: DesignTokens.muted)),
-                ),
-              ],
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.78),
+              child: SingleChildScrollView(child: sheet),
             ),
           ),
         ],
@@ -188,65 +182,300 @@ class _ActiveRidePageState extends State<ActiveRidePage> {
     );
   }
 
-  Widget _tripDone(Map<String, dynamic> ride) {
-    return Scaffold(
-      backgroundColor: DesignTokens.bg,
-      body: Column(
-        children: [
-          const AppTopBar(title: "Ride Completed"),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 32, 16, 24),
-              children: [
-                Icon(Icons.check_circle_rounded,
-                    size: 64, color: DesignTokens.green),
-                const SizedBox(height: 16),
-                Text("Trip Done!",
+  Widget _passengerCard(Map<String, dynamic> ride, String passenger,
+      {String? detail}) {
+    final phone = bookingText(ride, "passenger_phone");
+    return PersonRow(
+      name: passenger,
+      tone: AvatarTone.lagoon,
+      subtitle: detail ?? "Passenger",
+      onCall: phone == null ? null : () => _call(phone),
+    );
+  }
+
+  Widget _reportLink(DriverRideController ctrl) => Center(
+        child: SunLink(
+          label: "Report an issue",
+          color: DesignTokens.ink2,
+          onTap: () => showDriverReportDialog(context, ctrl),
+        ),
+      );
+
+  // ── Head to pickup ────────────────────────────────────────────────────
+
+  Widget _toPickup(
+      DriverRideController ctrl, Map<String, dynamic> ride, String passenger) {
+    final pax = bookingText(ride, "passenger_count") ?? "1";
+    final pickup = bookingText(ride, "pickup_address") ?? "-";
+    return MapSheet(
+      label: "Head to pickup",
+      children: [
+        if (ctrl.sosDelivery.status != SosDeliveryStatus.idle)
+          SosStatusBanner(delivery: ctrl.sosDelivery, error: ctrl.sosError),
+        _passengerCard(ride, passenger,
+            detail:
+                "Pickup at ${pickup.split(",").first} · $pax passenger${pax == "1" ? "" : "s"}"),
+        if (ctrl.error != null) ErrorBox(message: ctrl.error!),
+        SunButton(
+          label: ctrl.isBusy ? "Updating…" : "I've arrived at pickup",
+          loading: ctrl.isBusy,
+          onPressed: ctrl.markArrived,
+        ),
+        Row(
+          children: [
+            SunButton(
+              label: "Cancel ride",
+              tone: SunTone.danger,
+              height: 40,
+              expand: false,
+              onPressed: ctrl.isBusy ? null : () => _cancelRide(ctrl),
+            ),
+            const Spacer(),
+            Text("Est. ${shortPeso(bookingFare(ride))} · cash",
+                style: DesignTokens.mono
+                    .copyWith(color: DesignTokens.ink2, fontSize: 13)),
+          ],
+        ),
+        _reportLink(ctrl),
+      ],
+    );
+  }
+
+  // ── Enter the PIN ─────────────────────────────────────────────────────
+
+  Widget _enterPin(DriverRideController ctrl, String first) {
+    final attemptsLeft = (_maxPinAttempts - _wrongPins).clamp(0, 5);
+    final locked = attemptsLeft == 0;
+    final message = _pinError && ctrl.error != null
+        ? ctrl.error!
+        : locked
+            ? "No attempts left. Contact the admin."
+            : "$attemptsLeft attempt${attemptsLeft == 1 ? "" : "s"} left";
+    final bad = _pinError || locked;
+
+    Widget key(String label) => Pressable(
+          onTap: locked || ctrl.isBusy ? null : () => _press(label),
+          semanticLabel: label == "del" ? "Delete last digit" : label,
+          child: Container(
+            height: 50,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: DesignTokens.surface2,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: DesignTokens.line),
+            ),
+            foregroundDecoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border(top: BorderSide(color: DesignTokens.hi)),
+            ),
+            child: label == "del"
+                ? Icon(Icons.backspace_outlined,
+                    size: 20, color: DesignTokens.ink2)
+                : Text(label,
+                    style: DesignTokens.mono.copyWith(fontSize: 20)),
+          ),
+        );
+
+    const rows = [
+      ["1", "2", "3"],
+      ["4", "5", "6"],
+      ["7", "8", "9"],
+      ["", "0", "del"],
+    ];
+
+    return MapSheet(
+      label: "Enter pickup PIN",
+      gap: 12,
+      bottomPadding: 18,
+      children: [
+        if (ctrl.sosDelivery.status != SosDeliveryStatus.idle)
+          SosStatusBanner(delivery: ctrl.sosDelivery, error: ctrl.sosError),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Center(child: Overline("At pickup")),
+            const SizedBox(height: 6),
+            Center(
+              child: Text("Ask $first for the PIN",
+                  textAlign: TextAlign.center, style: DesignTokens.title),
+            ),
+          ],
+        ),
+        Semantics(
+          liveRegion: true,
+          label: "${_pin.length} of 4 digits entered",
+          child: Center(
+            child: SizedBox(
+                width: 238,
+                child: DigitBoxes(value: _pin, length: 4, height: 60, fontSize: 28)),
+          ),
+        ),
+        bad
+            ? Shake(
+                key: ValueKey("$_wrongPins-$message"),
+                child: Text(message,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                        color: DesignTokens.text,
-                        fontSize: 20,
-                        fontWeight: DesignTokens.fw700)),
-                const SizedBox(height: 4),
-                Text("Collect from passenger:",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: DesignTokens.muted)),
-                const SizedBox(height: 6),
-                Text(
-                  pesoText(bookingFare(ride)),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: DesignTokens.green,
-                      fontSize: 34,
-                      fontWeight: DesignTokens.fw700),
-                ),
-                const SizedBox(height: 24),
-                InfoBox(
-                  spacing: 8,
-                  children: [
-                    InfoRow(
-                        label: "Pickup:",
-                        value: bookingText(ride, "pickup_address") ?? "-"),
-                    InfoRow(
-                        label: "Destination:",
-                        value: bookingText(ride, "dropoff_address") ?? "-"),
-                    if (bookingText(ride, "passenger_count") != null)
-                      InfoRow(
-                          label: "Passengers:",
-                          value: bookingText(ride, "passenger_count")!),
-                    const InfoRow(label: "Payment:", value: "Cash"),
+                        color: DesignTokens.sosText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600)),
+              )
+            : Text(message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: DesignTokens.ink2,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600)),
+        Column(
+          children: [
+            for (final row in rows) ...[
+              Row(
+                children: [
+                  for (var i = 0; i < row.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 8),
+                    Expanded(
+                      child: row[i].isEmpty
+                          ? const SizedBox(height: 50)
+                          : key(row[i]),
+                    ),
                   ],
-                ),
-                const SizedBox(height: 24),
-                PrimaryActionButton(
-                  label: "Done — Back to Home",
-                  color: DesignTokens.driverAccent,
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
+                ],
+              ),
+              if (row != rows.last) const SizedBox(height: 8),
+            ],
+          ],
+        ),
+        SunButton(
+          label: ctrl.isBusy ? "Checking…" : "Start trip",
+          loading: ctrl.isBusy,
+          onPressed: _pin.length == 4 && !locked
+              ? () => _verifyPinAndStart(ctrl)
+              : null,
+        ),
+        SunButton(
+          label: "Passenger no-show",
+          tone: SunTone.danger,
+          height: 40,
+          onPressed: ctrl.isBusy ? null : () => _noShow(ctrl),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SunLink(
+              label: "Cancel ride",
+              color: DesignTokens.ink2,
+              onTap: ctrl.isBusy ? null : () => _cancelRide(ctrl),
             ),
+            Text("  ·  ", style: TextStyle(color: DesignTokens.ink2)),
+            SunLink(
+              label: "Report an issue",
+              color: DesignTokens.ink2,
+              onTap: () => showDriverReportDialog(context, ctrl),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ── On trip ───────────────────────────────────────────────────────────
+
+  Widget _onTrip(DriverRideController ctrl, Map<String, dynamic> ride,
+      String first, String dropoff) {
+    return MapSheet(
+      label: "On trip",
+      children: [
+        if (ctrl.sosDelivery.status != SosDeliveryStatus.idle)
+          SosStatusBanner(delivery: ctrl.sosDelivery, error: ctrl.sosError),
+        const RideProgressBars(step: 3, labels: true),
+        _passengerCard(ride, bookingText(ride, "passenger_name") ?? first,
+            detail:
+                "To ${dropoff.split(",").first} · ${shortPeso(bookingFare(ride))} cash"),
+        if (ctrl.error != null) ErrorBox(message: ctrl.error!),
+        SunButton(
+          label: ctrl.isBusy ? "Completing…" : "Complete ride",
+          loading: ctrl.isBusy,
+          onPressed: () => _complete(ctrl),
+        ),
+        _reportLink(ctrl),
+      ],
+    );
+  }
+
+  // ── Completed ─────────────────────────────────────────────────────────
+
+  Widget _done(Map<String, dynamic> ride, String first) {
+    final distance = double.tryParse(ride["distance_km"]?.toString() ?? "");
+    final started = DateTime.tryParse(ride["started_at"]?.toString() ?? "");
+    final minutes = started == null
+        ? null
+        : DateTime.now().difference(started.toLocal()).inMinutes.clamp(1, 999);
+    final inset = MediaQuery.paddingOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(8, 0, 8, 8 + inset),
+      child: FadeRise(
+        offset: 40,
+        child: PrismGlass(
+          strong: true,
+          spin: true,
+          radius: DesignTokens.radiusSheet,
+          shadows: DesignTokens.shadowSheet,
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: DesignTokens.lineStrong,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+              const SizedBox(height: 6),
+              const StatusRing(icon: Icons.check_rounded),
+              const Overline("Collect in cash"),
+              const SizedBox(height: 6),
+              Text(pesoText(bookingFare(ride)),
+                  style: TextStyle(
+                      color: DesignTokens.ink,
+                      fontSize: 46,
+                      height: 1,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -2.3,
+                      fontFeatures: DesignTokens.tabular)),
+              const SizedBox(height: 6),
+              Text(
+                  [
+                    bookingText(ride, "passenger_name") ?? first,
+                    (bookingText(ride, "dropoff_address") ?? "")
+                        .split(",")
+                        .first,
+                  ].where((p) => p.isNotEmpty).join(" · "),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: DesignTokens.ink2, fontSize: 13.5)),
+              const SizedBox(height: 14),
+              MetaStats(items: [
+                (
+                  distance == null ? "—" : "${distance.toStringAsFixed(1)} km",
+                  "Distance"
+                ),
+                (minutes == null ? "—" : "$minutes min", "Time"),
+                (bookingText(ride, "passenger_count") ?? "1", "Passengers"),
+              ]),
+              const SizedBox(height: 16),
+              SunButton(
+                label: "Back to Drive",
+                onPressed: () {
+                  showSunToast(context,
+                      "${shortPeso(bookingFare(ride))} added to today");
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -254,7 +483,7 @@ class _ActiveRidePageState extends State<ActiveRidePage> {
   /// No active ride any more (cancelled by the passenger, or opened late).
   Widget _ended(DriverRideController ctrl) {
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -262,102 +491,21 @@ class _ActiveRidePageState extends State<ActiveRidePage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.close_rounded, size: 56, color: DesignTokens.muted),
-                const SizedBox(height: 12),
-                Text(
-                  ctrl.error ?? "No active ride.",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: DesignTokens.muted),
+                EmptyState(
+                  icon: Icons.close_rounded,
+                  message: ctrl.error ?? "No active ride.",
                 ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: 200,
-                  child: PrimaryActionButton(
-                    label: "Back to Home",
-                    color: DesignTokens.driverAccent,
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
+                SunButton(
+                  label: "Back to requests",
+                  tone: SunTone.ink,
+                  height: 52,
+                  onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
             ),
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Inline 4-digit PIN entry; the backend verifies it when starting the
-/// ride (a wrong or locked PIN comes back as an error).
-class _PinEntry extends StatefulWidget {
-  const _PinEntry(
-      {required this.controller, required this.busy, required this.onSubmit});
-
-  final TextEditingController controller;
-  final bool busy;
-  final VoidCallback onSubmit;
-
-  @override
-  State<_PinEntry> createState() => _PinEntryState();
-}
-
-class _PinEntryState extends State<_PinEntry> {
-  @override
-  Widget build(BuildContext context) {
-    final complete = widget.controller.text.trim().length == 4;
-    return InfoBox(
-      color: DesignTokens.blue.withAlpha(20),
-      borderColor: DesignTokens.blue.withAlpha(70),
-      children: [
-        Row(
-          children: [
-            Icon(Icons.keyboard_rounded, size: 18, color: DesignTokens.blue),
-            const SizedBox(width: 8),
-            Text("Enter Passenger PIN",
-                style: TextStyle(
-                    color: DesignTokens.blue, fontWeight: DesignTokens.fw600)),
-          ],
-        ),
-        Text(
-          "Ask the passenger for their 4-digit PIN to verify pickup.",
-          style: TextStyle(color: DesignTokens.blue, fontSize: 12),
-        ),
-        TextField(
-          controller: widget.controller,
-          keyboardType: TextInputType.number,
-          maxLength: 4,
-          textAlign: TextAlign.center,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          onChanged: (_) => setState(() {}),
-          onSubmitted: (_) {
-            if (complete) widget.onSubmit();
-          },
-          style: TextStyle(
-            color: DesignTokens.text,
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 12,
-          ),
-          decoration: InputDecoration(
-            counterText: "",
-            hintText: "_ _ _ _",
-            filled: true,
-            fillColor: DesignTokens.bg3,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(DesignTokens.radiusSm),
-              borderSide:
-                  BorderSide(color: DesignTokens.blue.withAlpha(120), width: 2),
-            ),
-          ),
-        ),
-        PrimaryActionButton(
-          label: widget.busy ? "Verifying..." : "Verify PIN & Start Ride",
-          icon: Icons.play_circle_outline_rounded,
-          color: DesignTokens.blue,
-          loading: widget.busy,
-          onPressed: complete ? widget.onSubmit : null,
-        ),
-      ],
     );
   }
 }

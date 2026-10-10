@@ -6,6 +6,7 @@ import "package:latlong2/latlong.dart" as ll;
 import "package:maplibre_gl/maplibre_gl.dart" as ml;
 import "package:provider/provider.dart";
 
+import "../../../../core/components/sunrise.dart";
 import "../../../../core/config/app_config.dart";
 import "../../../../core/geo/service_area.dart";
 import "../../../../core/state/service_area_store.dart";
@@ -25,6 +26,8 @@ class PassengerRideMap extends StatefulWidget {
     this.onTap,
     this.showControls = true,
     this.borderRadius = 0,
+    this.handle,
+    this.fitPadding = const EdgeInsets.all(36),
   });
 
   /// Called with the tapped coordinate; null makes the map view-only.
@@ -32,8 +35,24 @@ class PassengerRideMap extends StatefulWidget {
   final bool showControls;
   final double borderRadius;
 
+  /// Lets the page's own floating buttons recenter / fit the map.
+  final MapHandle? handle;
+
+  /// Room kept clear when fitting the route — e.g. the sheet covering the
+  /// bottom of a full-screen map.
+  final EdgeInsets fitPadding;
+
   @override
   State<PassengerRideMap> createState() => _PassengerRideMapState();
+}
+
+/// Camera actions for a full-screen map whose buttons live on the page.
+class MapHandle {
+  Future<void> Function()? _recenter;
+  Future<void> Function()? _fit;
+
+  Future<void> recenter() async => _recenter?.call();
+  Future<void> fit() async => _fit?.call();
 }
 
 class _PassengerRideMapState extends State<PassengerRideMap> {
@@ -62,12 +81,41 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
   ml.Symbol? _currentLocationSymbol;
   ml.Symbol? _assignedDriverSymbol;
 
+  // The theme the map style was loaded for; a theme switch rebuilds the
+  // map with the matching style and redraws everything.
+  bool _styleDark = DesignTokens.isDark;
+
   @override
   void initState() {
     super.initState();
     _mapSlowTimer = Timer(const Duration(seconds: 15), () {
       if (mounted && !_mapReady) setState(() => _mapSlow = true);
     });
+    widget.handle?._recenter = _moveToCurrentLocation;
+    widget.handle?._fit = _fitToSelection;
+  }
+
+  @override
+  void didUpdateWidget(PassengerRideMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    widget.handle?._recenter = _moveToCurrentLocation;
+    widget.handle?._fit = _fitToSelection;
+  }
+
+  /// A new map (new style) is coming: forget everything drawn on the old.
+  void _resetForNewStyle() {
+    _styleDark = DesignTokens.isDark;
+    _mapController = null;
+    _mapReady = false;
+    _overlayKey = null;
+    _staticKey = null;
+    _lastFitKey = null;
+    _hasCenteredOnUser = false;
+    _staticCircles.clear();
+    _staticSymbols.clear();
+    _currentLocationCircle = null;
+    _currentLocationSymbol = null;
+    _assignedDriverSymbol = null;
   }
 
   @override
@@ -224,10 +272,10 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
           _lastFitKey = batch.fitKey;
           await map.animateCameraBounds(
             batch.bounds!,
-            left: 36,
-            top: 36,
-            right: 36,
-            bottom: 36,
+            left: widget.fitPadding.left,
+            top: widget.fitPadding.top,
+            right: widget.fitPadding.right,
+            bottom: widget.fitPadding.bottom,
           );
         }
       } while (_syncPending && mounted);
@@ -269,23 +317,29 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
       final routeGeometry = controller.routePolyline
           ?.map((point) => ml.LatLng(point.latitude, point.longitude))
           .toList();
-      lines.add(
-        ml.LineOptions(
-          geometry: routeGeometry ?? [pickup!, dropoff!],
-          lineColor: "#0E8C46",
-          lineWidth: 4.5,
-          lineOpacity: 0.82,
-        ),
-      );
+      final route = routeGeometry ?? [pickup!, dropoff!];
+      // Sunrise route: a casing under the orange line.
+      lines.add(ml.LineOptions(
+        geometry: route,
+        lineColor: DesignTokens.isDark ? "#0D0F12" : "#FFFFFF",
+        lineWidth: 11,
+        lineOpacity: 0.9,
+      ));
+      lines.add(ml.LineOptions(
+        geometry: route,
+        lineColor: _hex(DesignTokens.primaryBright),
+        lineWidth: 5,
+        lineOpacity: 1,
+      ));
     }
 
     if (assignedDriver != null && pickup != null) {
       lines.add(
         ml.LineOptions(
           geometry: [assignedDriver, pickup],
-          lineColor: "#205C37",
+          lineColor: _hex(DesignTokens.primaryBright),
           lineWidth: 3.4,
-          lineOpacity: 0.7,
+          lineOpacity: 0.55,
         ),
       );
     }
@@ -304,11 +358,11 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
             0.025;
     if (pickup != null && !pickupIsHere) {
       markers
-          .add(_MapMarker(pickup, MapMarkerIcons.pickup, "bottom", "#0E8C46"));
+          .add(_MapMarker(pickup, MapMarkerIcons.pickup, "center", "#1FC8B4"));
     }
     if (dropoff != null) {
       markers.add(
-          _MapMarker(dropoff, MapMarkerIcons.dropoff, "bottom", "#C94530"));
+          _MapMarker(dropoff, MapMarkerIcons.dropoff, "bottom", "#FF7A1A"));
     }
     for (final driver in driverMarkers) {
       if (driver.tone == "assigned") continue; // drawn as a moving symbol
@@ -316,7 +370,7 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
         driver.point,
         MapMarkerIcons.rider,
         "center",
-        driver.tone == "nearby" ? "#136F3A" : "#0A7BD4",
+        "#FF7A1A",
       ));
     }
 
@@ -420,18 +474,18 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
     final currentLocation = _toMapLibre(controller.currentPosition);
     final assignedDriver = _toMapLibre(controller.driverPosition);
 
-    // "You are here": a soft halo with the blue location pin on top.
+    // "You are here": a soft lagoon halo with the lagoon dot on top.
     if (currentLocation != null) {
       final halo = _currentLocationCircle;
       if (halo == null) {
         _currentLocationCircle = await map.addCircle(ml.CircleOptions(
           geometry: currentLocation,
-          circleRadius: 11,
-          circleColor: "#1471C5",
-          // Solid dot only when the pin icon isn't available.
-          circleOpacity: _iconsReady ? 0.18 : 0.9,
+          circleRadius: _iconsReady ? 20 : 9,
+          circleColor: _hex(DesignTokens.lagoon),
+          // Solid dot only when the dot icon isn't available.
+          circleOpacity: _iconsReady ? 0.18 : 0.95,
           circleStrokeColor: "#FFFFFF",
-          circleStrokeWidth: 1.5,
+          circleStrokeWidth: _iconsReady ? 0 : 3,
         ));
       } else if (_moved(halo.options.geometry, currentLocation)) {
         await map.moveCircleSmooth(halo, currentLocation,
@@ -442,7 +496,7 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
         final pin = _currentLocationSymbol;
         if (pin == null) {
           _currentLocationSymbol = await map
-              .addMarker(currentLocation, MapMarkerIcons.me, anchor: "bottom");
+              .addMarker(currentLocation, MapMarkerIcons.me, anchor: "center");
         } else if (_moved(pin.options.geometry, currentLocation)) {
           await map.moveSymbolSmooth(pin, currentLocation,
               durationMs: 500, steps: 12, rotate: false);
@@ -571,7 +625,10 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
     if (batch.bounds == null) return;
     _lastFitKey = batch.fitKey;
     await map.animateCameraBounds(batch.bounds!,
-        left: 36, top: 36, right: 36, bottom: 36);
+        left: widget.fitPadding.left,
+        top: widget.fitPadding.top,
+        right: widget.fitPadding.right,
+        bottom: widget.fitPadding.bottom);
   }
 
   @override
@@ -581,6 +638,7 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
     final here = _rideController?.currentPosition;
     final start = here == null || _userOutside(here) ? _home : here;
     final onTap = widget.onTap;
+    if (_styleDark != DesignTokens.isDark) _resetForNewStyle();
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
@@ -588,9 +646,12 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
         children: [
           Positioned.fill(
             child: AppMap(
-              initialStyleUrl: AppConfig.openFreeMapStyleUrl,
+              key: ValueKey("passenger-map-$_styleDark"),
+              initialStyleUrl: AppConfig.mapStyleUrl,
               initialPosition: ml.LatLng(start.latitude, start.longitude),
-              cameraBounds: area != null && area.enforced ? _bounds(area.mapBounds) : null,
+              cameraBounds: area != null && area.enforced
+                  ? _bounds(area.mapBounds)
+                  : null,
               minZoom: area != null && area.enforced ? area.minZoom : 3.0,
               onMapCreated: _handleMapCreated,
               onStyleLoaded: _handleStyleLoaded,
@@ -603,7 +664,7 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
           if (!_mapReady)
             Positioned.fill(
               child: Container(
-                color: DesignTokens.bg2,
+                color: DesignTokens.mapLand,
                 alignment: Alignment.center,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -654,6 +715,13 @@ class _PassengerRideMapState extends State<PassengerRideMap> {
   }
 }
 
+/// "#RRGGBB" for a map style property.
+String _hex(Color c) {
+  String h(double v) =>
+      (v * 255.0).round().clamp(0, 255).toRadixString(16).padLeft(2, "0");
+  return "#${h(c.r)}${h(c.g)}${h(c.b)}";
+}
+
 class _MapButton extends StatelessWidget {
   const _MapButton({
     required this.icon,
@@ -667,16 +735,12 @@ class _MapButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: DesignTokens.bg2,
-      elevation: 3,
-      shape: const CircleBorder(),
-      child: IconButton(
-        tooltip: tooltip,
-        visualDensity: VisualDensity.compact,
-        icon: Icon(icon, size: 20, color: DesignTokens.text),
-        onPressed: () => onPressed(),
-      ),
+    return GlassIconButton(
+      icon: icon,
+      label: tooltip,
+      size: 44,
+      square: true,
+      onTap: () => onPressed(),
     );
   }
 }

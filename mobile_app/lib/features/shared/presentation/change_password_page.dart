@@ -89,7 +89,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
+      backgroundColor: Colors.transparent,
       appBar: const AppAppBar(title: "Change Password"),
       body: SafeArea(
         child: SingleChildScrollView(

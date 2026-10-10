@@ -54,6 +54,11 @@ router.post(
 router.get("/profile", driverController.getProfile);
 router.get("/bookings/incoming", driverController.getIncomingBooking);
 router.get("/bookings/active", driverController.getActiveBooking);
+router.get(
+  "/bookings/:bookingId/route",
+  validate(driverSchema.bookingParamSchema),
+  driverController.getBookingRoute
+);
 router.get("/bookings/history", driverController.getRideHistory);
 router.get("/bookings/completed", driverController.getCompletedHistory);
 router.get("/earnings", driverController.getEarnings);

@@ -5,14 +5,12 @@ import "../../../core/components/index.dart";
 import "../../../core/theme/design_tokens.dart";
 import "../../../core/utils/ride_format.dart";
 import "driver_ride_controller.dart";
-
-/// Index of this page in the driver shell's bottom navigation.
-const int _ridesTabIndex = 1;
+import "driver_shell_page.dart";
 
 enum _RideFilter { all, completed, cancelled }
 
-/// Rides tab: the rider's trip history — completed and cancelled — with
-/// totals, filters, the passenger's rating and paging.
+/// History tab: the rider's trips — completed and cancelled — with totals,
+/// filters, the passenger's rating and comment, and paging.
 class DriverRidesPage extends StatefulWidget {
   const DriverRidesPage({super.key});
 
@@ -50,7 +48,7 @@ class _DriverRidesPageState extends State<DriverRidesPage> {
   // Tabs stay alive in the shell's IndexedStack — reload on open so the
   // latest trip is always there.
   void _onTabChanged() {
-    if (_navIndex?.value == _ridesTabIndex && mounted) {
+    if (_navIndex?.value == kHistoryTab && mounted) {
       context.read<DriverRideController>().loadRideHistory();
     }
   }
@@ -67,92 +65,70 @@ class _DriverRidesPageState extends State<DriverRidesPage> {
         all.where((r) => r["status"] == "cancelled").toList(),
     };
     final stats = ctrl.rideHistoryStats;
+    final top = MediaQuery.paddingOf(context).top;
 
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
-      body: Column(
-        children: [
-          const AppTopBar(title: "Ride History"),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: ctrl.loadRideHistory,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: _SummaryRow(
-                      completed: toInt(stats["completed"]),
-                      cancelled: toInt(stats["cancelled"]),
-                      totalEarned: toDouble(stats["totalEarned"]),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Wrap(
-                      spacing: 8,
-                      children: [
-                        for (final (filter, label) in const [
-                          (_RideFilter.all, "All"),
-                          (_RideFilter.completed, "Completed"),
-                          (_RideFilter.cancelled, "Cancelled"),
-                        ])
-                          ChoiceChip(
-                            label: Text(label),
-                            selected: _filter == filter,
-                            onSelected: (_) => setState(() => _filter = filter),
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (ctrl.rideHistoryError != null && all.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: ErrorBox(
-                        message: ctrl.rideHistoryError!,
-                        onRetry: ctrl.loadRideHistory,
-                      ),
-                    )
-                  else if (ctrl.isLoadingRideHistory && all.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 60),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (rides.isEmpty)
-                    EmptyState(
-                      icon: Icons.schedule_rounded,
-                      message: switch (_filter) {
-                        _RideFilter.all => "No ride history yet",
-                        _RideFilter.completed => "No completed rides yet",
-                        _RideFilter.cancelled => "No cancelled rides",
-                      },
-                    )
-                  else ...[
-                    for (final ride in rides) _RideRow(ride: ride),
-                    if (ctrl.rideHistoryHasMore)
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: OutlinedButton(
-                          onPressed: ctrl.isLoadingMoreRideHistory
-                              ? null
-                              : ctrl.loadMoreRideHistory,
-                          child: ctrl.isLoadingMoreRideHistory
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Text("Show more"),
-                        ),
-                      ),
-                  ],
-                ],
-              ),
+      backgroundColor: Colors.transparent,
+      body: RefreshIndicator(
+        onRefresh: ctrl.loadRideHistory,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(
+              20, top + 28, 20, DesignTokens.tabBarClearance + 8),
+          children: [
+            const ScreenTitle("Ride history"),
+            const SizedBox(height: 16),
+            _SummaryRow(
+              completed: toInt(stats["completed"]),
+              cancelled: toInt(stats["cancelled"]),
+              totalEarned: toDouble(stats["totalEarned"]),
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            FilterPills<_RideFilter>(
+              value: _filter,
+              onChanged: (f) => setState(() => _filter = f),
+              options: const [
+                (_RideFilter.all, "All"),
+                (_RideFilter.completed, "Completed"),
+                (_RideFilter.cancelled, "Cancelled"),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (ctrl.rideHistoryError != null && all.isEmpty)
+              ErrorBox(
+                message: ctrl.rideHistoryError!,
+                onRetry: ctrl.loadRideHistory,
+              )
+            else if (ctrl.isLoadingRideHistory && all.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 60),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (rides.isEmpty)
+              EmptyState(
+                icon: Icons.schedule_rounded,
+                message: switch (_filter) {
+                  _RideFilter.all => "No ride history yet",
+                  _RideFilter.completed => "No completed rides yet",
+                  _RideFilter.cancelled => "No cancelled rides",
+                },
+              )
+            else ...[
+              ...Stagger.wrap([for (final ride in rides) _RideCard(ride: ride)],
+                  gap: 12),
+              if (ctrl.rideHistoryHasMore) ...[
+                const SizedBox(height: 16),
+                SunButton(
+                  label: "Show more",
+                  tone: SunTone.outline,
+                  height: 48,
+                  loading: ctrl.isLoadingMoreRideHistory,
+                  onPressed: ctrl.loadMoreRideHistory,
+                ),
+              ],
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -171,19 +147,21 @@ class _SummaryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget stat(String value, String label) => Expanded(
+    Widget stat(String value, String label, {Color? bg}) => Expanded(
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: DesignTokens.bg2,
-              borderRadius: BorderRadius.circular(DesignTokens.radius),
-              border: Border.all(color: DesignTokens.border),
+              color: bg ?? DesignTokens.surface2,
+              borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: TextStyle(color: DesignTokens.muted, fontSize: 11)),
+                    style: TextStyle(
+                        color: DesignTokens.ink2,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
                 FittedBox(
                   fit: BoxFit.scaleDown,
@@ -191,9 +169,10 @@ class _SummaryRow extends StatelessWidget {
                   child: Text(
                     value,
                     style: TextStyle(
-                      color: DesignTokens.text,
-                      fontSize: 18,
-                      fontWeight: DesignTokens.fw700,
+                      color: DesignTokens.ink,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: DesignTokens.tabular,
                     ),
                   ),
                 ),
@@ -208,16 +187,16 @@ class _SummaryRow extends StatelessWidget {
         const SizedBox(width: 8),
         stat("$cancelled", "Cancelled"),
         const SizedBox(width: 8),
-        stat(peso(totalEarned), "Total earned"),
+        stat(peso(totalEarned), "Total earned", bg: DesignTokens.lagoonSoft),
       ],
     );
   }
 }
 
-/// One trip: status icon, destination and fare, pickup, then passenger,
-/// count, date and the passenger's rating.
-class _RideRow extends StatelessWidget {
-  const _RideRow({required this.ride});
+/// One trip: when + status, passenger and route, fare, then the rating
+/// and comment (or who cancelled).
+class _RideCard extends StatelessWidget {
+  const _RideCard({required this.ride});
 
   final Map<String, dynamic> ride;
 
@@ -226,15 +205,9 @@ class _RideRow extends StatelessWidget {
     final status = ride["status"]?.toString() ?? "";
     final isCompleted = status == "completed";
     final cancelledBy = ride["cancelled_by"]?.toString();
-    final (IconData icon, Color color, String note) = isCompleted
-        ? (Icons.check_circle_outline_rounded, DesignTokens.green, "")
-        : cancelledBy == "driver"
-            ? (
-                Icons.person_off_outlined,
-                DesignTokens.warning,
-                "Passenger no-show"
-              )
-            : (Icons.close_rounded, DesignTokens.red, "Cancelled by passenger");
+    final note = cancelledBy == "driver"
+        ? "Passenger no-show"
+        : "Cancelled by passenger";
 
     final when = formatRideDateTime(
       ride["completed_at"] ?? ride["cancelled_at"] ?? ride["requested_at"],
@@ -245,84 +218,95 @@ class _RideRow extends StatelessWidget {
     final fare = toDouble(ride["final_fare"] ?? ride["estimated_fare"]);
     final rating = int.tryParse(ride["passenger_rating"]?.toString() ?? "");
     final feedback = ride["passenger_feedback"]?.toString().trim();
+    final from = splitPlaceLabel(placeLabel(ride["pickup_address"])).title;
+    final to = placeLabel(ride["dropoff_address"]);
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: DesignTokens.border)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return SunCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Icon(icon, size: 20, color: color),
+          Row(
+            children: [
+              Expanded(
+                child: Text(when ?? "Ride #${ride["id"]}",
+                    style: TextStyle(
+                        color: DesignTokens.ink2,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
+              ),
+              StatusChip(isCompleted ? "Completed" : "Cancelled",
+                  tone: isCompleted ? ChipTone.ok : ChipTone.cancel),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              ToneAvatar(
+                  name: passenger, tone: AvatarTone.sand, size: 40, radius: 12),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        placeLabel(ride["dropoff_address"]),
+                    Text(to,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: DesignTokens.text,
-                          fontSize: 14,
-                          fontWeight: DesignTokens.fw600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      isCompleted ? peso(fare) : note,
-                      style: TextStyle(
-                        color: isCompleted
-                            ? DesignTokens.green
-                            : DesignTokens.muted,
-                        fontSize: isCompleted ? 14 : 11,
-                        fontWeight: isCompleted
-                            ? DesignTokens.fw700
-                            : DesignTokens.fw500,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Icon(Icons.location_on_outlined,
-                        size: 12, color: DesignTokens.muted),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        placeLabel(ride["pickup_address"]),
+                            color: DesignTokens.ink,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600)),
+                    Text("From $from",
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style:
-                            TextStyle(color: DesignTokens.muted, fontSize: 12),
-                      ),
+                        style: TextStyle(
+                            color: DesignTokens.ink2,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600)),
+                    Text(
+                      [
+                        passenger,
+                        if (passengers > 0) "$passengers pax",
+                        if (distance != null)
+                          "${distance.toStringAsFixed(1)} km",
+                      ].join(" · "),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: DesignTokens.ink2,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600),
                     ),
                   ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  [
-                    passenger,
-                    if (passengers > 0) "$passengers pax",
-                    if (distance != null) "${distance.toStringAsFixed(1)} km",
-                    if (when != null) when,
-                  ].join(" · "),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: DesignTokens.muted, fontSize: 11),
-                ),
-                if (isCompleted && rating != null) ...[
-                  const SizedBox(height: 4),
+              ),
+              if (isCompleted)
+                Text(peso(fare),
+                    style: TextStyle(
+                        color: DesignTokens.ink,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        fontFeatures: DesignTokens.tabular)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SoftBox(
+            radius: 14,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!isCompleted)
+                  Text(note,
+                      style: TextStyle(
+                          color: DesignTokens.ink2,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600))
+                else if (rating == null)
+                  Text("No rating yet",
+                      style: TextStyle(
+                          color: DesignTokens.ink2,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600))
+                else ...[
                   Row(
                     children: [
                       for (var i = 1; i <= 5; i++)
@@ -330,21 +314,31 @@ class _RideRow extends StatelessWidget {
                           i <= rating
                               ? Icons.star_rounded
                               : Icons.star_border_rounded,
-                          size: 14,
-                          color:
-                              i <= rating ? Colors.amber : DesignTokens.muted,
+                          size: 16,
+                          color: i <= rating
+                              ? DesignTokens.star
+                              : DesignTokens.ink2,
                         ),
+                      const SizedBox(width: 6),
+                      Text("$rating star${rating == 1 ? "" : "s"}",
+                          style: TextStyle(
+                              color: DesignTokens.ink,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600)),
                     ],
                   ),
-                  if (feedback != null && feedback.isNotEmpty)
+                  if (feedback != null && feedback.isNotEmpty) ...[
+                    const SizedBox(height: 4),
                     Text(
                       "“$feedback”",
                       style: TextStyle(
-                        color: DesignTokens.text,
-                        fontStyle: FontStyle.italic,
-                        fontSize: 12,
+                        color: DesignTokens.ink2,
+                        fontSize: 13,
+                        height: 18 / 13,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
+                  ],
                 ],
               ],
             ),

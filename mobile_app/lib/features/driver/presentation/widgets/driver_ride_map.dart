@@ -18,9 +18,16 @@ import "../driver_ride_controller.dart";
 /// [DriverRideController]. Guiuan's service area is drawn, but the camera
 /// isn't fenced in: a rider outside the boundary must still see themselves.
 class DriverRideMap extends StatefulWidget {
-  const DriverRideMap({super.key, this.borderRadius = 0});
+  const DriverRideMap({
+    super.key,
+    this.borderRadius = 0,
+    this.fitPadding = const EdgeInsets.all(32),
+  });
 
   final double borderRadius;
+
+  /// Room kept clear when fitting — e.g. the sheet over the map's bottom.
+  final EdgeInsets fitPadding;
 
   @override
   State<DriverRideMap> createState() => _DriverRideMapState();
@@ -41,6 +48,22 @@ class _DriverRideMapState extends State<DriverRideMap> {
   bool _iconsReady = false;
   ml.Circle? _currentLocationCircle;
   ml.Symbol? _currentLocationSymbol;
+
+  // The theme the map style was loaded for (see build).
+  bool _styleDark = DesignTokens.isDark;
+
+  void _resetForNewStyle() {
+    _styleDark = DesignTokens.isDark;
+    _mapController = null;
+    _mapReady = false;
+    _overlayKey = null;
+    _staticKey = null;
+    _lastFitKey = null;
+    _staticCircles.clear();
+    _staticSymbols.clear();
+    _currentLocationCircle = null;
+    _currentLocationSymbol = null;
+  }
 
   @override
   void didChangeDependencies() {
@@ -109,7 +132,10 @@ class _DriverRideMapState extends State<DriverRideMap> {
       if (bounds != null && fitKey != _lastFitKey) {
         _lastFitKey = fitKey;
         await map.animateCameraBounds(bounds,
-            left: 32, top: 32, right: 32, bottom: 32);
+            left: widget.fitPadding.left,
+            top: widget.fitPadding.top,
+            right: widget.fitPadding.right,
+            bottom: widget.fitPadding.bottom);
       }
     } catch (_) {
       // ignore map update failures from state changes during dispose
@@ -139,32 +165,40 @@ class _DriverRideMapState extends State<DriverRideMap> {
     }
     await map.clearLines();
 
+    // Sunrise route: orange over a casing for the trip, a lighter orange
+    // leg from the rider to the pickup.
+    final orange = _hex(DesignTokens.primaryBright);
     final lines = <ml.LineOptions>[];
     for (final poly in ctrl.polylines) {
       final pts = [
         for (final p in poly.points) ml.LatLng(p.latitude, p.longitude)
       ];
       if (pts.isEmpty) continue;
-      String hex(double c) =>
-          (c * 255.0).round().clamp(0, 255).toRadixString(16).padLeft(2, "0");
+      if (poly.isDotted) {
+        lines.add(ml.LineOptions(
+            geometry: pts, lineColor: orange, lineWidth: 4, lineOpacity: 0.55));
+        continue;
+      }
       lines.add(ml.LineOptions(
         geometry: pts,
-        lineColor:
-            "#${hex(poly.color.r)}${hex(poly.color.g)}${hex(poly.color.b)}",
-        lineWidth: poly.strokeWidth.toDouble(),
-        lineOpacity: poly.isDotted ? 0.6 : 0.9,
+        lineColor: DesignTokens.isDark ? "#0D0F12" : "#FFFFFF",
+        lineWidth: 11,
+        lineOpacity: 0.9,
       ));
+      lines.add(ml.LineOptions(
+          geometry: pts, lineColor: orange, lineWidth: 5, lineOpacity: 1));
     }
     if (lines.isNotEmpty) await map.addLines(lines);
 
-    final pins = <(ll.LatLng, String, String)>[
-      if (pickup != null) (pickup, MapMarkerIcons.pickup, "#0E8C46"),
-      if (dropoff != null) (dropoff, MapMarkerIcons.dropoff, "#C94530"),
+    final pins = <(ll.LatLng, String, String, String)>[
+      if (pickup != null) (pickup, MapMarkerIcons.pickup, "#1FC8B4", "center"),
+      if (dropoff != null)
+        (dropoff, MapMarkerIcons.dropoff, "#FF7A1A", "bottom"),
     ];
-    for (final (point, icon, color) in pins) {
+    for (final (point, icon, color, anchor) in pins) {
       final target = ml.LatLng(point.latitude, point.longitude);
       if (_iconsReady) {
-        _staticSymbols.add(await map.addMarker(target, icon, anchor: "bottom"));
+        _staticSymbols.add(await map.addMarker(target, icon, anchor: anchor));
       } else {
         _staticCircles.add(await map.addCircle(ml.CircleOptions(
           geometry: target,
@@ -203,10 +237,10 @@ class _DriverRideMapState extends State<DriverRideMap> {
     if (halo == null) {
       _currentLocationCircle = await map.addCircle(ml.CircleOptions(
         geometry: target,
-        circleRadius: _iconsReady ? 16 : 8,
-        circleColor: "#1471C5",
+        circleRadius: _iconsReady ? 30 : 8,
+        circleColor: _hex(DesignTokens.primaryBright),
         // Solid dot only when the rider icon isn't available.
-        circleOpacity: _iconsReady ? 0.15 : 0.98,
+        circleOpacity: _iconsReady ? 0.16 : 0.98,
         circleStrokeColor: "#FFFFFF",
         circleStrokeWidth: _iconsReady ? 1.5 : 2,
       ));
@@ -271,14 +305,18 @@ class _DriverRideMapState extends State<DriverRideMap> {
   @override
   Widget build(BuildContext context) {
     final area = context.watch<ServiceAreaStore>().area;
-    final start = _rideController?.currentPosition ?? area?.center ?? kGuiuanCenter;
+    final start =
+        _rideController?.currentPosition ?? area?.center ?? kGuiuanCenter;
+    // A theme switch loads a new map with the matching style.
+    if (_styleDark != DesignTokens.isDark) _resetForNewStyle();
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
       child: Stack(
         children: [
           Positioned.fill(
             child: AppMap(
-              initialStyleUrl: AppConfig.openFreeMapStyleUrl,
+              key: ValueKey("driver-map-$_styleDark"),
+              initialStyleUrl: AppConfig.mapStyleUrl,
               initialPosition: ml.LatLng(start.latitude, start.longitude),
               // No pan limit for riders (see above) — only the zoom-out
               // limit while the service area is enforced.
@@ -293,7 +331,7 @@ class _DriverRideMapState extends State<DriverRideMap> {
           if (!_mapReady)
             Positioned.fill(
               child: Container(
-                color: DesignTokens.bg2,
+                color: DesignTokens.mapLand,
                 alignment: Alignment.center,
                 child: const SizedBox(
                   width: 22,
@@ -306,4 +344,11 @@ class _DriverRideMapState extends State<DriverRideMap> {
       ),
     );
   }
+}
+
+/// "#RRGGBB" for a map style property.
+String _hex(Color c) {
+  String h(double v) =>
+      (v * 255.0).round().clamp(0, 255).toRadixString(16).padLeft(2, "0");
+  return "#${h(c.r)}${h(c.g)}${h(c.b)}";
 }

@@ -6,6 +6,7 @@ const TYPES = {
   sos_alert: { icon: "🚨", label: "SOS alert", section: "sos" },
   sos_escalation: { icon: "⏰", label: "SOS not acknowledged", section: "sos" },
   driver_report: { icon: "📝", label: "Report", section: "complaints" },
+  contact_message: { icon: "✉️", label: "Contact message", section: "support" },
   new_booking: { icon: "🛺", label: "New booking", section: "bookings" },
   booking_cancelled: { icon: "✖️", label: "Booking cancelled", section: "bookings" },
 };

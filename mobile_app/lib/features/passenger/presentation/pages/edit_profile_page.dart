@@ -76,7 +76,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     final ctrl = context.watch<PassengerProfileController>();
 
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
+      backgroundColor: Colors.transparent,
       appBar: const AppAppBar(title: "Edit Profile"),
       body: SafeArea(
         child: SingleChildScrollView(

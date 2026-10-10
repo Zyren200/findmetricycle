@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { ICON } from "../../components/Icons";
+import { Alert } from "../../components/ui";
 import { classifyDocument } from "../../utils/documentClassifier";
 import { checkLicenseIdentity } from "../../utils/licenseIdentity";
 
@@ -169,58 +171,94 @@ async function runOcr(file) {
   }
 }
 
-function UploadSlot({ title, hint, file, previewUrl, uploading, warning, rejected, okDetails, onSelect, inputId }) {
-  const inputRef = useRef(null);
+function DropZone({ kind, title, hint, icon, tone, file, previewUrl, uploading, rejected, warning, pills, confirmed, onConfirm, error, onSelect }) {
+  const [drag, setDrag] = useState(false);
+  const inputId = `file-${kind}`;
+  const state = rejected ? "badf" : file ? "good" : "";
+
   return (
     <div
-      className={`doc-upload ${file ? "uploaded" : ""}`}
-      style={rejected ? { borderColor: "var(--coral)", borderStyle: "solid", background: "var(--coral-bg)" } : undefined}
-      onClick={() => inputRef.current?.click()}
-      role="button"
-      tabIndex={0}
+      className={`drop ${state} ${drag ? "drag" : ""}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDrag(true);
+      }}
+      onDragLeave={() => setDrag(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDrag(false);
+        const f = e.dataTransfer.files?.[0];
+        if (f && !uploading) onSelect(f);
+      }}
     >
-      <div className="doc-body">
-        <div className="doc-upload-title">{title}</div>
-        <div className="doc-upload-status">
-          {uploading
-            ? "Checking the photo…"
-            : rejected
-              ? "Tap to upload a new photo"
-              : file
-                ? "✓ Document accepted — tap to replace"
-                : hint}
+      <div className="drop-top">
+        <span className={`ic ${tone}`}>{ICON[icon]}</span>
+        <div>
+          <b>{title}</b>
+          <br />
+          <small className="muted">{file ? file.name : hint}</small>
         </div>
-        {rejected ? (
-          <div className="banner banner-error" style={{ margin: "8px 0 0" }}>
-            ⚠ {rejected}
-          </div>
-        ) : null}
-        {!rejected && warning ? <div className="field-error">⚠ {warning}</div> : null}
-        {!rejected && okDetails ? <div className="field-hint" style={{ color: "var(--teal)" }}>{okDetails}</div> : null}
+        <label className="btn btn-glass btn-sm" htmlFor={inputId}>
+          {file || rejected ? "Replace" : "Choose photo"}
+        </label>
+        <input
+          type="file"
+          id={inputId}
+          accept="image/jpeg,image/png,image/webp"
+          disabled={uploading}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            // Let the same file be picked again after a rejection.
+            e.target.value = "";
+            if (f) onSelect(f);
+          }}
+        />
       </div>
-      {previewUrl && !rejected ? <img src={previewUrl} alt={title} className="doc-preview" /> : null}
-      <input
-        ref={inputRef}
-        id={inputId}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        style={{ display: "none" }}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          // Let the same file be picked again after a rejection.
-          e.target.value = "";
-          if (f) onSelect(f);
-        }}
-      />
+      {uploading ? (
+        <Alert tone="info" checking>
+          Checking the photo and reading the document…
+        </Alert>
+      ) : null}
+      {!uploading && previewUrl && !rejected ? <img className="thumb" src={previewUrl} alt={`${title} preview`} /> : null}
+      {!uploading && file && pills.length ? (
+        <div className="checks">
+          {pills.map((p) => (
+            <span key={p.label} className={`pill ${p.tone}`}>
+              {p.tone === "ok" ? "✓" : "!"} {p.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {!uploading && rejected ? (
+        <Alert tone="err" title="Retake this photo">
+          {rejected}
+        </Alert>
+      ) : null}
+      {!uploading && file && warning ? (
+        <label className="check">
+          <input type="checkbox" checked={Boolean(confirmed)} onChange={(e) => onConfirm(e.target.checked)} />
+          <span>
+            {warning} Sigurado akong tamang dokumento ito. Naiintindihan kong susuriin ito ng admin, at maaaring ma-reject
+            ang application kung mali.
+          </span>
+        </label>
+      ) : null}
+      {error ? <span className="err" style={{ color: "var(--danger)", fontWeight: 600, fontSize: 13 }}>{error}</span> : null}
     </div>
   );
 }
 
-export default function DocumentsStep({ user, formData, updateFormData, onNext, onBack }) {
+/** Required documents: the license must pass every check; a permit that looks unusual can be confirmed. */
+export default function DocumentsStep({ user, formData, updateFormData, errors, onBusyChange }) {
   const [licenseUploading, setLicenseUploading] = useState(false);
   const [permitUploading, setPermitUploading] = useState(false);
-  const [error, setError] = useState(null);
   const accountName = user?.full_name || user?.fullName || "";
+
+  function setUploading(kind, value) {
+    if (kind === "license") setLicenseUploading(value);
+    else setPermitUploading(value);
+    onBusyChange?.(kind, value);
+  }
 
   // A rejected photo is never kept: the slot empties and asks for a new
   // upload, so a bad photo can't reach the server.
@@ -237,8 +275,7 @@ export default function DocumentsStep({ user, formData, updateFormData, onNext, 
   }
 
   async function handleLicenseSelect(file) {
-    setError(null);
-    setLicenseUploading(true);
+    setUploading("license", true);
     try {
       const qualityProblem = await checkPhotoQuality(file).catch(() => "Hindi mabuksan ang litrato. Subukan ang ibang file.");
       if (qualityProblem) {
@@ -276,17 +313,16 @@ export default function DocumentsStep({ user, formData, updateFormData, onNext, 
         licenseCheck: status,
         licenseWarning: status === "suspicious" ? CHECK_MESSAGES.license.suspicious : null,
         licenseRejected: null,
-        licenseDetails: `License No. ${identity.licenseNumber} · pangalan tugma sa account (${accountName})`,
+        licenseNumber: identity.licenseNumber,
         documentsConfirmed: false,
       });
     } finally {
-      setLicenseUploading(false);
+      setUploading("license", false);
     }
   }
 
   async function handlePermitSelect(file) {
-    setError(null);
-    setPermitUploading(true);
+    setUploading("permit", true);
     try {
       const qualityProblem = await checkPhotoQuality(file).catch(() => "Hindi mabuksan ang litrato. Subukan ang ibang file.");
       if (qualityProblem) {
@@ -300,7 +336,7 @@ export default function DocumentsStep({ user, formData, updateFormData, onNext, 
         return;
       }
       // Permit layouts differ per municipality, so a "doesn't look like a
-      // permit" result can still be confirmed by the applicant below — it's
+      // permit" result can still be confirmed by the applicant — it's
       // flagged for the admin.
       updateFormData({
         permitFile: file,
@@ -311,97 +347,86 @@ export default function DocumentsStep({ user, formData, updateFormData, onNext, 
         documentsConfirmed: false,
       });
     } finally {
-      setPermitUploading(false);
+      setUploading("permit", false);
     }
   }
 
-  const flagged = Boolean(formData.licenseWarning || formData.permitWarning);
-
-  function handleContinue() {
-    if (!formData.licenseFile || !formData.permitFile) {
-      setError(
-        formData.licenseRejected || formData.permitRejected
-          ? "May litratong hindi tinanggap. Mag-upload ng bago bago magpatuloy."
-          : "Both the driver's license and business permit photos are required."
-      );
-      return;
-    }
-    // A permit that doesn't pass the check needs a new photo, or an explicit
-    // "yes, this is the right document" — it's then flagged for the admin.
-    if (flagged && !formData.documentsConfirmed) {
-      setError("May dokumentong hindi pumasa sa check. Palitan ang litrato, o kumpirmahin sa ibaba na tama ito.");
-      return;
-    }
-    onNext();
-  }
+  const licensePills = formData.licenseFile
+    ? [
+        { label: "Clear photo", tone: "ok" },
+        { label: `License No. ${formData.licenseNumber || "found"}`, tone: "ok" },
+        { label: "Name matches your account", tone: "ok" },
+        ...(formData.licenseWarning ? [{ label: "Layout looks unusual", tone: "warn" }] : []),
+      ]
+    : [];
+  const permitPills = formData.permitFile
+    ? [
+        { label: "Clear photo", tone: "ok" },
+        formData.permitWarning ? { label: "Doesn't look like a permit", tone: "warn" } : { label: "Looks like a permit", tone: "ok" },
+      ]
+    : [];
 
   return (
-    <div className="card">
-      <h2>Required Documents</h2>
-      <p>Upload clear photos of your documents. We'll automatically scan the license for you.</p>
-
-      {error ? <div className="banner banner-error">{error}</div> : null}
-
-      <UploadSlot
-        title="Driver's License"
-        hint="Tap to upload"
+    <>
+      <h2>Required documents</h2>
+      <p className="muted">
+        Clear photos only: all four corners visible, good light, no glare. JPG, PNG or WEBP, up to 5 MB. The license must
+        be a Philippine LTO driver&apos;s license in your name ({accountName || "the name on your account"}).
+      </p>
+      <DropZone
+        kind="license"
+        title="Driver's license"
+        hint="Front side. Your name and license number must be readable."
+        icon="card"
+        tone="o"
         file={formData.licenseFile}
         previewUrl={formData.licensePreviewUrl}
         uploading={licenseUploading}
-        warning={formData.licenseWarning}
         rejected={formData.licenseRejected}
-        okDetails={formData.licenseDetails}
+        warning={formData.licenseWarning}
+        pills={licensePills}
+        confirmed={formData.documentsConfirmed}
+        onConfirm={(v) => updateFormData({ documentsConfirmed: v })}
+        error={errors?.license}
         onSelect={handleLicenseSelect}
-        inputId="license-upload"
       />
-
-      <UploadSlot
-        title="Franchise / Permit"
-        hint="Tap to upload"
+      <DropZone
+        kind="permit"
+        title="Franchise or business permit"
+        hint="The whole permit, including the permit number."
+        icon="doc"
+        tone="t"
         file={formData.permitFile}
         previewUrl={formData.permitPreviewUrl}
         uploading={permitUploading}
-        warning={formData.permitWarning}
         rejected={formData.permitRejected}
+        warning={formData.permitWarning}
+        pills={permitPills}
+        confirmed={formData.documentsConfirmed}
+        onConfirm={(v) => updateFormData({ documentsConfirmed: v })}
+        error={errors?.permit}
         onSelect={handlePermitSelect}
-        inputId="permit-upload"
       />
-
-      {flagged ? (
-        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", margin: "4px 0 14px", cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={Boolean(formData.documentsConfirmed)}
-            onChange={(e) => updateFormData({ documentsConfirmed: e.target.checked })}
-            style={{ marginTop: 3 }}
-          />
-          <span style={{ fontSize: 14, color: "var(--muted)" }}>
-            Sigurado akong tamang dokumento ang na-upload ko. Naiintindihan kong mamarkahan ito para sa masusing
-            pagsusuri ng admin, at maaaring ma-reject ang application kung mali.
-          </span>
-        </label>
-      ) : null}
-
-      <p className="field-hint">
-        Accepted formats: JPG, PNG, WEBP (max 5MB each). Ang license ay dapat Philippine LTO driver&apos;s license na
-        nakapangalan sa iyo ({accountName || "pangalan ng account mo"}). Kunan ang buong card nang malinaw, diretso,
-        walang silaw at hindi malabo — awtomatikong tatanggihan ang malabo o maling litrato. An admin reviews every
-        application.
-      </p>
-
-      <div className="btn-row">
-        <button type="button" className="btn btn-ghost" onClick={onBack}>
-          Back
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleContinue}
-          disabled={licenseUploading || permitUploading}
-        >
-          Continue
-        </button>
-      </div>
-    </div>
+    </>
   );
+}
+
+/** Errors for the Documents step, or {} when it may continue. */
+export function validateDocuments(formData) {
+  const e = {};
+  if (!formData.licenseFile) {
+    e.license = formData.licenseRejected
+      ? "Your license photo was not accepted. Upload a new one."
+      : "Upload a photo of your driver's license.";
+  }
+  if (!formData.permitFile) {
+    e.permit = formData.permitRejected
+      ? "Your permit photo was not accepted. Upload a new one."
+      : "Upload a photo of your franchise or business permit.";
+  }
+  const flagged = Boolean(formData.licenseWarning || formData.permitWarning);
+  if (formData.licenseFile && formData.permitFile && flagged && !formData.documentsConfirmed) {
+    e[formData.permitWarning ? "permit" : "license"] = "Upload a clearer photo, or tick the box to send it for admin review.";
+  }
+  return e;
 }

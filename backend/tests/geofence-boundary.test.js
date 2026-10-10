@@ -98,7 +98,9 @@ describe("isInsideServiceArea", () => {
 describe("GET /api/service-area", () => {
   const app = require("../src/app");
 
-  it("returns the boundary, the map limits and a version", async () => {
+it("returns the boundary, the map limits and a version", async () => {
+    env.geofence.enabled = false;
+
     const res = await request(app).get("/api/service-area");
     expect(res.statusCode).toBe(200);
     const data = res.body.data;

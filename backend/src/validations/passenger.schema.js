@@ -1,5 +1,6 @@
 const { z, phoneSchema } = require("./common");
 const { MIN_PASSENGERS, MAX_PASSENGERS } = require("../constants/fare");
+const { PASSENGER_REPORT_CATEGORIES } = require("../constants/report-categories");
 
 const findRideSchema = z.object({
   body: z.object({
@@ -10,6 +11,8 @@ const findRideSchema = z.object({
     dropoffLat: z.coerce.number().min(-90).max(90),
     dropoffLng: z.coerce.number().min(-180).max(180),
     autoAssign: z.boolean().optional(),
+    // Length of the road route the app priced the trip by.
+    routeDistanceKm: z.coerce.number().positive().max(500).optional(),
     passengerCount: z.coerce
       .number()
       .int()
@@ -62,6 +65,15 @@ const updateProfileSchema = z.object({
   }),
 });
 
+// "Report a Problem" from the passenger app; a ride it's about is optional.
+const reportSchema = z.object({
+  body: z.object({
+    bookingId: z.coerce.number().int().positive().optional(),
+    category: z.enum(PASSENGER_REPORT_CATEGORIES),
+    description: z.string().trim().min(1).max(1000),
+  }),
+});
+
 const deleteAccountSchema = z.object({
   body: z.object({
     password: z.string().min(1),
@@ -74,6 +86,7 @@ module.exports = {
   ratingSchema,
   chooseDriverSchema,
   sosSchema,
+  reportSchema,
   updateProfileSchema,
   deleteAccountSchema,
 };

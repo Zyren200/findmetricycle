@@ -6,13 +6,13 @@ import "../../../core/theme/design_tokens.dart";
 import "../state/notifications_controller.dart";
 import "notification_detail_page.dart";
 
-/// Notifications list shared by the passenger and driver apps — an inbox:
-/// unread ones stand out until they're opened, and tapping one opens it in
-/// full ([NotificationDetailPage]).
+/// "Alerts" — the notifications inbox shared by the passenger and driver
+/// apps: unread ones carry an orange dot until they're opened, and tapping
+/// one opens it in full ([NotificationDetailPage]).
 ///
-/// Pushed as its own page, or embedded as a bottom-nav tab: pass
-/// [tabIndex] and an ambient `ValueNotifier<int>` nav index, and the list
-/// refreshes each time that tab is opened.
+/// Pushed as its own page, or embedded as a tab: pass [tabIndex] and an
+/// ambient `ValueNotifier<int>` nav index, and the list refreshes each
+/// time that tab is opened.
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen(
       {super.key, required this.controller, this.tabIndex});
@@ -79,59 +79,65 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     final ctrl = widget.controller;
+    final embedded = widget.tabIndex != null;
+    final top = MediaQuery.paddingOf(context).top;
     return Scaffold(
-      backgroundColor: DesignTokens.bg,
-      body: Column(
-        children: [
-          AppTopBar(
-            title: "Notifications",
-            showBack: widget.tabIndex == null,
-            trailing: ListenableBuilder(
-              listenable: ctrl,
-              builder: (context, _) => TextButton.icon(
-                onPressed: ctrl.unread == 0 ? null : ctrl.markAllRead,
-                icon: Icon(Icons.done_all_rounded,
-                    size: 16, color: DesignTokens.accent),
-                label: Text("All read",
-                    style: TextStyle(color: DesignTokens.accent)),
+      backgroundColor: Colors.transparent,
+      body: ListenableBuilder(
+        listenable: ctrl,
+        builder: (context, _) {
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                20,
+                embedded ? top + 28 : top + 12,
+                20,
+                embedded ? DesignTokens.tabBarClearance + 8 : 32,
               ),
+              children: [
+                if (!embedded) ...[
+                  Row(children: [
+                    BackSquareButton(
+                        onTap: () => Navigator.of(context).maybePop()),
+                  ]),
+                  const SizedBox(height: 16),
+                ],
+                ScreenTitle(
+                  "Alerts",
+                  subtitle: "Ride updates and safety notices.",
+                  trailing: SunLink(
+                    label: "Mark all read",
+                    onTap: ctrl.unread == 0 ? null : ctrl.markAllRead,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                if (ctrl.isLoading && ctrl.items.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 60),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (ctrl.error != null && ctrl.items.isEmpty)
+                  ErrorBox(message: ctrl.error!, onRetry: _refresh)
+                else if (ctrl.items.isEmpty)
+                  const EmptyState(
+                    icon: Icons.notifications_none_rounded,
+                    message: "No alerts yet.",
+                  )
+                else
+                  ...Stagger.wrap([
+                    for (final n in ctrl.items)
+                      _NotificationTile(
+                        notification: n,
+                        unread: !NotificationsController.isRead(n),
+                        onTap: () => _openNotification(n),
+                      ),
+                  ], gap: 10),
+              ],
             ),
-          ),
-          Expanded(
-            child: ListenableBuilder(
-              listenable: ctrl,
-              builder: (context, _) {
-                return RefreshIndicator(
-                  onRefresh: _refresh,
-                  child: ctrl.isLoading && ctrl.items.isEmpty
-                      ? const Center(child: CircularProgressIndicator())
-                      : ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          children: [
-                            if (ctrl.error != null && ctrl.items.isEmpty)
-                              Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: ErrorBox(
-                                    message: ctrl.error!, onRetry: _refresh),
-                              )
-                            else if (ctrl.items.isEmpty)
-                              const EmptyState(
-                                icon: Icons.notifications_none_rounded,
-                                message: "No notifications",
-                              ),
-                            for (final n in ctrl.items)
-                              _NotificationTile(
-                                notification: n,
-                                unread: !NotificationsController.isRead(n),
-                                onTap: () => _openNotification(n),
-                              ),
-                          ],
-                        ),
-                );
-              },
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -150,66 +156,79 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 ({IconData icon, Color color, String label}) notificationStyle(String? type) {
   return switch (type) {
     "announcement" => (
-        icon: Icons.campaign_rounded,
-        color: DesignTokens.accent,
+        icon: Icons.campaign_outlined,
+        color: DesignTokens.ink2,
         label: "Announcement"
       ),
     "ride_request" => (
-        icon: Icons.electric_rickshaw_rounded,
-        color: DesignTokens.accent,
+        icon: Icons.navigation_outlined,
+        color: DesignTokens.primaryText,
         label: "Ride request"
       ),
     "booking_accepted" => (
-        icon: Icons.check_circle_rounded,
-        color: DesignTokens.green,
+        icon: Icons.navigation_outlined,
+        color: DesignTokens.primaryText,
         label: "Ride accepted"
       ),
     "booking_declined" => (
-        icon: Icons.person_off_rounded,
-        color: DesignTokens.warning,
+        icon: Icons.person_off_outlined,
+        color: DesignTokens.primaryText,
         label: "Rider unavailable"
       ),
     "booking_cancelled" => (
-        icon: Icons.cancel_rounded,
-        color: DesignTokens.red,
+        icon: Icons.cancel_outlined,
+        color: DesignTokens.sosText,
         label: "Ride cancelled"
       ),
     "driver_arrived" => (
-        icon: Icons.place_rounded,
-        color: DesignTokens.accent,
+        icon: Icons.place_outlined,
+        color: DesignTokens.primaryText,
         label: "Rider arrived"
       ),
     "ride_started" => (
-        icon: Icons.directions_rounded,
-        color: DesignTokens.blue,
+        icon: Icons.directions_outlined,
+        color: DesignTokens.primaryText,
         label: "Trip started"
       ),
     "ride_completed" => (
-        icon: Icons.flag_rounded,
-        color: DesignTokens.green,
+        icon: Icons.flag_outlined,
+        color: DesignTokens.lagoonText,
         label: "Trip completed"
       ),
     "new_rating" => (
-        icon: Icons.star_rounded,
-        color: Colors.amber,
+        icon: Icons.star_outline_rounded,
+        color: DesignTokens.star,
         label: "New rating"
       ),
     "driver_approved" => (
-        icon: Icons.verified_rounded,
-        color: DesignTokens.green,
+        icon: Icons.verified_user_outlined,
+        color: DesignTokens.lagoonText,
         label: "Driver application"
       ),
     "driver_rejected" => (
         icon: Icons.block_rounded,
-        color: DesignTokens.red,
+        color: DesignTokens.sosText,
         label: "Driver application"
       ),
+    final String t when t.startsWith("sos") => (
+        icon: Icons.health_and_safety_outlined,
+        color: DesignTokens.lagoonText,
+        label: "Safety"
+      ),
     _ => (
-        icon: Icons.notifications_rounded,
-        color: DesignTokens.accent,
+        icon: Icons.notifications_none_rounded,
+        color: DesignTokens.primaryText,
         label: "Notification"
       ),
   };
+}
+
+/// The soft tile behind a notification icon of [iconColor].
+Color notificationTileColor(Color iconColor) {
+  if (iconColor == DesignTokens.lagoonText) return DesignTokens.lagoonSoft;
+  if (iconColor == DesignTokens.sosText) return DesignTokens.sosSoft;
+  if (iconColor == DesignTokens.ink2) return DesignTokens.surface2;
+  return DesignTokens.primarySoft;
 }
 
 class _NotificationTile extends StatelessWidget {
@@ -227,76 +246,87 @@ class _NotificationTile extends StatelessWidget {
         timeAgo(notification["created_at"] ?? notification["createdAt"]);
     final body = notification["body"]?.toString();
 
-    return InkWell(
+    return SunCard(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color:
-              unread ? DesignTokens.accent.withAlpha(18) : Colors.transparent,
-          border: Border(bottom: BorderSide(color: DesignTokens.border)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              margin: const EdgeInsets.only(top: 6),
-              decoration: BoxDecoration(
-                color: unread ? DesignTokens.accent : Colors.transparent,
-                shape: BoxShape.circle,
+      radius: 20,
+      padding: const EdgeInsets.fromLTRB(14, 14, 32, 14),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              IconTile(
+                icon: style.icon,
+                size: 40,
+                radius: 12,
+                iconSize: 19,
+                background: notificationTileColor(style.color),
+                foreground: style.color,
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    notification["title"]?.toString() ?? "Notification",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
-                      color: DesignTokens.text,
-                    ),
-                  ),
-                  if (body != null && body.isNotEmpty) ...[
-                    const SizedBox(height: 2),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      body,
+                      notification["title"]?.toString() ?? "Notification",
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: DesignTokens.muted, fontSize: 12),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: unread ? FontWeight.w600 : FontWeight.w700,
+                        color: DesignTokens.ink,
+                      ),
                     ),
-                  ],
-                  if (when != null) ...[
-                    const SizedBox(height: 4),
-                    Text(when,
+                    if (body != null && body.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        body,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: unread ? DesignTokens.text : DesignTokens.muted,
-                          fontSize: 11,
-                          fontWeight: unread ? FontWeight.w600 : null,
-                        )),
+                            color: DesignTokens.ink2,
+                            fontSize: 13,
+                            height: 18 / 13,
+                            fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                    if (when != null) ...[
+                      const SizedBox(height: 3),
+                      Text(when,
+                          style: TextStyle(
+                            color: DesignTokens.ink2,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          )),
+                    ],
                   ],
-                ],
+                ),
+              ),
+            ],
+          ),
+          Positioned(
+            top: 4,
+            right: -16,
+            child: AnimatedScale(
+              duration: const Duration(milliseconds: 350),
+              curve: DesignTokens.spring,
+              scale: unread ? 1 : 0,
+              child: Semantics(
+                label: unread ? "Unread" : null,
+                child: Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: DesignTokens.primaryBright,
+                    shape: BoxShape.circle,
+                  ),
+                ),
               ),
             ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              decoration: BoxDecoration(
-                color: style.color.withAlpha(36),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Icon(style.icon, size: 12, color: style.color),
-            ),
-            Icon(Icons.chevron_right_rounded,
-                size: 18, color: DesignTokens.muted),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -340,7 +370,7 @@ String? fullDateTime(dynamic raw) {
   return "${_months[date.month - 1]} ${date.day}, ${date.year} · $hour:$minute $suffix";
 }
 
-/// 🔔 button with an unread-count badge.
+/// Glass 🔔 button with a red unread-count badge.
 class NotificationBell extends StatelessWidget {
   const NotificationBell(
       {super.key, required this.controller, required this.onPressed});
@@ -354,22 +384,42 @@ class NotificationBell extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         final count = controller.unread;
-        return IconButton(
-          onPressed: onPressed,
-          color: DesignTokens.text,
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-          tooltip: count > 0 ? "Notifications ($count bago)" : "Notifications",
-          icon: Badge(
-            isLabelVisible: count > 0,
-            label: Text(count > 99 ? "99+" : "$count"),
-            child: Icon(
-              count > 0
-                  ? Icons.notifications_active_rounded
-                  : Icons.notifications_outlined,
-              size: 20,
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            GlassIconButton(
+              icon: Icons.notifications_none_rounded,
+              label:
+                  count > 0 ? "Notifications ($count bago)" : "Notifications",
+              onTap: onPressed,
             ),
-          ),
+            if (count > 0)
+              Positioned(
+                top: -2,
+                right: -2,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 18),
+                  height: 18,
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: DesignTokens.ember,
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(color: DesignTokens.bgDeep, width: 2),
+                    boxShadow: [
+                      BoxShadow(color: DesignTokens.glowEmber, blurRadius: 8)
+                    ],
+                  ),
+                  child: Text(
+                    count > 99 ? "99+" : "$count",
+                    style: const TextStyle(
+                        color: DesignTokens.sosInk,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+          ],
         );
       },
     );

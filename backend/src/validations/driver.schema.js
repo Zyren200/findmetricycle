@@ -1,4 +1,5 @@
 const { z } = require("./common");
+const { DRIVER_REPORT_CATEGORIES } = require("../constants/report-categories");
 
 function optionalTrimmedString(schema) {
   return z.preprocess((value) => {
@@ -57,14 +58,7 @@ const startRideSchema = z.object({
 const reportDriverSchema = z.object({
   body: z.object({
     bookingId: z.coerce.number().int().positive().optional(),
-    category: z.enum([
-      "no_show",
-      "incorrect_pickup",
-      "fare_dispute",
-      "safety_concern",
-      "passenger_behavior",
-      "other",
-    ]),
+    category: z.enum(DRIVER_REPORT_CATEGORIES),
     description: z.string().trim().min(1).max(1000),
   }),
 });

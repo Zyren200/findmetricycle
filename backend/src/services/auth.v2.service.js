@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const dns = require("dns").promises;
 const bcrypt = require("bcryptjs");
 const db = require("../config/db");
 const nodemailer = require("nodemailer");
@@ -297,9 +298,9 @@ async function requestPasswordReset(email) {
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
   // Reset codes carry their own purpose so a registration or
-  // driver-application code can never reset a password. Older pending
-  // reset codes are dropped so only the newest one is guessable.
-  await db.query("DELETE FROM otp_codes WHERE email = ? AND purpose = ? AND is_verified = 0", [
+  // driver-application code can never reset a password. Older reset codes
+  // (verified ones too) are dropped so only the newest one counts.
+  await db.query("DELETE FROM otp_codes WHERE email = ? AND purpose = ?", [
     email,
     PASSWORD_RESET_PURPOSE,
   ]);
@@ -312,12 +313,34 @@ async function requestPasswordReset(email) {
   return { success: true, message: "A reset code has been sent to your email." };
 }
 
-// Verify the reset code and update the password. Wrong guesses count
-// against MAX_OTP_ATTEMPTS, and every existing session is signed out once
-// the password changes.
+// Step 2 of the app's forgot-password flow: checks the emailed code before
+// the new-password screen opens. Nothing changes yet — the verified code
+// stays usable for RESET_VERIFIED_WINDOW_MINUTES and has to be sent again
+// with the new password.
+async function verifyPasswordResetCode(email, code) {
+  try {
+    await verifyOTP(email, code, PASSWORD_RESET_PURPOSE);
+  } catch (error) {
+    throw new ApiError(error.statusCode || 400, error.statusCode === 429 ? error.message : "Invalid or expired code");
+  }
+  return { success: true, message: "Code verified." };
+}
+
+// How long a reset code checked by verifyPasswordResetCode can still be
+// used to set the new password.
+const RESET_VERIFIED_WINDOW_MINUTES = 15;
+
+// Verify the reset code and update the password. The code is either still
+// pending (one-step reset) or was verified in the previous step; wrong
+// guesses count against MAX_OTP_ATTEMPTS either way, and every existing
+// session is signed out once the password changes.
 async function resetPasswordWithOTP(email, code, newPassword) {
   const [pending] = await db.query(
-    "SELECT * FROM otp_codes WHERE email = ? AND purpose = ? AND is_verified = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1",
+    `SELECT * FROM otp_codes
+      WHERE email = ? AND purpose = ?
+        AND ((is_verified = 0 AND expires_at > NOW())
+          OR (is_verified = 1 AND verified_at > NOW() - INTERVAL ${RESET_VERIFIED_WINDOW_MINUTES} MINUTE))
+      ORDER BY id DESC LIMIT 1`,
     [email, PASSWORD_RESET_PURPOSE]
   );
 
@@ -348,6 +371,82 @@ async function resetPasswordWithOTP(email, code, newPassword) {
   });
 
   return { success: true, message: "Password updated successfully." };
+}
+
+// DNS codes meaning "this domain has no mail server / doesn't exist".
+const NO_MAIL_DOMAIN_CODES = new Set(["ENOTFOUND", "ENODATA", "ENOENT", "NXDOMAIN"]);
+
+const COMMON_DOMAIN_TYPOS = {
+  "gmial.com": "gmail.com",
+  "gmai.com": "gmail.com",
+  "gmal.com": "gmail.com",
+  "gmaill.com": "gmail.com",
+  "gamil.com": "gmail.com",
+  "gnail.com": "gmail.com",
+  "gmail.co": "gmail.com",
+  "gmail.con": "gmail.com",
+  "gmail.cm": "gmail.com",
+  "yaho.com": "yahoo.com",
+  "yahooo.com": "yahoo.com",
+  "yahoo.con": "yahoo.com",
+  "hotmial.com": "hotmail.com",
+  "hotmail.con": "hotmail.com",
+  "outlok.com": "outlook.com",
+  "outlook.con": "outlook.com",
+  "iclod.com": "icloud.com",
+};
+
+// Some machines hand Node a DNS server that doesn't answer (e.g.
+// 127.0.0.1 on Windows); then public resolvers are asked instead.
+const publicResolver = new dns.Resolver({ timeout: 3000, tries: 1 });
+publicResolver.setServers(["1.1.1.1", "8.8.8.8"]);
+
+async function resolveWithFallback(method, domain) {
+  try {
+    return await dns[method](domain);
+  } catch (error) {
+    if (NO_MAIL_DOMAIN_CODES.has(error.code)) throw error;
+    return publicResolver[method](domain);
+  }
+}
+
+// Refuses an email whose domain can't receive mail (made-up or misspelled
+// domains like "gmial.com"), so no code is sent to nowhere. The mailbox
+// itself can't be checked without sending — the OTP proves that. A DNS
+// outage lets the email through rather than blocking sign-ups.
+async function assertEmailDomainReceivesMail(email) {
+  const domain = String(email || "").split("@")[1]?.trim().toLowerCase();
+  const invalid = new ApiError(400, "This email address doesn't exist. Check it and try again.", { field: "email" });
+  if (!domain) throw invalid;
+  // Misspellings of big providers are real domains that do take mail —
+  // just never the user's.
+  const meant = COMMON_DOMAIN_TYPOS[domain];
+  if (meant) {
+    throw new ApiError(400, `Check the email address — did you mean @${meant}?`, { field: "email" });
+  }
+  try {
+    const mx = await resolveWithFallback("resolveMx", domain);
+    if (mx.some((r) => r.exchange && r.exchange !== ".")) return;
+    throw invalid;
+  } catch (error) {
+    if (error === invalid) throw error;
+    if (!NO_MAIL_DOMAIN_CODES.has(error.code)) return;
+  }
+  // No MX record: mail falls back to the domain's own address, if any.
+  try {
+    await resolveWithFallback("resolve4", domain);
+  } catch (error) {
+    if (NO_MAIL_DOMAIN_CODES.has(error.code)) throw invalid;
+  }
+}
+
+// Sign-up's first step: refuses an email another account already uses
+// (shown under the email field via details.field).
+async function assertEmailAvailable(email) {
+  const existing = await db.query("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL", [email]);
+  if (existing.length > 0) {
+    throw new ApiError(409, "This email is already registered. Log in instead.", { field: "email" });
+  }
 }
 
 // Register Passenger — only after the email's registration OTP was verified.
@@ -585,7 +684,11 @@ async function getDriverApplicationTimeline(userId) {
   return statusHistoryModel.listForApplication(application.id);
 }
 
-// Resubmit driver application
+// Resubmit driver application. The applicant's corrected details
+// (`extraFields`: address, emergency contact, license type, franchise
+// number) replace the previous ones; anything left out is carried over.
+// The plate number always stays: a revoked driver's profile keeps its
+// tricycle number when re-approved.
 async function resubmitDriverApplication(
   userId,
   licenseImageUrl,
@@ -593,7 +696,8 @@ async function resubmitDriverApplication(
   licenseOcrText,
   selfieImageUrl,
   livenessStatus,
-  confirmedLicense
+  confirmedLicense,
+  extraFields = {}
 ) {
   const user = await db.query("SELECT * FROM users WHERE id = ?", [userId]);
   if (user.length === 0) {
@@ -623,6 +727,7 @@ async function resubmitDriverApplication(
   const plateNumber = prev.plate_number || "TBD";
   const ocr = applyConfirmedLicenseOverrides(buildOcrFields(licenseOcrText), confirmedLicense);
   ocr.licenseNumber = ocr.licenseNumber || identity.licenseNumber;
+  const corrected = (value, previous) => value || previous || null;
 
   const result = await db.query(
     `INSERT INTO driver_applications
@@ -636,16 +741,16 @@ async function resubmitDriverApplication(
       userData.full_name,
       userData.email,
       userData.phone,
-      prev.address || null,
-      prev.emergency_contact_name || null,
-      prev.emergency_contact_phone || null,
+      corrected(extraFields.address, prev.address),
+      corrected(extraFields.emergencyContactName, prev.emergency_contact_name),
+      corrected(extraFields.emergencyContactPhone, prev.emergency_contact_phone),
       plateNumber,
-      prev.franchise_number || null,
+      corrected(extraFields.franchiseNumber, prev.franchise_number),
       licenseImageUrl,
       businessPermitImageUrl,
       selfieImageUrl || null,
       ocr.licenseNumber,
-      prev.license_type || null,
+      corrected(extraFields.licenseType, prev.license_type),
       ocr.licenseHolderName,
       ocr.licenseBirthDate,
       ocr.licenseExpiresAt,
@@ -690,6 +795,9 @@ module.exports = {
   sendOTP,
   verifyOTP,
   requestPasswordReset,
+  assertEmailAvailable,
+  assertEmailDomainReceivesMail,
+  verifyPasswordResetCode,
   resetPasswordWithOTP,
   registerPassenger,
   applyAsDriver,

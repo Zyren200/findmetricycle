@@ -2,6 +2,7 @@ const bookingModel = require("../models/booking.model");
 const driverModel = require("../models/driver.model");
 const ratingModel = require("../models/rating.model");
 const userModel = require("../models/user.model");
+const bookingRouteService = require("./booking-route.service");
 const ApiError = require("../utils/api-error");
 const { haversineKm } = require("../utils/haversine");
 const { classifyExpiry } = require("./license-validation.service");
@@ -74,6 +75,24 @@ async function updateLocation(userId, lat, lng) {
 
   await driverModel.updateLocation(driver.id, numLat, numLng);
   const updated = await driverModel.findById(driver.id);
+
+  // A rider remains visible while heading to the pickup, but route history
+  // starts only after the passenger's PIN has started the trip.
+  try {
+    const activeBooking = await bookingModel.findActiveByDriver(driver.id);
+    if (activeBooking && ["ongoing", "on_ride"].includes(activeBooking.status)) {
+      await bookingRouteService.recordPoint({
+        bookingId: activeBooking.id,
+        lat: numLat,
+        lng: numLng,
+      });
+    }
+  } catch (error) {
+    // A route-history write must never interrupt the existing live-location
+    // and booking flow. The next GPS update will retry it.
+    console.warn("Could not record booking route point:", error.message);
+  }
+
   return { ...updated, movedSignificantly };
 }
 

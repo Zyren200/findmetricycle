@@ -37,21 +37,29 @@ flutter:
     # (cd backend && npm run service-area:export).
     - assets/service_area/
   fonts:
-    - family: Unbounded
+    # Prism Night type (SIL OFL): Geist for text, Geist Mono for labels and
+    # numbers, Instrument Serif italic for the big accents.
+    - family: Geist
       fonts:
-        - asset: assets/fonts/Unbounded-Variable.ttf
-          weight: 500
-        - asset: assets/fonts/Unbounded-Variable.ttf
-          weight: 600
-        - asset: assets/fonts/Unbounded-Variable.ttf
-          weight: 700
-    - family: Onest
-      fonts:
-        - asset: assets/fonts/Onest-Variable.ttf
+        - asset: assets/fonts/Geist-Regular.ttf
           weight: 400
-        - asset: assets/fonts/Onest-Variable.ttf
+        - asset: assets/fonts/Geist-Medium.ttf
           weight: 500
-        - asset: assets/fonts/Onest-Variable.ttf
+        - asset: assets/fonts/Geist-SemiBold.ttf
           weight: 600
-        - asset: assets/fonts/Onest-Variable.ttf
+        - asset: assets/fonts/Geist-Bold.ttf
           weight: 700
+        - asset: assets/fonts/Geist-ExtraBold.ttf
+          weight: 800
+    - family: GeistMono
+      fonts:
+        - asset: assets/fonts/GeistMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/GeistMono-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/GeistMono-SemiBold.ttf
+          weight: 600
+    - family: InstrumentSerif
+      fonts:
+        - asset: assets/fonts/InstrumentSerif-Italic.ttf
+          style: italic

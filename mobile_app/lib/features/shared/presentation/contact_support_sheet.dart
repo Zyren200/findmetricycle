@@ -2,6 +2,7 @@ import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 import "package:url_launcher/url_launcher.dart";
 
+import "../../../core/components/index.dart";
 import "../../../core/state/app_config_store.dart";
 import "../../../core/theme/design_tokens.dart";
 
@@ -14,17 +15,21 @@ Future<void> showContactSupport(BuildContext context) async {
   if (!context.mounted) return;
 
   if (!config.hasSupportContact) {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text("Contact Support"),
-        content: const Text(
-          "Support contact details haven't been set up yet. Please try again later.",
-        ),
+    await showSunSheet<void>(
+      context,
+      builder: (dialogContext) => SunSheetCard(
+        title: "Contact Support",
+        message:
+            "Support contact details haven't been set up yet. Please try again later.",
+        icon: Icons.support_agent_rounded,
+        iconBg: DesignTokens.primarySoft,
+        iconFg: DesignTokens.primaryText,
         actions: [
-          TextButton(
+          SunButton(
+            label: "OK",
+            tone: SunTone.ink,
+            height: 52,
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text("OK"),
           ),
         ],
       ),
@@ -32,64 +37,56 @@ Future<void> showContactSupport(BuildContext context) async {
     return;
   }
 
-  await showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: DesignTokens.bg2,
-    showDragHandle: true,
+  await showSunSheet<void>(
+    context,
     builder: (sheetContext) {
       Future<void> open(Uri uri) async {
         Navigator.of(sheetContext).pop();
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
 
-      return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: Text(
-                "Contact Support",
-                style: TextStyle(
-                  color: DesignTokens.text,
-                  fontSize: 18,
-                  fontWeight: DesignTokens.fw600,
-                ),
-              ),
-            ),
-            if (config.operatingHoursLabel.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                child: Text(
-                  "Service hours: ${config.operatingHoursLabel}",
-                  style: TextStyle(color: DesignTokens.muted, fontSize: 13),
-                ),
-              ),
+      return SunSheetCard(
+        title: "Contact Support",
+        message: config.operatingHoursLabel.isEmpty
+            ? "We're here to help with bookings, rides and your account."
+            : "Service hours: ${config.operatingHoursLabel}",
+        icon: Icons.support_agent_rounded,
+        iconBg: DesignTokens.primarySoft,
+        iconFg: DesignTokens.primaryText,
+        content: [
+          SunListCard(children: [
             if (config.contactNumber.isNotEmpty)
-              ListTile(
-                leading: Icon(Icons.call_rounded, color: DesignTokens.accent),
-                title: Text("Call", style: TextStyle(color: DesignTokens.text)),
-                subtitle: Text(config.contactNumber,
-                    style: TextStyle(color: DesignTokens.muted)),
+              SunListRow(
+                icon: Icons.call_rounded,
+                iconBg: DesignTokens.lagoonSoft,
+                iconFg: DesignTokens.lagoonText,
+                label: "Call",
+                subtitle: config.contactNumber,
                 onTap: () => open(Uri(
                   scheme: "tel",
                   path: config.contactNumber.replaceAll(RegExp(r"[^0-9+]"), ""),
                 )),
               ),
             if (config.supportEmail.isNotEmpty)
-              ListTile(
-                leading: Icon(Icons.email_outlined, color: DesignTokens.accent),
-                title:
-                    Text("Email", style: TextStyle(color: DesignTokens.text)),
-                subtitle: Text(config.supportEmail,
-                    style: TextStyle(color: DesignTokens.muted)),
+              SunListRow(
+                icon: Icons.mail_outline_rounded,
+                iconBg: DesignTokens.primarySoft,
+                iconFg: DesignTokens.primaryText,
+                label: "Email",
+                subtitle: config.supportEmail,
                 onTap: () =>
                     open(Uri(scheme: "mailto", path: config.supportEmail)),
               ),
-            const SizedBox(height: 8),
-          ],
-        ),
+          ]),
+        ],
+        actions: [
+          SunButton(
+            label: "Close",
+            tone: SunTone.quiet,
+            height: 48,
+            onPressed: () => Navigator.of(sheetContext).pop(),
+          ),
+        ],
       );
     },
   );

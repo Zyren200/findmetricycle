@@ -1,8 +1,10 @@
 const bookingModel = require("../models/booking.model");
+const bookingRouteModel = require("../models/booking-route.model");
 const bookingService = require("../services/booking.service");
 const fareModel = require("../models/fare.model");
 const notificationModel = require("../models/notification.model");
 const sosService = require("../services/sos.service");
+const complaintService = require("../services/complaint.service");
 const passengerAccountService = require("../services/passenger-account.service");
 const { decorateBookingRecord } = require("../utils/ride-progress");
 const { getIO } = require("../sockets");
@@ -19,6 +21,7 @@ async function findRide(req, res, next) {
       dropoffLat: req.body.dropoffLat,
       dropoffLng: req.body.dropoffLng,
       passengerCount: req.body.passengerCount,
+      routeDistanceKm: req.body.routeDistanceKm,
       autoAssign: req.body.autoAssign !== false,
     });
 
@@ -105,6 +108,26 @@ async function getBooking(req, res, next) {
         pickupPin: await bookingModel.getPickupPinForPassenger(booking.id, req.user.id),
       },
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// A completed (or ongoing) route belongs only to the passenger who booked it.
+// The app does not draw this yet, but exposing it through the booking API
+// keeps the stored route retrievable without broadening admin/public access.
+async function getBookingRoute(req, res, next) {
+  try {
+    const booking = await bookingModel.findById(Number(req.params.bookingId));
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found." });
+    }
+    if (Number(booking.passenger_id) !== Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: "You can only view your own booking route." });
+    }
+
+    const points = await bookingRouteModel.listForBooking(booking.id);
+    res.json({ success: true, data: { bookingId: booking.id, points } });
   } catch (error) {
     next(error);
   }
@@ -243,6 +266,24 @@ async function triggerSos(req, res, next) {
   }
 }
 
+async function reportIssue(req, res, next) {
+  try {
+    const complaint = await complaintService.createComplaint({
+      reporterId: req.user.id,
+      bookingId: req.body.bookingId,
+      category: req.body.category,
+      description: req.body.description,
+    });
+    res.status(201).json({
+      success: true,
+      message: "Report submitted. Admin will review it.",
+      data: complaint,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getNotifications(req, res, next) {
   try {
     const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 50, 1), 100);
@@ -288,10 +329,12 @@ module.exports = {
   getNearbyDrivers,
   getActiveBooking,
   getBookingHistory,
+  getBookingRoute,
   getFare,
   getNotifications,
   markNotificationsRead,
   triggerSos,
+  reportIssue,
   updateProfile,
   deleteAccount,
 };

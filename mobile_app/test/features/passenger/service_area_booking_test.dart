@@ -33,6 +33,7 @@ class _FakeRepository extends PassengerRepository {
     required double dropoffLat,
     required double dropoffLng,
     int passengerCount = 1,
+    double? routeDistanceKm,
     bool autoAssign = true,
   }) async {
     findRideCalls++;
@@ -91,7 +92,8 @@ void main() {
     test("a saved place outside Guiuan isn't set as the destination", () {
       final c = make(enforced: true);
       c.pickup = town;
-      expect(c.setDestinationFromFavorite(tacloban, address: "Tacloban"), isFalse);
+      expect(
+          c.setDestinationFromFavorite(tacloban, address: "Tacloban"), isFalse);
       expect(c.dropoff, isNull);
       expect(c.error, ServiceArea.outsideMessage);
     });
@@ -121,7 +123,8 @@ void main() {
       c.pickup = mercedes;
       expect(c.isOutsideServiceArea, isTrue);
       expect(c.serviceAreaEnforced, isFalse);
-      expect(c.setDestinationFromFavorite(tacloban, address: "Tacloban"), isTrue);
+      expect(
+          c.setDestinationFromFavorite(tacloban, address: "Tacloban"), isTrue);
       expect(c.dropoff, tacloban);
       expect(c.error, isNull);
     });

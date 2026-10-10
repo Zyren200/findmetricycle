@@ -50,6 +50,13 @@ const forgotPasswordRequestSchema = z.object({
   }),
 });
 
+const forgotPasswordVerifySchema = z.object({
+  body: z.object({
+    email: z.string().email(),
+    code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
+  }),
+});
+
 const forgotPasswordResetSchema = z.object({
   body: z.object({
     email: z.string().email(),
@@ -91,18 +98,24 @@ const licenseConfirmationFields = {
   confirmedExpiryDate: z.string().trim().min(4).max(40).optional(),
 };
 
+// The applicant's details, also accepted on a resubmission so corrections
+// are kept (the plate number is only set on the first application).
+const applicantDetailFields = {
+  franchiseNumber: z.string().trim().max(60).optional(),
+  licenseType: z.string().trim().max(40).optional(),
+  address: z.string().trim().max(255).optional(),
+  emergencyContactName: z.string().trim().max(120).optional(),
+  emergencyContactPhone: z.string().trim().max(20).optional(),
+};
+
 const resubmitDriverApplicationSchema = z.object({
-  body: z.object(licenseConfirmationFields),
+  body: z.object({ ...applicantDetailFields, ...licenseConfirmationFields }),
 });
 
 const applyAsDriverSchema = z.object({
   body: z.object({
     plateNumber: z.string().min(1),
-    franchiseNumber: z.string().trim().max(60).optional(),
-    licenseType: z.string().trim().max(40).optional(),
-    address: z.string().trim().max(255).optional(),
-    emergencyContactName: z.string().trim().max(120).optional(),
-    emergencyContactPhone: z.string().trim().max(20).optional(),
+    ...applicantDetailFields,
     ...licenseConfirmationFields,
   }),
 });
@@ -140,6 +153,11 @@ router.post(
   async (req, res, next) => {
     try {
       const { email, purpose } = req.body;
+      // Sign-up: say the email is taken before any code is sent.
+      if (!purpose) {
+        await authV2Service.assertEmailAvailable(email);
+        await authV2Service.assertEmailDomainReceivesMail(email);
+      }
       const result = await authV2Service.sendOTP(email, purpose || null);
       res.json(result);
     } catch (error) {
@@ -203,8 +221,22 @@ router.post("/forgot-password/request", otpIpLimiter, otpPerEmailLimiter, valida
 });
 
 /**
+ * POST /auth/v2/forgot-password/verify
+ * Check the reset code before the app asks for the new password
+ */
+router.post("/forgot-password/verify", otpIpLimiter, validate(forgotPasswordVerifySchema), async (req, res, next) => {
+  try {
+    const { email, code } = req.body;
+    const result = await authV2Service.verifyPasswordResetCode(email, code);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * POST /auth/v2/forgot-password/reset
- * Verify the reset code and set a new password
+ * Set a new password with the reset code (pending, or verified above)
  */
 router.post("/forgot-password/reset", otpIpLimiter, validate(forgotPasswordResetSchema), async (req, res, next) => {
   try {
@@ -451,6 +483,11 @@ router.post(
   async (req, res, next) => {
     try {
       const {
+        franchiseNumber,
+        licenseType,
+        address,
+        emergencyContactName,
+        emergencyContactPhone,
         licenseOcrText,
         livenessStatus,
         confirmedFullName,
@@ -479,6 +516,13 @@ router.post(
           licenseNumber: confirmedLicenseNumber || null,
           birthDate: confirmedBirthDate || null,
           expiresAt: confirmedExpiryDate || null,
+        },
+        {
+          franchiseNumber: franchiseNumber || null,
+          licenseType: licenseType || null,
+          address: address || null,
+          emergencyContactName: emergencyContactName || null,
+          emergencyContactPhone: emergencyContactPhone || null,
         }
       );
 

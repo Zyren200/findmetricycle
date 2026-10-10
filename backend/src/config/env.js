@@ -60,9 +60,9 @@ module.exports = {
   },
 
   geofence: {
-    // Off unless GEOFENCE_ENABLED=true, so local testing from outside the
-    // service area keeps working. Turn it on in production.
-    enabled: process.env.GEOFENCE_ENABLED === "true",
+    // On: bookings outside Guiuan are refused. GEOFENCE_ENABLED=false turns
+    // it off (only for testing from outside the service area).
+    enabled: process.env.GEOFENCE_ENABLED !== "false",
     // "polygon": Guiuan's municipal boundary (data/service-area); "radius":
     // the older circle around GEOFENCE_CENTER_*.
     mode: process.env.GEOFENCE_MODE === "radius" ? "radius" : "polygon",
@@ -79,6 +79,8 @@ module.exports = {
     senderEmail: process.env.BREVO_SENDER_EMAIL || "",
     smtpPassword: process.env.BREVO_SMTP_PASSWORD || "",
     fromEmail: process.env.BREVO_FROM_EMAIL || process.env.BREVO_SENDER_EMAIL || "noreply@findmetricycle.local",
+    // Sender name on Contact Support replies (same address as the OTP emails).
+    supportFromName: (process.env.SUPPORT_FROM_NAME || "").trim() || "support.findmetricycle",
   },
 
   captcha: {

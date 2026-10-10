@@ -1,7 +1,11 @@
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
 
+import "../../../../core/components/index.dart";
+import "../../../../core/safety/sos_flow.dart";
 import "../../../../core/theme/design_tokens.dart";
+import "../../../../core/utils/ride_format.dart";
+import "../../../shared/presentation/report_issue_sheet.dart";
 import "../../../shared/state/notifications_controller.dart";
 import "../driver_ride_controller.dart";
 
@@ -32,7 +36,7 @@ Future<T?> pushDriverPage<T>(BuildContext context, Widget page,
 bool _rideRequestOpen = false;
 
 /// Opens the Ride Request screen unless it's already showing — used both
-/// when a request arrives (DriverShellPage) and from the Home card.
+/// when a request arrives (DriverShellPage) and from the Drive sheet.
 Future<void> openRideRequestPage(BuildContext context, Widget page) async {
   if (_rideRequestOpen) return;
   _rideRequestOpen = true;
@@ -50,7 +54,7 @@ String? bookingText(Map<String, dynamic>? booking, String key) {
 
 String pesoText(dynamic amount) {
   final value = double.tryParse(amount?.toString() ?? "") ?? 0;
-  return "₱${value.toStringAsFixed(2)}";
+  return peso(value);
 }
 
 /// The fare shown for a booking: final if set, else the estimate.
@@ -67,80 +71,40 @@ int offerSecondsLeft(Map<String, dynamic>? booking) {
   return remaining.clamp(0, 999);
 }
 
+/// Confirms, then sends an SOS alert with the rider's location and active
+/// ride and opens the dialer with the emergency number; [SosStatusBanner]
+/// shows how the alert is doing.
 Future<void> confirmAndSendDriverSos(
-    BuildContext context, DriverRideController controller) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      backgroundColor: DesignTokens.bg2,
-      title:
-          Text("Send SOS Alert?", style: TextStyle(color: DesignTokens.text)),
-      content: Text(
-        "This will immediately notify the admin team with your current location and active ride. Only use this in a real emergency.",
-        style: TextStyle(color: DesignTokens.muted),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text("Cancel"),
-        ),
-        TextButton(
-          style: TextButton.styleFrom(foregroundColor: Colors.red),
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text("Send SOS"),
-        ),
-      ],
-    ),
-  );
-  if (confirmed != true || !context.mounted) return;
-
-  final success = await controller.sendSos();
-  if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(success
-          ? (controller.sosMessage ?? "SOS alert sent.")
-          : (controller.error ?? "Failed to send SOS alert.")),
-      backgroundColor: success ? Colors.green.shade700 : Colors.red.shade700,
-    ),
+    BuildContext context, DriverRideController controller) {
+  return confirmSosAndDial(
+    context,
+    confirmMessage:
+        "We'll alert the FindMeTricycle admin with your location and this ride.",
+    startDelivery: controller.startSos,
+    delivery: controller.sosDelivery,
+    updates: controller,
   );
 }
 
 Future<bool> confirmAndMarkNoShow(
     BuildContext context, DriverRideController controller) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      backgroundColor: DesignTokens.bg2,
-      title: Text("Report Passenger No-Show?",
-          style: TextStyle(color: DesignTokens.text)),
-      content: Text(
+  final confirmed = await confirmSun(
+    context,
+    title: "Passenger didn't show up?",
+    message:
         "This ends the trip and files a report for admin review. Only use this if you've waited at the pickup point and the passenger hasn't shown up.",
-        style: TextStyle(color: DesignTokens.muted),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text("Cancel"),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: Text("Confirm No-Show",
-              style: TextStyle(color: DesignTokens.warning)),
-        ),
-      ],
-    ),
+    confirmLabel: "Confirm no-show",
+    icon: Icons.person_off_outlined,
   );
-  if (confirmed != true || !context.mounted) return false;
+  if (!confirmed || !context.mounted) return false;
 
   final success = await controller.markNoShow();
   if (!context.mounted) return success;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(success
-          ? "Reported. You're ready for your next ride."
-          : (controller.error ?? "Failed to report no-show.")),
-    ),
+  showSunToast(
+    context,
+    success
+        ? "Marked as no-show. A report was sent to the admin."
+        : (controller.error ?? "Failed to report no-show."),
   );
   return success;
 }
@@ -157,169 +121,85 @@ const List<String> _cancelReasons = [
 /// picks another rider, so the reason is shown to them.
 Future<bool> confirmAndCancelRide(
     BuildContext context, DriverRideController controller) async {
-  String reason = _cancelReasons.first;
-
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (dialogContext, setState) => AlertDialog(
-        backgroundColor: DesignTokens.bg2,
-        title: Text("Cancel this ride?",
-            style: TextStyle(color: DesignTokens.text)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "The passenger will be asked to choose another rider. Only cancel if you really can't make the trip.",
-              style: TextStyle(color: DesignTokens.muted),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: reason,
-              dropdownColor: DesignTokens.bg2,
-              style: TextStyle(color: DesignTokens.text),
-              decoration: const InputDecoration(labelText: "Reason"),
-              items: _cancelReasons
-                  .map((r) => DropdownMenuItem(value: r, child: Text(r)))
-                  .toList(),
-              onChanged: (value) =>
-                  setState(() => reason = value ?? reason),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text("Keep Ride"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text("Cancel Ride",
-                style: TextStyle(color: DesignTokens.red)),
-          ),
-        ],
-      ),
-    ),
+  final reason = await showSunSheet<String>(
+    context,
+    builder: (_) => const _CancelRideCard(),
   );
-  if (confirmed != true || !context.mounted) return false;
+  if (reason == null || !context.mounted) return false;
 
   final success = await controller.cancelActiveRide(reason: reason);
   if (!context.mounted) return success;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(success
-          ? "Ride cancelled. The passenger will choose another rider."
-          : (controller.error ?? "Failed to cancel ride.")),
-    ),
+  showSunToast(
+    context,
+    success
+        ? "Ride cancelled. The passenger can choose another rider."
+        : (controller.error ?? "Failed to cancel ride."),
   );
   return success;
 }
 
-const Map<String, String> _reportCategoryLabels = {
-  "no_show": "Passenger no-show",
-  "incorrect_pickup": "Incorrect pickup",
-  "fare_dispute": "Fare dispute",
-  "safety_concern": "Safety concern",
-  "passenger_behavior": "Passenger behavior",
-  "other": "Other",
-};
+class _CancelRideCard extends StatefulWidget {
+  const _CancelRideCard();
 
+  @override
+  State<_CancelRideCard> createState() => _CancelRideCardState();
+}
+
+class _CancelRideCardState extends State<_CancelRideCard> {
+  String _reason = _cancelReasons.first;
+
+  @override
+  Widget build(BuildContext context) {
+    return SunSheetCard(
+      title: "Cancel this ride?",
+      message:
+          "The passenger will be asked to choose another rider. Only cancel if you really can't make the trip.",
+      icon: Icons.close_rounded,
+      iconBg: DesignTokens.sosSoft,
+      iconFg: DesignTokens.sosText,
+      content: [
+        ChoiceList(
+          options: [for (final r in _cancelReasons) (r, r)],
+          value: _reason,
+          onChanged: (r) => setState(() => _reason = r),
+        ),
+      ],
+      actions: [
+        SunButton(
+          label: "Cancel ride",
+          tone: SunTone.sos,
+          onPressed: () => Navigator.pop(context, _reason),
+        ),
+        SunButton(
+          label: "Keep ride",
+          tone: SunTone.quiet,
+          height: 48,
+          onPressed: () => Navigator.pop(context),
+        ),
+      ],
+    );
+  }
+}
+
+/// "Report an issue": goes to the admin's Complaints inbox, tied to the
+/// ride in progress when there is one.
 Future<void> showDriverReportDialog(
     BuildContext context, DriverRideController controller) async {
-  final report = await showDialog<({String category, String description})>(
-    context: context,
-    builder: (_) => const _DriverReportDialog(),
+  final rideId = controller.activeBooking?["id"];
+  final report = await showReportIssueSheet(
+    context,
+    categories: kDriverReportCategories,
+    about: rideId == null ? null : "About your current ride (#$rideId).",
   );
   if (report == null || !context.mounted) return;
 
   final success = await controller.reportIssue(
       category: report.category, description: report.description);
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(success
-          ? "Report submitted. Admin will review it."
-          : (controller.error ?? "Failed to submit report.")),
-    ),
+  showSunToast(
+    context,
+    success
+        ? "Report submitted. Admin will review it."
+        : (controller.error ?? "Failed to submit report."),
   );
-}
-
-/// Owns its text controller so it's disposed only after the dialog has
-/// fully closed. Disposing it as soon as showDialog returned crashed the
-/// TextField still rebuilding during the closing animation (red screen:
-/// "TextEditingController was used after being disposed").
-class _DriverReportDialog extends StatefulWidget {
-  const _DriverReportDialog();
-
-  @override
-  State<_DriverReportDialog> createState() => _DriverReportDialogState();
-}
-
-class _DriverReportDialogState extends State<_DriverReportDialog> {
-  String _category = "no_show";
-  final _description = TextEditingController();
-
-  @override
-  void dispose() {
-    _description.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final description = _description.text.trim();
-    return AlertDialog(
-      backgroundColor: DesignTokens.bg2,
-      title: Text("Report an Issue", style: TextStyle(color: DesignTokens.text)),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            DropdownButtonFormField<String>(
-              initialValue: _category,
-              dropdownColor: DesignTokens.bg2,
-              style: TextStyle(color: DesignTokens.text),
-              items: _reportCategoryLabels.entries
-                  .map((e) =>
-                      DropdownMenuItem(value: e.key, child: Text(e.value)))
-                  .toList(),
-              onChanged: (value) {
-                if (value != null) setState(() => _category = value);
-              },
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _description,
-              maxLines: 3,
-              onChanged: (_) => setState(() {}),
-              style: TextStyle(color: DesignTokens.text),
-              decoration: InputDecoration(
-                hintText: "Describe what happened…",
-                filled: true,
-                fillColor: DesignTokens.bg3,
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text("Cancel"),
-        ),
-        TextButton(
-          onPressed: description.isEmpty
-              ? null
-              : () => Navigator.pop(
-                    context,
-                    (category: _category, description: description),
-                  ),
-          child: Text("Submit",
-              style: TextStyle(color: DesignTokens.driverAccent)),
-        ),
-      ],
-    );
-  }
 }

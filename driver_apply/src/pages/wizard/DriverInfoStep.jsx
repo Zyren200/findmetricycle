@@ -1,73 +1,63 @@
-import { useState } from "react";
+import { FieldError } from "./fields";
 
-export default function DriverInfoStep({ formData, updateFormData, onNext, onBack }) {
-  const [errors, setErrors] = useState({});
+const LICENSE_TYPES = ["Professional", "Non-Professional"];
 
-  function validate() {
-    const next = {};
-    if (!formData.plateNumber?.trim()) next.plateNumber = "Plate number is required.";
-    if (!formData.licenseType) next.licenseType = "Select a license type.";
-    setErrors(next);
-    return Object.keys(next).length === 0;
-  }
+export default function DriverInfoStep({ mode, formData, updateFormData, errors }) {
+  // The plate number is set by the first application and kept on a
+  // resubmission (it can be changed later in the app, Edit Profile).
+  const plateLocked = mode === "resubmit" && Boolean(formData.plateNumber);
+  const bad = (k) => (errors?.[k] ? "bad" : "");
 
   return (
-    <div className="card">
-      <h2>Driver Information</h2>
-      <p>Tell us about your license and vehicle. You'll upload photos of these documents next.</p>
-
-      <div className="field">
-        <label htmlFor="licenseType">License Type</label>
-        <select
-          id="licenseType"
-          value={formData.licenseType || ""}
-          onChange={(e) => updateFormData({ licenseType: e.target.value })}
-        >
-          <option value="">Select license type</option>
-          <option value="Non-Professional">Non-Professional</option>
-          <option value="Professional">Professional</option>
-        </select>
-        {errors.licenseType ? <span className="field-error">{errors.licenseType}</span> : null}
+    <>
+      <h2>Driver information</h2>
+      <p className="muted">Use the details on your license and franchise permit. You&apos;ll upload photos of them next.</p>
+      <div className={`fld ${bad("licenseType")}`}>
+        <span className="lbl">License type</span>
+        <div className="choice" role="radiogroup" aria-label="License type">
+          {LICENSE_TYPES.map((t) => (
+            <label key={t}>
+              <input
+                type="radio"
+                name="licenseType"
+                value={t}
+                checked={formData.licenseType === t}
+                onChange={() => updateFormData({ licenseType: t })}
+              />
+              {t}
+            </label>
+          ))}
+        </div>
+        <FieldError errors={errors} k="licenseType" />
       </div>
-
-      <div className="field">
-        <label htmlFor="plateNumber">Tricycle / Vehicle Plate Number</label>
-        <input
-          id="plateNumber"
-          type="text"
-          value={formData.plateNumber || ""}
-          onChange={(e) => updateFormData({ plateNumber: e.target.value.toUpperCase() })}
-          placeholder="e.g. ABC 1234"
-        />
-        {errors.plateNumber ? <span className="field-error">{errors.plateNumber}</span> : null}
+      <div className="two">
+        <div className={`fld ${bad("plateNumber")}`}>
+          <label htmlFor="fPlate">Plate number</label>
+          <input
+            id="fPlate"
+            value={formData.plateNumber || ""}
+            onChange={(e) => updateFormData({ plateNumber: e.target.value.toUpperCase() })}
+            placeholder="GN 4821"
+            readOnly={plateLocked}
+            style={{ textTransform: "uppercase" }}
+          />
+          {plateLocked ? (
+            <span className="hint">The plate stays the same on a resubmission. Change it in the app after approval.</span>
+          ) : null}
+          <FieldError errors={errors} k="plateNumber" />
+        </div>
+        <div className="fld">
+          <label htmlFor="fFranchise">Franchise / permit number (optional)</label>
+          <input
+            id="fFranchise"
+            value={formData.franchiseNumber || ""}
+            onChange={(e) => updateFormData({ franchiseNumber: e.target.value.toUpperCase() })}
+            placeholder="GUI-CPC-0457"
+            style={{ textTransform: "uppercase" }}
+          />
+          <span className="hint">As shown on your permit, if it has one.</span>
+        </div>
       </div>
-
-      <div className="field">
-        <label htmlFor="franchiseNumber">Franchise / Permit Number (optional)</label>
-        <input
-          id="franchiseNumber"
-          type="text"
-          value={formData.franchiseNumber || ""}
-          onChange={(e) => updateFormData({ franchiseNumber: e.target.value })}
-          placeholder="If available"
-        />
-        <span className="field-hint">You'll confirm your license number automatically from the photo in the next step.</span>
-      </div>
-
-      <div className="btn-row">
-        <button type="button" className="btn btn-ghost" onClick={onBack}>
-          Back
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => {
-            if (validate()) onNext();
-          }}
-        >
-          Continue
-        </button>
-      </div>
-    </div>
+    </>
   );
 }

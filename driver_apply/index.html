@@ -2,15 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
     <title>FindMeTricycle</title>
     <meta name="description" content="Book local tricycle rides in Guiuan, Eastern Samar, or apply to drive with FindMeTricycle." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // Before first paint, so the page never flashes the wrong theme: the
+      // visitor's saved choice, otherwise the system setting (CSS handles that).
+      try {
+        var saved = localStorage.getItem("fmt-theme");
+        if (saved === "dark" || saved === "light") document.documentElement.dataset.theme = saved;
+      } catch (e) {}
+    </script>
     <script src="https://www.google.com/recaptcha/api.js" async defer></script>
   </head>
   <body>

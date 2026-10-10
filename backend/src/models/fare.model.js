@@ -12,7 +12,7 @@ async function updateFareSettings(payload) {
       SET base_fare = ?,
           per_km_rate = ?,
           minimum_fare = ?,
-          night_fee = ?,
+          night_fee = COALESCE(?, night_fee),
           additional_passenger_fee = ?,
           updated_by = ?
       WHERE id = 1
@@ -21,7 +21,7 @@ async function updateFareSettings(payload) {
       payload.baseFare,
       payload.perKmRate,
       payload.minimumFare ?? 0,
-      payload.nightFee ?? 0,
+      payload.nightFee ?? null,
       payload.additionalPassengerFee ?? 0,
       payload.updatedBy || null,
     ]
