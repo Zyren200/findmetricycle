@@ -81,9 +81,9 @@ class AppConfig {
 
   /// The standalone Driver Application Website — opened in the device
   /// browser from the passenger "Become a Driver" button. Defaults to the
-  /// same host as the API, on the website's dev-server port.
+  /// live website; pass DRIVER_APPLY_URL to point at a local dev server.
   static String get driverApplyUrl {
     if (_driverApplyUrlOverride.isNotEmpty) return _driverApplyUrlOverride;
-    return "http://$_host:5174";
+    return "https://findmetricycle-web.vercel.app/driver";
   }
 }
