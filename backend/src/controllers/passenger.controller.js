@@ -9,6 +9,7 @@ const passengerAccountService = require("../services/passenger-account.service")
 const { decorateBookingRecord } = require("../utils/ride-progress");
 const { getIO } = require("../sockets");
 const sanitizeUser = require("../utils/sanitize-user");
+const parseJsonColumn = require("../utils/parse-json-column");
 
 async function findRide(req, res, next) {
   try {
@@ -296,7 +297,7 @@ async function getNotifications(req, res, next) {
       success: true,
       data: notifications.map(({ metadata_json: metadata, ...row }) => ({
         ...row,
-        metadata: metadata ? JSON.parse(metadata) : null,
+        metadata: parseJsonColumn(metadata),
       })),
       meta: { unread },
     });

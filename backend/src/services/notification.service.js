@@ -1,4 +1,5 @@
 const notificationModel = require("../models/notification.model");
+const parseJsonColumn = require("../utils/parse-json-column");
 const pushService = require("./push.service");
 const {
   notificationPermission,
@@ -13,7 +14,7 @@ function sanitize(n) {
     type: n.type,
     title: n.title,
     body: n.body,
-    metadata: n.metadata_json ? JSON.parse(n.metadata_json) : null,
+    metadata: parseJsonColumn(n.metadata_json),
     recipientRole: n.recipient_role,
     isRead: Boolean(n.is_read),
     createdAt: n.created_at,

@@ -1,3 +1,4 @@
+const parseJsonColumn = require("../utils/parse-json-column");
 const bookingModel = require("../models/booking.model");
 const driverModel = require("../models/driver.model");
 const driverApplicationModel = require("../models/driver-application.model");
@@ -30,15 +31,6 @@ async function listPendingDrivers(status = "pending") {
 // flow have driver_id = NULL — no `drivers` row exists until the admin
 // approves. Keying these functions by applicationId (not driverId) is
 // what makes approve/reject/request-correction actually work for them.
-function parseJsonSafe(value) {
-  if (!value) return null;
-  try {
-    return JSON.parse(value);
-  } catch (_error) {
-    return null;
-  }
-}
-
 // Documents the automatic check didn't clearly recognise (or hasn't
 // checked yet). Approving those needs an explicit acknowledgement.
 function documentWarnings(application) {
@@ -281,7 +273,7 @@ async function getDriverApplication(applicationId) {
       checkedAt: application.documents_checked_at || null,
       license: application.license_check_status || null,
       permit: application.permit_check_status || null,
-      details: parseJsonSafe(application.document_check_json),
+      details: parseJsonColumn(application.document_check_json),
     },
     livenessStatus: application.liveness_status || null,
     rejectionReason: application.rejection_reason || null,
@@ -694,7 +686,7 @@ async function getActivityLogs(limit = 100, offset = 0) {
     action: row.action,
     targetType: row.target_type || "-",
     targetId: row.target_id,
-    metadata: row.metadata_json ? JSON.parse(row.metadata_json) : null,
+    metadata: parseJsonColumn(row.metadata_json),
   }));
 }
 

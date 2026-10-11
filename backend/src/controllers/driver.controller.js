@@ -9,6 +9,7 @@ const complaintService = require("../services/complaint.service");
 const { decorateBookingRecord } = require("../utils/ride-progress");
 const { getIO } = require("../sockets");
 const { PERMISSIONS, permissionRoom } = require("../constants/admin-permissions");
+const parseJsonColumn = require("../utils/parse-json-column");
 
 async function recordRoutePointSafely(bookingId, driver) {
   const lat = Number(driver.current_lat);
@@ -444,7 +445,7 @@ async function getNotifications(req, res, next) {
       success: true,
       data: notifications.map(({ metadata_json: metadata, ...row }) => ({
         ...row,
-        metadata: metadata ? JSON.parse(metadata) : null,
+        metadata: parseJsonColumn(metadata),
       })),
       meta: { unread },
     });
