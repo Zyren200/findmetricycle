@@ -74,11 +74,6 @@ module.exports = {
   },
 
   mail: {
-    smtpHost: process.env.BREVO_SMTP_HOST || "",
-    smtpPort: Number(process.env.BREVO_SMTP_PORT || 587),
-    senderEmail: process.env.BREVO_SENDER_EMAIL || "",
-    smtpPassword: process.env.BREVO_SMTP_PASSWORD || "",
-    fromEmail: process.env.BREVO_FROM_EMAIL || process.env.BREVO_SENDER_EMAIL || "noreply@findmetricycle.local",
     // Sender name on Contact Support replies (same address as the OTP emails).
     supportFromName: (process.env.SUPPORT_FROM_NAME || "").trim() || "support.findmetricycle",
   },

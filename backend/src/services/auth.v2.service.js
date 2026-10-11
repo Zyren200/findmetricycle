@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const dns = require("dns").promises;
 const bcrypt = require("bcryptjs");
 const db = require("../config/db");
-const nodemailer = require("nodemailer");
+const { sendBrevoEmail } = require("./brevo-email.service");
 const licenseValidationService = require("./license-validation.service");
 const notificationService = require("./notification.service");
 const statusHistoryModel = require("../models/application-status-history.model");
@@ -21,19 +21,15 @@ function generateOTP() {
   return crypto.randomInt(100000, 1000000).toString();
 }
 
+// Sends through Brevo's HTTPS API (port 443) instead of SMTP, which hosts
+// often block. Keeps nodemailer's sendMail({ to, subject, html }) shape.
 function buildTransporter() {
-  return nodemailer.createTransport({
-    host: process.env.BREVO_SMTP_HOST,
-    port: parseInt(process.env.BREVO_SMTP_PORT) || 587,
-    secure: false,
-    auth: {
-      user: process.env.BREVO_SENDER_EMAIL,
-      pass: process.env.BREVO_SMTP_PASSWORD,
-    },
-  });
+  return {
+    sendMail: ({ to, subject, html }) => sendBrevoEmail({ to, subject, html }),
+  };
 }
 
-// Send OTP via email (using Brevo SMTP)
+// Send OTP via email (using the Brevo API)
 async function sendOTPEmail(email, otp) {
   try {
     const transporter = buildTransporter();

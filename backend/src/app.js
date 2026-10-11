@@ -28,6 +28,10 @@ const apiLimiter = rateLimit({
 
 const app = express();
 
+// Railway (and most hosts) sit one proxy in front of the app; trust it so
+// req.ip is the real client IP and rate limits aren't shared by everyone.
+app.set("trust proxy", 1);
+
 // helmet's default CSP blocks the admin dashboard's live map when it is
 // served from backend/public/admin: MapLibre runs its tile worker from a
 // blob: URL and loads the basemap style/tiles from CARTO.

@@ -1,31 +1,12 @@
-const nodemailer = require("nodemailer");
 const env = require("../config/env");
 const escapeHtml = require("../utils/escape-html");
-
-function buildTransporter() {
-  return nodemailer.createTransport({
-    host: env.mail.smtpHost,
-    port: env.mail.smtpPort,
-    secure: false,
-    auth: {
-      user: env.mail.senderEmail,
-      pass: env.mail.smtpPassword,
-    },
-  });
-}
+const { sendBrevoEmail } = require("./brevo-email.service");
 
 // [fromName] is the sender name the recipient sees; the address is always
 // the Brevo sender.
 async function sendMail({ to, subject, html, replyTo, fromName = "FindMeTricycle" }) {
   try {
-    const transporter = buildTransporter();
-    await transporter.sendMail({
-      from: { name: fromName, address: env.mail.fromEmail },
-      to,
-      subject,
-      html,
-      ...(replyTo ? { replyTo } : {}),
-    });
+    await sendBrevoEmail({ to, subject, html, fromName, replyTo });
     console.log(`✓ Email sent to ${to}: ${subject}`);
     return true;
   } catch (error) {
