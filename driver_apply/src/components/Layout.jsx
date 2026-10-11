@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { installPrismFx } from "../prism-fx";
 import { Link, navigate, usePath } from "../router";
-import { MarkIcon } from "./Icons";
+
 import { ThemeToggle } from "./ThemeToggle";
 import { useToast } from "./ui";
 
@@ -23,8 +23,8 @@ export function firstName(user) {
 export function Logo() {
   return (
     <Link to="/" className="logo">
-      <span className="mark">
-        <MarkIcon />
+      <span className="mark mark-img">
+        <img src="/app-icon.png" alt="" />
       </span>
       <span>
         FindMe<b>Tricycle</b>

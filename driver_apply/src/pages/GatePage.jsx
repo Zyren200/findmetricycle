@@ -88,7 +88,7 @@ function Captcha({ verified, onVerified, onError }) {
   }
   if (state === "ok") {
     return (
-      <div className="captcha ok" role="status">
+      <div key="ok" className="captcha ok" role="status">
         <div className="row" style={{ gap: 12 }}>
           <span className="box" />
           <b style={{ fontSize: 15 }}>I&apos;m not a robot</b>
@@ -102,7 +102,7 @@ function Captcha({ verified, onVerified, onError }) {
     );
   }
   return (
-    <div className={`captcha recaptcha ${state === "busy" ? "busy" : ""}`}>
+    <div key="widget" className={`captcha recaptcha ${state === "busy" ? "busy" : ""}`}>
       <div ref={boxRef} />
       {state === "loading" ? <small style={{ textAlign: "left" }}>Loading the CAPTCHA…</small> : null}
       {state === "busy" ? <small>Checking…</small> : null}

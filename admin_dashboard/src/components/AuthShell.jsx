@@ -1,4 +1,3 @@
-import { Shield } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 
 /// Two-panel frame for the sign-in / sign-up / reset screens: brand panel
@@ -9,8 +8,8 @@ export default function AuthShell({ children }) {
       <ThemeToggle className="adm-icon-btn adm-theme-btn adm-auth-theme" />
       <aside className="adm-auth-side">
         <div className="adm-auth-brand">
-          <div className="mark">
-            <Shield size={20} />
+          <div className="mark has-img">
+            <img src={`${import.meta.env.BASE_URL}app-icon.png`} alt="" />
           </div>
           <div>
             <b>FindMeTricycle</b>

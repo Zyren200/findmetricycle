@@ -19,7 +19,6 @@ import {
   ScrollText,
   Search,
   Settings as SettingsIcon,
-  Shield,
   Siren,
   UserCheck,
   UserCog,
@@ -1348,7 +1347,7 @@ export default function DashboardShell() {
       <div className={navOpen ? "adm-backdrop open" : "adm-backdrop"} onClick={() => setNavOpen(false)} />
       <aside className={`adm-sidebar ${sidebarCollapsed ? "collapsed" : ""} ${navOpen ? "mobile-open" : ""}`}>
         <div className="adm-brand">
-          <div className="adm-brand-mark"><Shield size={16} /></div>
+          <div className="adm-brand-mark has-img"><img src={`${import.meta.env.BASE_URL}app-icon.png`} alt="" /></div>
           <div>
             <p className="adm-brand-name">FindMeTricycle</p>
             <p className="adm-brand-sub">ADMIN PORTAL</p>
